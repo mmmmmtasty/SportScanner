@@ -13,15 +13,17 @@ RETRY_TIMEOUT = MIN_RETRY_TIMEOUT
 TOTAL_TRIES   = 1
 BACKUP_TRIES  = -1
 
-SPORTSDB_ROOT = "http://www.thesportsdb.com/api/v1/json/1/"
+SPORTSDB_API = "http://www.thesportsdb.com/api/v1/json/1/"
 
 headers = {'User-agent': 'Plex/Nine'}
 
 def similar(a, b):
-    return SequenceMatcher(None, a, b).ratio()
+    return round(SequenceMatcher(None, a, b).ratio(), 2)
 
 def GetResultFromNetwork(url, fetchContent=True):
   global successCount, failureCount, RETRY_TIMEOUT
+
+  url = url.replace(' ', '%20')
 
   try:
     netLock.acquire()
@@ -72,31 +74,59 @@ class SportScannerAgent(Agent.TV_Shows):
   name = 'SportScanner'
   languages = ['en']
 
-  def search(self, results, media, lang, manual=False):
+  def search(self, results, media, lang, manual):
     #Get the show name and query the web service for that info
-    Log("SS: %s" % media.show)
-    if re.search('EPL',media.show,re.IGNORECASE):
-      id = 24
-      Log("SS: Matched EPL")
-      filename = "R:\\scripts\\SportScanner\\Metadata\\{0}.json".format(id)
-      size = os.path.getsize(filename)
-      fd = os.open(filename, os.O_RDONLY)
-      file_input = os.read(fd, size)
-      data = JSON.ObjectFromString(file_input)
-      Data.Save( "{0}.json".format(id), file_input)
+    match = re.match('^(.*?): (.*)', media.show)
+    sport = match.group(1)
+    show_title = match.group(2)
+    Log("SS: Attempting to match {0}".format(show_title))
+    url = "{0}search_all_leagues.php?s={1}".format(SPORTSDB_API, sport)
+    try:
+      potential_shows = (JSON.ObjectFromString(GetResultFromNetwork(url, True)))['countrys']
+    except:
+      Log("SS: Could not retrieve shows from thesportsdb.com")
 
-      Log("SS: Name: %s" % data['name'])
-      Log("SS: id: %d" % int(data['id']))
-      Log("SS: year: %d" % int(data['year']))
-      results.Append(
-        MetadataSearchResult(
-          id    = data['id'],
-          name  = data['name'],
-          year  = int(data['year']),
-          lang  = 'en',
-          score = int(95)
+    match = False
+
+    # Check to see if there is a perfect match
+    for i in range(0, len(potential_shows)):
+      x = potential_shows[i]
+      # Log("SS: Comparing {0] to {1}".format(x['strLeague'], show_title))
+      if x['strLeague'] == show_title:
+        Log("SS: Found a perfect match for {0}".format(show_title))
+        results.Append(
+          MetadataSearchResult(
+            id    = x['idLeague'],
+            name  = show_title,
+            year  = int(x['intFormedYear']),
+            lang  = 'en',
+            score = 100
+          )
         )
-      )
+        match = True
+        Data.Save( "{0}.json".format(x['idLeague']), x)
+        continue
+
+    # See if anything else comes close if we are doing a deeper manual search and haven't found anything already
+    # if manual and not match:
+    if not match:
+      for i in range(0, len(potential_shows)):
+        x = potential_shows[i]
+        current_league = x['strLeague']
+        score = (similar(current_league, show_title) * 100)
+        if score > 60:
+          Log("SS: Matched {0} with a score of {1}".format(current_league, score))
+          results.Append(
+            MetadataSearchResult(
+              id    = x['idLeague'],
+              name  = current_league,
+              year  = int(x['intFormedYear']),
+              lang  = 'en',
+              score = score
+            )
+          )
+        # else:
+        #   Log("SS: Failed to match {0}, score was only {1}".format(show_title, score))
 
 #Update is passed A WHOLE SHOW and has to work out what episodes it has and therefore what it should be updating
   def update(self, metadata, media, lang):

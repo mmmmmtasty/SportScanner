@@ -9,9 +9,12 @@ sports_regexps = [
     '(?P<show>.*?)[^0-9a-zA-Z]+(?P<year>[0-9]{4})[^0-9a-zA-Z]+(?P<month>[0-9]{2})[^0-9a-zA-Z]+(?P<day>[0-9]{2})[^0-9a-zA-Z]+(?P<title>.*)\.[^\.]+?$',
   ]
 
-sport_dict = { "Football" : "Soccer", "NHL" : "IceHockey", "Racing" : "Motorsport"}
+sport_dict = { "Football" : "Soccer",
+               "NHL" : "Ice Hockey",
+               "Racing" : "Motorsport",
+               "MLB" : "Baseball"}
 seasons = { "Soccer" : { "split_date" : [7,1], "season_format" : "xxyy"},
-            "IceHockey" : { "split_date" : [7,1], "season_format" : "xxyy"},
+            "Ice Hockey" : { "split_date" : [7,1], "season_format" : "xxyy"},
             "Motorsport" : { "season_format" : "yyyy"}}
 
 # MIN_RETRY_TIMEOUT = 2
@@ -93,10 +96,9 @@ def Scan(path, files, mediaList, subdirs):
           year = match.group('year')
           month = int(match.group('month'))
           day = int(match.group('day'))
-          show = match.group('show')
-          show = re.sub( '[^0-9a-zA-Z]+', ' ', show)
+          show = re.sub( '[^0-9a-zA-Z]+', ' ', match.group('show'))
+          show = "{0}: {1}".format(sport, show)
           title = re.sub( '[^0-9a-zA-Z]+', ' ', match.group('title'))
-          title = "{0}: {1}".format(sport, title)
           if sport in seasons:
             season_type = seasons[sport]['season_format']
             if season_type == "xxyy":
