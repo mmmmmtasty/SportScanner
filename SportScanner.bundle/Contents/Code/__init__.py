@@ -13,6 +13,8 @@ RETRY_TIMEOUT = MIN_RETRY_TIMEOUT
 TOTAL_TRIES   = 1
 BACKUP_TRIES  = -1
 
+SPORTSDB_ROOT = "http://www.thesportsdb.com/api/v1/json/1/"
+
 headers = {'User-agent': 'Plex/Nine'}
 
 def similar(a, b):
