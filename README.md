@@ -1,2 +1,9 @@
 # SportScanner
-Scanner and Metadata Agent for Plex that uses sportdb
+Scanner and Metadata Agent for Plex that uses www.thesportsdb.com
+
+#Installation
+
+##Scanner
+
+##Metadata Agent
+
