@@ -16,7 +16,7 @@ RETRY_TIMEOUT = MIN_RETRY_TIMEOUT
 TOTAL_TRIES   = 1
 BACKUP_TRIES  = -1
 
-SPORTSDB_API = "http://www.thesportsdb.com/api/v1/json/1/"
+SPORTSDB_API = "http://www.thesportsdb.com/api/v1/json/8123456712556/"
 
 headers = {'User-agent': 'Plex/Nine'}
 
@@ -110,7 +110,8 @@ class SportScannerAgent(Agent.TV_Shows):
           )
         )
         match = True
-        Data.Save( "{0}-league.json".format(x['idLeague']), x)
+        # # Not doing this for now - changes in the metadata source means we don't want to carry this data through for now
+        # Data.Save( "{0}-league.json".format(x['idLeague']), x)
         continue
 
     # See if anything else comes close if we are doing a deeper manual search and haven't found anything already
@@ -138,13 +139,20 @@ class SportScannerAgent(Agent.TV_Shows):
   def update(self, metadata, media, lang):
     Log("SS: update for: {0}".format(metadata.id))
 
-    #Get the zip archive for the show, preferably from disk
+    # #Get the zip archive for the show, preferably from disk
+    # try:
+    #   file_input = Data.Load("{0}-league.json".format(metadata.id))
+    #   league_metadata = JSON.ObjectFromString(file_input)
+    # except:
+    #   url = "{0}lookupleague.php?id={1}".format(SPORTSDB_API, metadata.id)
+    #   league_metadata = JSON.ObjectFromString(GetResultFromNetwork(url, True))['leagues'][0]
+    #   pass
+
+    # We're not trying to read cached ones for now - let's get the new stuff every time
     try:
-      file_input = Data.Load("{0}-league.json".format(metadata.id))
-      league_metadata = JSON.ObjectFromString(file_input)
-    except:
       url = "{0}lookupleague.php?id={1}".format(SPORTSDB_API, metadata.id)
       league_metadata = JSON.ObjectFromString(GetResultFromNetwork(url, True))['leagues'][0]
+    except:
       pass
 
     #Fill in any missing information for show and download posters/banners
@@ -213,7 +221,7 @@ class SportScannerAgent(Agent.TV_Shows):
                   # This is grim!!!
                   # I have to add a suffix with the season to more closely match what sportsdb records
                   # We then have to remove it afterwards because it looks shit.
-                  match = re.match("/.*{0}$/".format(suffix), episode_media.title)
+                  match = re.match("/.*{0}$/".format(re.escape(suffix)), episode_media.title)
                   if match:
                     adj_title = episode_media.title
                   else:
@@ -234,12 +242,12 @@ class SportScannerAgent(Agent.TV_Shows):
             #Only accept if the match is better than 80%
             if best_score > 0.8 and c:
               Log("SS: Updating metadata for {0}".format(season_metadata['events'][c]['strEvent']))
-              episode.title = re.sub(suffix,"",season_metadata['events'][c]['strEvent'])
+              episode.title = re.sub(re.escape(suffix),"",season_metadata['events'][c]['strEvent'])
               #TODO: I SHOULD BE WRITING A SUMMARY HERE
               #episode.summary = season_metadata['events'][c]['summary']
               episode.originally_available_at = datetime.datetime.strptime(season_metadata['events'][c]['dateEvent'], "%Y-%m-%d").date()
             else:
-              match = re.match("Unmatched:", episode.title)
+              match = re.match("Unmatched.*", episode_media.title)
               if not match:
                 episode.title = "Unmatched: {0}".format(episode_media.title)
               Log("SS: Best match was %d" % best_score)
@@ -262,15 +270,47 @@ class SportScannerAgent(Agent.TV_Shows):
 
             episode.thumbs.validate_keys(valid_names)
 
-    # Maintain a list of valid image names
-    valid_names = list()
+
 
     @parallelize
     def DownloadImages():
+
+      # Maintain a list of valid image names
+      posters_to_dl = list()
+      banners_to_dl = list()
+      fanart_to_dl = list()
+
       Log("Downloading Images")
       # Each image is stored separately so we have to do something strange here
+      if league_metadata['strPoster'] is not None:
+        posters_to_dl.append(league_metadata['strPoster'])
+        for b in range(1, 10):
+          key_name = "strPoster{0}".format(b)
+          if key_name in league_metadata:
+            if league_metadata[key_name] is not None:
+              posters_to_dl.append(league_metadata[key_name])
+              # posters_to_dl.append("{0}/preview".format(league_metadata[key_name]))
+          else:
+            break
+        for i in range(len(posters_to_dl)):
+          poster_url = posters_to_dl[i]
+          Log("SS: Downloading {0}".format(poster_url))
+          @task
+          def DownloadImage(metadata=metadata, poster_url=poster_url, i=i):
+            if poster_url not in metadata.posters:
+              Log("SS: Downloading poster {0}".format(poster_url))
+              try:
+                metadata.posters[poster_url] = Proxy.Preview(GetResultFromNetwork(poster_url, False), sort_order=(i+1))
+              except:
+                Log("SS: Failed to set poster for {0}".format(metadata.title))
+                pass
+      else:
+        Log("SS: No posters to download for {0}".format(league_metadata['strLeague']))
+
+      metadata.posters.validate_keys(posters_to_dl)
+
+      # Each image is stored separately so we have to do something strange here
       if league_metadata['strBanner'] is not None:
-        banners_to_dl = list()
         banners_to_dl.append(league_metadata['strBanner'])
         for b in range(1, 10):
           key_name = "strBanner{0}".format(b)
@@ -282,10 +322,7 @@ class SportScannerAgent(Agent.TV_Shows):
           banner_url = banners_to_dl[i]
           Log("SS: Downloading {0}".format(banner_url))
           @task
-          def DownloadImage(metadata=metadata, banner_url=banner_url, i=i, valid_names=valid_names):
-
-            valid_names.append(banner_url)
-
+          def DownloadImage(metadata=metadata, banner_url=banner_url, i=i):
             if banner_url not in metadata.banners:
               Log("SS: Downloading banner {0}".format(banner_url))
               try:
@@ -296,7 +333,8 @@ class SportScannerAgent(Agent.TV_Shows):
       else:
         Log("SS: No banners to download for {0}".format(league_metadata['strLeague']))
 
-      fanart_to_dl = list()
+      metadata.banners.validate_keys(banners_to_dl)
+
       for b in range(1, 10):
         key_name = "strFanart{0}".format(b)
         if key_name in league_metadata:
@@ -307,19 +345,14 @@ class SportScannerAgent(Agent.TV_Shows):
         fanart_url = fanart_to_dl[i]
         Log("SS: Downloading {0}".format(fanart_url))
         @task
-        def DownloadImage(metadata=metadata, fanart_url=fanart_url, i=i, valid_names=valid_names):
-
-          valid_names.append(fanart_url)
-
+        def DownloadImage(metadata=metadata, fanart_url=fanart_url, i=i):
           if fanart_url not in metadata.posters:
-            Log("SS: Downloading poster {0}".format(fanart_url))
+            Log("SS: Downloading art {0}".format(fanart_url))
             try:
-              metadata.posters[fanart_url] = Proxy.Preview(GetResultFromNetwork(fanart_url, False), sort_order=(i+1))
+              metadata.art[fanart_url] = Proxy.Preview(GetResultFromNetwork(fanart_url, False), sort_order=(i+1))
             except:
-              Log("SS: Failed to set poster for {0}".format(metadata.title))
+              Log("SS: Failed to set art for {0}".format(metadata.title))
               pass
 
-    # Check each poster, background & banner image we currently have saved. If any of the names are no longer valid, remove the image
-    metadata.posters.validate_keys(valid_names)
-    metadata.art.validate_keys(valid_names)
-    metadata.banners.validate_keys(valid_names)
+
+      metadata.art.validate_keys(fanart_to_dl)
