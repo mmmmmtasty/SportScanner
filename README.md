@@ -19,22 +19,13 @@ Plex main folder location:
     * '/raid0/data/module/Plex/sys/Plex Media Server/',                          # Thecus
     * '/raid0/data/PLEX_CONFIG/Plex Media Server/'                               # Thecus Plex community
 
-##Scanner
-
- - Download the latest version of https://github.com/mmmmmtasty/SportScanner/blob/master/Scanners/Series/SportScanner.py
- - If it doesn't already exist create ./Scanners/Series in your main folder location - check the list above for more clues
- - Copy SportScanner.py into your newly created folder
-
-###Updating
-
- - Download the latest version of https://github.com/mmmmmtasty/SportScanner/blob/master/Scanners/Series/SportScanner.py
- - Copy SportScanner.py over your existing copy at the path mentioned in the installation
-
-##Metadata Agent
-
- - Download the latest version of the SportScanner.bundle
- - Extract it and copy into the Plug-ins folder in your main folder location - check the list above for more clues
+ - Download the latest release from https://github.com/mmmmmtasty/SportScanner/releases
+ - Extract files
+ - Copy the extracted directory "Scanners" into your Plex main folder location - check the list above for more clues
+ - Copy the extracted directory "SportScanner.bundle" into the Plug-ins directory in your main folder location - check the list above for more clues
  - You may need to restart Plex
+ - Create a new library and under Advanced options you should be able to select "SportScanner" as both your scanner and metadata agent.
+ - Copy SportScanner.py into your newly created folder
 
 #Media Format
 
