@@ -71,7 +71,9 @@ def GetResultFromNetwork(url, fetchContent=True):
   return None
 
 def Start():
-  HTTP.CacheTime = CACHE_1HOUR * 24
+  # Let's put this up when things are all stable shall we?
+  HTTP.CacheTime = 0
+  # HTTP.CacheTime = CACHE_1HOUR * 24
   
 class SportScannerAgent(Agent.TV_Shows):
   name = 'SportScanner'
