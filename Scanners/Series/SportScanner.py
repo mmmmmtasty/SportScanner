@@ -17,8 +17,9 @@ regex_date_title_file_name = [
 seasons = { "Soccer" : { "split_date" : [7,1], "season_format" : "xxyy"},
             "Ice Hockey" : { "split_date" : [7,1], "season_format" : "xxyy"},
             "Motorsport" : { "season_format" : "yyyy"},
-            "Baseball" : { "season_format" : "yyyy"}}
-
+            "Baseball" : { "season_format" : "yyyy"},
+			"Basketball" : { "split_date" : [7,1], "season_format" : "xxyy"}}
+            
 # Look for episodes.
 def Scan(path, files, mediaList, subdirs):
 
