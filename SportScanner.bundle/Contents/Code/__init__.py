@@ -238,10 +238,6 @@ class SportScannerAgent(Agent.TV_Shows):
                                     match = re.match("/.*{0}$/".format(re.escape(suffix)), episode_media.title)
                                     if match:
                                         adj_title = episode_media.title
-                                    # We might have set it to be "Unmatched: " before so let us remove that too
-                                    match2 = re.match("/Unmatched\: (.*)$/", adj_title)
-                                    if match2:
-                                        adj_title = match.group(1)
                                     else:
                                         Log("SS: Adjusting {0} to add season".format(episode_media.title))
                                         adj_title = episode_media.title + suffix
@@ -270,11 +266,6 @@ class SportScannerAgent(Agent.TV_Shows):
                             # episode.summary = season_metadata['events'][c]['summary']
                             episode.originally_available_at = datetime.datetime.strptime(
                                 season_metadata['events'][c]['dateEvent'], "%Y-%m-%d").date()
-                        else:
-                            match = re.match("Unmatched.*", episode_media.title)
-                            if not match:
-                                episode.title = "Unmatched: {0}".format(episode_media.title)
-                            return
 
                         Log("SS: Downloading thumbnail for {0}".format(episode.title))
                         # Download the episode thumbnail
