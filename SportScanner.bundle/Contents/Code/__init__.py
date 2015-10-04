@@ -123,6 +123,7 @@ class SportScannerAgent(Agent.TV_Shows):
         x = potential_shows[i]
         current_league = x['strLeague']
         score = (similar(current_league, show_title) * 100)
+
         if score > 60:
           Log("SS: Matched {0} with a score of {1}".format(current_league, score))
           results.Append(
@@ -160,7 +161,8 @@ class SportScannerAgent(Agent.TV_Shows):
     #Fill in any missing information for show and download posters/banners
     metadata.title = league_metadata['strLeague']
     metadata.summary = league_metadata['strDescriptionEN']
-    metadata.genres.add(league_metadata['strSport'])
+    if not league_metadata['strSport'] in metadata.genres:
+      metadata.genres.add(league_metadata['strSport'])
     try:
      metadata.originally_available_at = league_metadata['intFormedYear']
     except:
@@ -213,6 +215,7 @@ class SportScannerAgent(Agent.TV_Shows):
           def UpdateEpisode(episode=episode,season_metadata=season_metadata,episode_media=episode_media):
             c = None
             best_score = 0
+            total_matches = 0
             #First try and match an episode
             Log("SS: Looking for match for %s" % episode_media.title)
             for p in range(len(season_metadata['events'])):
@@ -226,6 +229,10 @@ class SportScannerAgent(Agent.TV_Shows):
                   match = re.match("/.*{0}$/".format(re.escape(suffix)), episode_media.title)
                   if match:
                     adj_title = episode_media.title
+                  #We might have set it to be "Unmatched: " before so let us remove that too
+                  match2 = re.match("/Unmatched\: (.*)$/", adj_title)
+                  if match2:
+                    adj_title = match.group(1)
                   else:
                     Log("SS: Adjusting {0} to add season".format(episode_media.title))
                     adj_title = episode_media.title + suffix
@@ -235,14 +242,17 @@ class SportScannerAgent(Agent.TV_Shows):
                   if closeness == 1:
                     best_score = 1
                     c = p
+                    total_matches += 1
                     break
                   elif closeness > best_score:
                     best_score = closeness
                     c = p
+                    total_matches += 1
                     continue
 
-            #Only accept if the match is better than 80%
-            if best_score > 0.8 and c:
+            Log("SS: Best match was {0}".format(best_score))
+            #Only accept if the match is better than 80% or 50% if there is only one event on that date
+            if c and (best_score > 0.8 or (best_score > 0.5 and total_matches == 1)):
               Log("SS: Updating metadata for {0}".format(season_metadata['events'][c]['strEvent']))
               episode.title = re.sub(re.escape(suffix),"",season_metadata['events'][c]['strEvent'])
               #TODO: I SHOULD BE WRITING A SUMMARY HERE
@@ -252,7 +262,6 @@ class SportScannerAgent(Agent.TV_Shows):
               match = re.match("Unmatched.*", episode_media.title)
               if not match:
                 episode.title = "Unmatched: {0}".format(episode_media.title)
-              Log("SS: Best match was %d" % best_score)
               return
 
             Log("SS: Downloading thumbnail for {0}".format(episode.title))

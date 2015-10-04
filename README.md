@@ -37,6 +37,10 @@ So create a library of type "TV Show" with the SportScanner scanner and metadata
 ~/LibraryRoot/Ice Hockey/
 ~/LibraryRoot/Motorsport/
 
+##Flat folder structure
+
+All files can be placed directly into the folder you created in the first step. All information required to match the file should be in the file name. 
+
 Inside this directory you can dump all files that you want to be scanned and added but there are requirement for what must be in the filename.
 
  - League Name
@@ -47,6 +51,17 @@ An example filename would be:
 
  - EPL.2015.08.30.Swansea-City.vs.Manchester-United.720p.HDTV.30fps.x264-Reborn4HD.mkv
 
-Currently there is a gap between the name of a league as defined in the filename and the name of the league as defined in www.thesportsdb.com so there is a gross mapping between common mismatches in the metadata agent. This is not intended to stay.
+Currently there is a gap between the name of a league as defined in the filename and the name of the league as defined in www.thesportsdb.com so there is a mapping between common mismatches in the metadata agent. This is not intended to stay.
 
-If you stick to this format then everything should work nicely :)
+##Information in folder structure
+
+You can alternatively provide information in the folder structure. You can then split by Sport, League and Season. For example for 2015/2016 NHL you would do something like the following:
+
+ - ~LibraryRoot/Ice Hockey/NHL/Season 1516/NHL.2015.09.25.New-York-Islanders.vs.Philadelphia-Flyers.720p.HDTV.60fps.x264-Reborn4HD_h.mp4
+
+In this scenario you still need all the information in the file name, I aim to remove that requirement down the line. The only information that comes only from the folder structure is the season. 
+
+#Known Issues
+ - The sport is entered into the "Genre" field but always appear twice
+ - Can only handle individual files, not multipart or those in folders
+ - All relevant information needs to be in the filename even if it is already outlined in the folder structure for now
