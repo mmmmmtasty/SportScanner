@@ -18,9 +18,7 @@
 	<string>1.0</string>
 	<key>PlexAgentAttributionText</key>
 	<string>
-		    &lt;a href=&quot;http://thetvdb.com&quot;&gt;TheTVDB.com&lt;/a&gt; is a community driven database of television shows. &lt;br/&gt;
-							It is our aim to be the most complete and accurate source of&lt;br/&gt;
-							information on TV series from many languages and countries.
+		    &lt;a href=&quot;http://www.thesportsdb.com&quot;&gt;TheSportsDB.com&lt;/a&gt; is a crowd sourced site for sports metatdata. The site was setup in 2014 to provide a free (or low cost) data source for all kinds of sports results. Since then it has grown into one of the biggest archives of sports data on the web.
 		  </string>
 	<key>PlexFrameworkVersion</key>
 	<string>2</string>
@@ -29,10 +27,8 @@
 	<key>PlexPluginMode</key>
 	<string>AlwaysOn</string>
 	<key>PlexAgentAttributionText</key>
-  <string>
-    &lt;a href=&quot;http://thetvdb.com&quot;&gt;TheTVDB.com&lt;/a&gt; is a community driven database of television shows. &lt;br/&gt;
-					It is our aim to be the most complete and accurate source of&lt;br/&gt;
-					information on TV series from many languages and countries.
-  </string>
+	<string>
+		    &lt;a href=&quot;http://www.thesportsdb.com&quot;&gt;TheSportsDB.com&lt;/a&gt; is a crowd sourced site for sports metatdata. The site was setup in 2014 to provide a free (or low cost) data source for all kinds of sports results. Since then it has grown into one of the biggest archives of sports data on the web.
+  	</string>
 </dict>
 </plist>

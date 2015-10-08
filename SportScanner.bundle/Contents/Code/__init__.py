@@ -8,9 +8,6 @@ netLock = Thread.Lock()
 successCount = 0
 failureCount = 0
 
-sport_map = {"EPL": "English Premier League",
-             "F1": "FIA Formula One World Championship"}
-
 MIN_RETRY_TIMEOUT = 2
 RETRY_TIMEOUT = MIN_RETRY_TIMEOUT
 TOTAL_TRIES = 1
@@ -88,9 +85,6 @@ class SportScannerAgent(Agent.TV_Shows):
         match = re.match('^(.*?): (.*)', media.show)
         sport = match.group(1)
         show_title = match.group(2)
-        if show_title in sport_map:
-            Log("SS: Mapping {0} to {1}".format(show_title, sport_map[show_title]))
-            show_title = sport_map[show_title]
         Log("SS: Attempting to match {0}".format(show_title))
         url = "{0}search_all_leagues.php?s={1}".format(SPORTSDB_API, sport)
         try:
@@ -116,14 +110,25 @@ class SportScannerAgent(Agent.TV_Shows):
                     )
                 )
                 match = True
-                # # Not doing this for now - changes in the metadata source means we don't want to carry this data
-                # through for now
-                # Data.Save( "{0}-league.json".format(x['idLeague']), x)
                 continue
+            if x['strLeagueAlternate'] is not None:
+                if show_title in x['strLeagueAlternate'].split(","):
+                    results.Append(
+                        MetadataSearchResult(
+                            id=x['idLeague'],
+                            name=show_title,
+                            year=int(x['intFormedYear']),
+                            lang='en',
+                            score=100
+                        )
+                    )
+                    match = True
+                    continue
 
         # See if anything else comes close if we are doing a deeper manual search and haven't found anything already
         # if manual and not match:
-        if not match:
+        if not match and manual:
+            Log("SS: Doing a comparison match, no exact matches found")
             for i in range(0, len(potential_shows)):
                 x = potential_shows[i]
                 current_league = x['strLeague']
@@ -140,23 +145,23 @@ class SportScannerAgent(Agent.TV_Shows):
                             score=score
                         )
                     )
-                    # else:
-                    #   Log("SS: Failed to match {0}, score was only {1}".format(show_title, score))
-
-                    # Update is passed A WHOLE SHOW and has to work out what episodes it has and therefore what it
-                    # should be updating
+                if x['strLeagueAlternate'] is not None:
+                    y = x['strLeagueAlternate'].split(",")
+                    for j in range(0, len(y)):
+                        score = (similar(y[j], show_title) * 100)
+                        if score > 60:
+                            results.Append(
+                                MetadataSearchResult(
+                                    id=x['idLeague'],
+                                    name=show_title,
+                                    year=int(x['intFormedYear']),
+                                    lang='en',
+                                    score=score
+                                )
+                            )
 
     def update(self, metadata, media, lang):
         Log("SS: update for: {0}".format(metadata.id))
-
-        # #Get the zip archive for the show, preferably from disk
-        # try:
-        #   file_input = Data.Load("{0}-league.json".format(metadata.id))
-        #   league_metadata = JSON.ObjectFromString(file_input)
-        # except:
-        #   url = "{0}lookupleague.php?id={1}".format(SPORTSDB_API, metadata.id)
-        #   league_metadata = JSON.ObjectFromString(GetResultFromNetwork(url, True))['leagues'][0]
-        #   pass
 
         # We're not trying to read cached ones for now - let's get the new stuff every time
         try:
@@ -180,8 +185,6 @@ class SportScannerAgent(Agent.TV_Shows):
         def UpdateEpisodes():
             # Go through available episodes
             for s in media.seasons:
-                # Hack for thesportsdb adding the season onto the title of the event
-                suffix = " ({0} season)".format(s)
 
                 # Get events for the season we care about
                 url = "{0}eventsseason.php?id={1}&s={2}".format(SPORTSDB_API, metadata.id, s)
@@ -231,18 +234,9 @@ class SportScannerAgent(Agent.TV_Shows):
                             # episode_media.title))
                             if ("dateEvent" in season_metadata['events'][p]) and episode_media.originally_available_at:
                                 if season_metadata['events'][p]['dateEvent'] == episode_media.originally_available_at:
-
-                                    # This is grim!!!
-                                    # I have to add a suffix with the season to more closely match what sportsdb records
-                                    # We then have to remove it afterwards because it looks shit.
-                                    match = re.match("/.*{0}$/".format(re.escape(suffix)), episode_media.title)
-                                    if match:
-                                        adj_title = episode_media.title
-                                    else:
-                                        Log("SS: Adjusting {0} to add season".format(episode_media.title))
-                                        adj_title = episode_media.title + suffix
-                                    closeness = similar(adj_title, season_metadata['events'][p]['strEvent'])
-                                    Log("SS: Match ratio of {0} between {1} and {2}".format(closeness, adj_title,
+                                    closeness = similar(episode_media.title, season_metadata['events'][p]['strEvent'])
+                                    Log("SS: Match ratio of {0} between {1} and {2}".format(closeness,
+                                                                                            episode_media.title,
                                                                                             season_metadata['events'][
                                                                                                 p]['strEvent']))
                                     # If they are a perfect match then we are done
@@ -261,9 +255,8 @@ class SportScannerAgent(Agent.TV_Shows):
                         # Only accept if the match is better than 80% or 50% if there is only one event on that date
                         if c and (best_score > 0.8 or (best_score > 0.5 and total_matches == 1)):
                             Log("SS: Updating metadata for {0}".format(season_metadata['events'][c]['strEvent']))
-                            episode.title = re.sub(re.escape(suffix), "", season_metadata['events'][c]['strEvent'])
-                            # TODO: I SHOULD BE WRITING A SUMMARY HERE
-                            # episode.summary = season_metadata['events'][c]['summary']
+                            episode.title = season_metadata['events'][c]['strEvent']
+                            episode.summary = "Matched by SportScanner"
                             episode.originally_available_at = datetime.datetime.strptime(
                                 season_metadata['events'][c]['dateEvent'], "%Y-%m-%d").date()
 

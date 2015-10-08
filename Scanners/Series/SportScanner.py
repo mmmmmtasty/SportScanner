@@ -65,7 +65,7 @@ def Scan(path, files, mediaList, subdirs):
         # Any files we find at this level MUST have the sport information in their filename
         sport = paths[0]
         print "SS: Assuming {0} is a sport, scanning individual files".format(sport)
-        pprint(clean_files)
+        # pprint(clean_files)
         # Look for ALL the information we need in the filename
         for file in clean_files:
             print "SS: Working on file | {0} |".format(file)

@@ -62,6 +62,6 @@ You can alternatively provide information in the folder structure. You can then 
 In this scenario you still need all the information in the file name, I aim to remove that requirement down the line. The only information that comes only from the folder structure is the season. 
 
 #Known Issues
- - The sport is entered into the "Genre" field but always appear twice
+ - No posters for seasons or individual event thumbs
  - Can only handle individual files, not multipart or those in folders
  - All relevant information needs to be in the filename even if it is already outlined in the folder structure for now
