@@ -38,7 +38,7 @@ $totalGames = 0
 
 #Get all the events that happened on this day
 foreach ( $date in $dates) {
-    $schedUrl = "http://live.nhle.com/GameData/GCScoreboard/$($date.Year)-$($date.Month)-$($date.Day).jsonp" 
+    $schedUrl = "http://live.nhle.com/GameData/GCScoreboard/$($date.Year)-$($date.Month.ToString("00"))-$($date.Day.ToString("00")).jsonp"
     $games = ([System.Text.Encoding]::ASCII.GetString((Invoke-WebRequest $schedUrl).Content) -replace "loadScoreboard\((.*)\)", '$1' | ConvertFrom-Json).games
     if ( !$games ) {
         continue
