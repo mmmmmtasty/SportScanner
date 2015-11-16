@@ -187,7 +187,7 @@ class SportScannerAgent(Agent.TV_Shows):
             for s in media.seasons:
 
                 # Get events for the season we care about
-                url = "{0}eventsseason.php?id={1}&s={2}".format(SPORTSDB_API, metadata.id, s)
+                url = "{0}eventsseason.php?id={1}&s={2}".format(SPORTSDB_API, metadata.id, str(s).zfill(4))
                 season_metadata = JSON.ObjectFromString(GetResultFromNetwork(url, True))
 
                 # #There is currently no concept of a season having art in thesportsdb!
