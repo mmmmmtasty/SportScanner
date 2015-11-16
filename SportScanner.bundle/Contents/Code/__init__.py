@@ -185,7 +185,6 @@ class SportScannerAgent(Agent.TV_Shows):
         def UpdateEpisodes():
             # Go through available episodes
             for s in media.seasons:
-
                 # Get events for the season we care about
                 url = "{0}eventsseason.php?id={1}&s={2}".format(SPORTSDB_API, metadata.id, str(s).zfill(4))
                 season_metadata = JSON.ObjectFromString(GetResultFromNetwork(url, True))
@@ -216,64 +215,85 @@ class SportScannerAgent(Agent.TV_Shows):
                 for e in media.seasons[s].episodes:
                     episode = metadata.seasons[s].episodes[e]
                     episode_media = media.seasons[s].episodes[e]
-                    try:
-                        Log("SS: Matching episode number %s: %s" % e, episode.title)
-                    except:
-                        pass
-                    # Matching episodes is not so trivial - the episode number is meaningless. Matching must happen
-                    # via date and title
+
                     @task
                     def UpdateEpisode(episode=episode, season_metadata=season_metadata, episode_media=episode_media):
-                        closest_event = None
-                        best_score = 0
-                        total_matches = 0
-                        # First try and match an episode
-                        Log("SS: Looking for match for %s" % episode_media.title)
-                        for current_event in range(len(season_metadata['events'])):
-                            # Log("SS: Comparing {0} to {1}".format(season_metadata['episodes'][p]['title'],
-                            # episode_media.title))
-                            if ("dateEvent" in season_metadata['events'][current_event]) and episode_media.originally_available_at:
-                                if season_metadata['events'][current_event]['dateEvent'] == episode_media.originally_available_at:
-                                    total_matches += 1
-                                    closeness = similar(episode_media.title, season_metadata['events'][current_event]['strEvent'])
-                                    Log("SS: Match ratio of {0} between {1} and {2}".format(closeness,
-                                                                                            episode_media.title,
-                                                                                            season_metadata['events'][
-                                                                                                current_event]['strEvent']))
-                                    # If they are a perfect match then we are done
-                                    if closeness == 1:
-                                        best_score = 1
-                                        closest_event = current_event
-                                        break
-                                    elif closeness > best_score:
-                                        best_score = closeness
-                                        closest_event = current_event
-                                        continue
+                        Log("SS: Matching episode number {0}: {1}".format(e, episode_media.title))
+                        matched_episode = None
+                        # First try and match the filename exactly as it is
+                        try:
+                            filename = os.path.basename(episode_media.items[0].parts[0].file)
+                            whackRx = ['([hHx][\.]?264)[^0-9].*', '[^[0-9](720[pP]).*', '[^[0-9](1080[pP]).*', '[^[0-9](480[pP]).*','[^[0-9](540[pP]).*']
+                            for rx in whackRx:
+                                filename = re.sub(rx, "", filename)
+                            # Replace all '-' with '_'
+                            filename = re.sub('-','_',filename)
+                            # Replace the date separators with '-'
+                            filename = re.sub(r'(\d{4}).(\d{2}).(\d{2})', r'\1-\2-\3', filename)
+                            url = "{0}searchfilename.php?e={1}".format(SPORTSDB_API, filename)
+                            results = JSON.ObjectFromString(GetResultFromNetwork(url, True))
+                            Log("SS: {0}".format(results))
+                            matched_episode = results['event']
+                            Log("SS: Matched {0} using filename search".format(matched_episode['strEvent']))
+                        except:
+                            pass
+                        if matched_episode is None:
+                            # If the file doesn't match perfectly, try and match based on dates and event titles
+                            closest_event = None
+                            best_score = 0
+                            total_matches = 0
+                            # First try and match an episode
+                            for current_event in range(len(season_metadata['events'])):
+                                # Log("SS: Comparing {0} to {1}".format(season_metadata['episodes'][p]['title'],
+                                # episode_media.title))
+                                if ("dateEvent" in season_metadata['events'][current_event]) and episode_media.originally_available_at:
+                                    if season_metadata['events'][current_event]['dateEvent'] == episode_media.originally_available_at:
+                                        total_matches += 1
+                                        closeness = similar(episode_media.title, season_metadata['events'][current_event]['strEvent'])
+                                        Log("SS: Match ratio of {0} between {1} and {2}".format(closeness,
+                                                                                                episode_media.title,
+                                                                                                season_metadata['events'][
+                                                                                                    current_event]['strEvent']))
+                                        # If they are a perfect match then we are done
+                                        if closeness == 1:
+                                            best_score = 1
+                                            closest_event = current_event
+                                            break
+                                        elif closeness > best_score:
+                                            best_score = closeness
+                                            closest_event = current_event
+                                            continue
 
-                        Log("SS: Best match was {0}".format(best_score))
-                        Log("SS: closest_event is {0}".format(closest_event))
-                        # Only accept if the match is better than 80% or 50% if there is only one event on that date
-                        if best_score > 0.8 or (best_score > 0.5 and total_matches == 1):
-                            Log("SS: Updating metadata for {0}".format(season_metadata['events'][closest_event]['strEvent']))
-                            episode.title = season_metadata['events'][closest_event]['strEvent']
-                            episode.summary = "Matched by SportScanner"
-                            episode.originally_available_at = datetime.datetime.strptime(
-                                season_metadata['events'][closest_event]['dateEvent'], "%Y-%m-%d").date()
+                            Log("SS: Best match was {0}".format(best_score))
+                            Log("SS: closest_event is {0}".format(closest_event))
+                            # Only accept if the match is better than 80% or 50% if there is only one event on that date
+                            if best_score > 0.8 or (best_score > 0.5 and total_matches == 1):
+                                matched_episode = season_metadata['events'][closest_event]
 
-                            Log("SS: Downloading thumbnail for {0}".format(episode.title))
-                            # Download the episode thumbnail
-                            valid_names = list()
-                            if season_metadata['events'][closest_event]['strThumb'] is not None:
-                                thumb = season_metadata['events'][closest_event]['strThumb']
-                                # thumb = "{0}/preview".format(season_metadata['events'][c]['strThumb'])
-                                try:
-                                    episode.thumbs[thumb] = Proxy.Media(GetResultFromNetwork(thumb, False))
-                                    valid_names.append(thumb)
-                                except:
-                                    Log("SS: Failed to add thumbnail for {0}".format(episode.title))
-                                    pass
-                            else:
-                                Log("SS: No thumbs to download for {0}".format(episode.title))
+                        if matched_episode is None:
+                            Log("SS: Could not match {0}".format(episode_media.title))
+                            return
+
+                        Log("SS: Updating metadata for {0}".format(matched_episode['strEvent']))
+                        episode.title = matched_episode['strEvent']
+                        episode.summary = "Matched by SportScanner"
+                        episode.originally_available_at = datetime.datetime.strptime(
+                            matched_episode['dateEvent'], "%Y-%m-%d").date()
+
+                        Log("SS: Downloading thumbnail for {0}".format(episode.title))
+                        # Download the episode thumbnail
+                        valid_names = list()
+                        if matched_episode['strThumb'] is not None:
+                            thumb = matched_episode['strThumb']
+                            # thumb = "{0}/preview".format(season_metadata['events'][c]['strThumb'])
+                            try:
+                                episode.thumbs[thumb] = Proxy.Media(GetResultFromNetwork(thumb, False))
+                                valid_names.append(thumb)
+                            except:
+                                Log("SS: Failed to add thumbnail for {0}".format(episode.title))
+                                pass
+                        else:
+                            Log("SS: No thumbs to download for {0}".format(episode.title))
 
                         episode.thumbs.validate_keys(valid_names)
 
