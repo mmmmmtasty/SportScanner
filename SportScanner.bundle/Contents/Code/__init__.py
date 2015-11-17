@@ -223,17 +223,17 @@ class SportScannerAgent(Agent.TV_Shows):
                         # First try and match the filename exactly as it is
                         try:
                             filename = os.path.splitext(os.path.basename(episode_media.items[0].parts[0].file))[0]
-                            whackRx = ['([hHx][\.]?264)[^0-9].*', '[^[0-9](720[pP]).*', '[^[0-9](1080[pP]).*', '[^[0-9](480[pP]).*','[^[0-9](540[pP]).*']
+                            whackRx = ['([hHx][\.]?264)[^0-9].*', '[^[0-9](720[pP]).*', '[^[0-9](1080[pP]).*',
+                                       '[^[0-9](480[pP]).*', '[^[0-9](540[pP]).*']
                             for rx in whackRx:
                                 filename = re.sub(rx, "", filename)
                             # Replace all '-' with '_'
-                            filename = re.sub('-','_',filename)
+                            filename = re.sub(r'[-\.]', '_', filename)
                             # Replace the date separators with '-'
                             filename = re.sub(r'(\d{4}).(\d{2}).(\d{2})', r'\1-\2-\3', filename)
                             url = "{0}searchfilename.php?e={1}".format(SPORTSDB_API, filename)
                             results = JSON.ObjectFromString(GetResultFromNetwork(url, True))
-                            Log("SS: {0}".format(results))
-                            matched_episode = results['event']
+                            matched_episode = results['event'][0]
                             Log("SS: Matched {0} using filename search".format(matched_episode['strEvent']))
                         except:
                             pass
@@ -249,11 +249,14 @@ class SportScannerAgent(Agent.TV_Shows):
                                 if ("dateEvent" in season_metadata['events'][current_event]) and episode_media.originally_available_at:
                                     if season_metadata['events'][current_event]['dateEvent'] == episode_media.originally_available_at:
                                         total_matches += 1
-                                        closeness = similar(episode_media.title, season_metadata['events'][current_event]['strEvent'])
+                                        closeness = similar(episode_media.title,
+                                                            season_metadata['events'][current_event]['strEvent'])
                                         Log("SS: Match ratio of {0} between {1} and {2}".format(closeness,
                                                                                                 episode_media.title,
-                                                                                                season_metadata['events'][
-                                                                                                    current_event]['strEvent']))
+                                                                                                season_metadata[
+                                                                                                    'events'][
+                                                                                                    current_event][
+                                                                                                    'strEvent']))
                                         # If they are a perfect match then we are done
                                         if closeness == 1:
                                             best_score = 1
@@ -265,7 +268,6 @@ class SportScannerAgent(Agent.TV_Shows):
                                             continue
 
                             Log("SS: Best match was {0}".format(best_score))
-                            Log("SS: closest_event is {0}".format(closest_event))
                             # Only accept if the match is better than 80% or 50% if there is only one event on that date
                             if best_score > 0.8 or (best_score > 0.5 and total_matches == 1):
                                 matched_episode = season_metadata['events'][closest_event]
