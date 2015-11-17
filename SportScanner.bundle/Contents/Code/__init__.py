@@ -222,7 +222,7 @@ class SportScannerAgent(Agent.TV_Shows):
                         matched_episode = None
                         # First try and match the filename exactly as it is
                         try:
-                            filename = os.path.basename(episode_media.items[0].parts[0].file)
+                            filename = os.path.splitext(os.path.basename(episode_media.items[0].parts[0].file))[0]
                             whackRx = ['([hHx][\.]?264)[^0-9].*', '[^[0-9](720[pP]).*', '[^[0-9](1080[pP]).*', '[^[0-9](480[pP]).*','[^[0-9](540[pP]).*']
                             for rx in whackRx:
                                 filename = re.sub(rx, "", filename)
