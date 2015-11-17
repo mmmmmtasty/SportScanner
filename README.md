@@ -51,8 +51,6 @@ An example filename would be:
 
  - EPL.2015.08.30.Swansea-City.vs.Manchester-United.720p.HDTV.30fps.x264-Reborn4HD.mkv
 
-Currently there is a gap between the name of a league as defined in the filename and the name of the league as defined in www.thesportsdb.com so there is a mapping between common mismatches in the metadata agent. This is not intended to stay.
-
 ##Information in folder structure
 
 You can alternatively provide information in the folder structure. You can then split by Sport, League and Season. For example for 2015/2016 NHL you would do something like the following:
