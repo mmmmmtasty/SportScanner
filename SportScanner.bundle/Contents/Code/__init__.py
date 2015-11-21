@@ -278,22 +278,37 @@ class SportScannerAgent(Agent.TV_Shows):
 
                         Log("SS: Updating metadata for {0}".format(matched_episode['strEvent']))
                         episode.title = matched_episode['strEvent']
-                        episode.summary = "Matched by SportScanner"
+                        #Generate a useful description based on the available fields
+                        extra_details = ""
+                        if matched_episode['strAwayTeam'] is not None and matched_episode['strHomeTeam'] is not None:
+                            extra_details = "{0} vs. {1}\n".format(matched_episode['strHomeTeam'], matched_episode['strAwayTeam'])
+                        if matched_episode['dateEvent'] is not None and matched_episode['strTime']:
+                            extra_details = "{0}Played on {1} at {2}\n".format(extra_details, matched_episode['dateEvent'], matched_episode['strTime'])
+                        if matched_episode['strCircuit'] is not None:
+                            extra_details = "{0}Race venue: {1}".format(extra_details, matched_episode['strCircuit'])
+                            if matched_episode['strCountry'] is not None:
+                                if matched_episode['strCity'] is not None:
+                                    extra_details = "{0} in {1}, {2}".format(extra_details, matched_episode['strCity'], matched_episode['strCountry'])
+                                else:
+                                    extra_details = "{0} in {1}".format(extra_details, matched_episode['strCountry'])
+
+                        episode.summary = "{0}\n\n{1}".format(extra_details, matched_episode['strDescriptionEN'])
                         episode.originally_available_at = datetime.datetime.strptime(
                             matched_episode['dateEvent'], "%Y-%m-%d").date()
 
-                        Log("SS: Downloading thumbnail for {0}".format(episode.title))
                         # Download the episode thumbnail
                         valid_names = list()
                         if matched_episode['strThumb'] is not None:
                             thumb = matched_episode['strThumb']
-                            # thumb = "{0}/preview".format(season_metadata['events'][c]['strThumb'])
-                            try:
-                                episode.thumbs[thumb] = Proxy.Media(GetResultFromNetwork(thumb, False))
-                                valid_names.append(thumb)
-                            except:
-                                Log("SS: Failed to add thumbnail for {0}".format(episode.title))
-                                pass
+                            if thumb not in episode.thumbs:
+                                try:
+                                    episode.thumbs[thumb] = Proxy.Media(GetResultFromNetwork(thumb, False))
+                                    valid_names.append(thumb)
+                                except:
+                                    Log("SS: Failed to add thumbnail for {0}".format(episode.title))
+                                    pass
+                                else:
+                                    Log("SS: No new thumbnails to download for {0}".format(episode.title))
                         else:
                             Log("SS: No thumbs to download for {0}".format(episode.title))
 
@@ -309,6 +324,7 @@ class SportScannerAgent(Agent.TV_Shows):
 
             Log("Downloading Images")
             # Each image is stored separately so we have to do something strange here
+            # This looks through all the strPoster keys to see if they exist (strPoster, strPoster1 etc.)
             if league_metadata['strPoster'] is not None:
                 posters_to_dl.append(league_metadata['strPoster'])
                 for b in range(1, 10):
@@ -319,20 +335,22 @@ class SportScannerAgent(Agent.TV_Shows):
                             # posters_to_dl.append("{0}/preview".format(league_metadata[key_name]))
                     else:
                         break
+                # Now actually download the poster
                 for i in range(len(posters_to_dl)):
                     poster_url = posters_to_dl[i]
-                    Log("SS: Downloading {0}".format(poster_url))
-
-                    @task
-                    def DownloadImage(metadata=metadata, poster_url=poster_url, i=i):
-                        if poster_url not in metadata.posters:
-                            Log("SS: Downloading poster {0}".format(poster_url))
-                            try:
-                                metadata.posters[poster_url] = Proxy.Preview(GetResultFromNetwork(poster_url, False),
-                                                                             sort_order=(i + 1))
-                            except:
-                                Log("SS: Failed to set poster for {0}".format(metadata.title))
-                                pass
+                    if poster_url not in metadata.posters:
+                        Log("SS: Downloading poster: {0}".format(poster_url))
+                        
+                        @task
+                        def DownloadImage(metadata=metadata, poster_url=poster_url, i=i):
+                            if poster_url not in metadata.posters:
+                                Log("SS: Downloading poster {0}".format(poster_url))
+                                try:
+                                    metadata.posters[poster_url] = Proxy.Preview(GetResultFromNetwork(poster_url, False),
+                                                                                 sort_order=(i + 1))
+                                except:
+                                    Log("SS: Failed to set poster for {0}".format(metadata.title))
+                                    pass
             else:
                 Log("SS: No posters to download for {0}".format(league_metadata['strLeague']))
 
