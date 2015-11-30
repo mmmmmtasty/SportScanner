@@ -237,6 +237,12 @@ class SportScannerAgent(Agent.TV_Shows):
                             Log("SS: Matched {0} using filename search".format(matched_episode['strEvent']))
                         except:
                             pass
+                        # Then try and generate a filename that might work
+                        # Take the full name of the league, add on the date of the event
+                        # Then chuck the title on the end and hope the home/away ordering is correct for this sport
+
+
+
                         if matched_episode is None:
                             # If the file doesn't match perfectly, try and match based on dates and event titles
                             closest_event = None

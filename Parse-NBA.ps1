@@ -1,14 +1,16 @@
 ﻿Param(
     #[Parameter(Mandatory = $true)]
-    [datetime]$StartDate = "2015-10-10",
+    [datetime]$StartDate = "2015-11-20",
     [datetime]$EndDate = (Get-Date).AddDays(-1).Date
 )
 
 #Get all the teams in the league according to thesportsdb
 $thesportsdbTeams = @{}
 
-$teamUrl = "http://www.thesportsdb.com/api/v1/json/8123456712556/lookup_all_teams.php?id=4380"
+$teamUrl = "http://www.thesportsdb.com/api/v1/json/8123456712556/lookup_all_teams.php?id=4387"
 $teams = (Invoke-WebRequest $teamUrl | ConvertFrom-Json).teams
+
+
 
 #Make a hash table that we can use here to map the results of our original search to thesportsdb values
 foreach ( $team in $teams ) {
@@ -27,34 +29,47 @@ while ( $StartDate -ne $EndDate -and $EndDate ) {
 }
 
 $events = @()
-$totalGames = 0
+$LeagueID = '00'
 
-#Get all the events that happened on this day
+#Get all the events that happened on this day for league 00
 foreach ( $date in $dates) {
-    $schedUrl = "http://live.nhle.com/GameData/GCScoreboard/$($date.Year)-$($date.Month.ToString("00"))-$($date.Day.ToString("00")).jsonp"
-    $games = ([System.Text.Encoding]::ASCII.GetString((Invoke-WebRequest $schedUrl).Content) -replace "loadScoreboard\((.*)\)", '$1' | ConvertFrom-Json).games
-    if ( !$games ) {
+    $schedUrl = "http://stats.nba.com/stats/scoreboard/?GameDate=$($date.Year)-$($date.Month)-$($date.Day)&LeagueID=$LeagueID&DayOffset=0" 
+    $output = ((Invoke-WebRequest $schedUrl).Content | ConvertFrom-Json).resultSets
+    $games = ($output | where { $_.Name -eq 'GameHeader'}).rowSet
+    $scores = ($output | where { $_.Name -eq 'LineScore'}).rowSet
+    if ( !($games -and $scores) ) {
         continue
     }
+
     foreach ($game in $games) {
-        $totalGames++
-        #Check we have all the attr we need - hta, ata
         #Create an object for this event
+        $homeTeamShort = $scores | where { $_[3] -eq $game[6]} | %{ $_[4] }
+        $awayTeamShort = $scores | where { $_[3] -eq $game[7]} | %{ $_[4] }
+        $homeTeam = $scores | where { $_[3] -eq $game[6]} | %{ $thesportsdbTeams.($_[4]).strTeam } 
+        #if ( !$homeTeam ) {
+        #    Write-Host "No name for $homeTeamShort"
+        #}
+        $awayTeam = $scores | where { $_[3] -eq $game[7]} | %{ $thesportsdbTeams.($_[4]).strTeam }
+        #if ( !$awayTeam ) {
+        #    Write-Host "No name for $awayTeamShort"
+        #}
+        $homeScore = $scores | where { $_[3] -eq $game[6]} | %{ $_[21] } 
+        $awayScore = $scores | where { $_[3] -eq $game[7]} | %{ $_[21] } 
         $events += New-Object -TypeName psobject -Property @{
             idEvent = $null
             idSoccerXML = $null
-            strEvent = "$($thesportsdbTeams.($game.hta).strTeam) vs $($thesportsdbTeams.($game.ata).strTeam)"
-            strFilename = "NHL $($date.Year)-$($date.Month)-$($date.Day) $($thesportsdbTeams.($game.hta).strTeam) vs $($thesportsdbTeams.($game.ata).strTeam)"
-            strSport = "Ice Hockey"
-            idLeague = "4380"
-            strLeague = "NHL"
+            strEvent = "$homeTeam vs $awayTeam"
+            strFilename = "NBA $($date.Year)-$($date.Month)-$($date.Day) $homeTeam vs $awayTeam"
+            strSport = "Basketball"
+            idLeague = "4387"
+            strLeague = "NBA"
             strSeason = "1516"
             strDescriptionEN = $null
-            strHomeTeam = "$($thesportsdbTeams.($game.hta).strTeam)"
-            strAwayTeam = "$($thesportsdbTeams.($game.ata).strTeam)"
-            intHomeScore = "$($game.hts)"
+            strHomeTeam = "$homeTeam"
+            strAwayTeam = "$awayTteam"
+            intHomeScore = "$homeScore"
             intRound = "0"
-            intAwayScore = "$($game.ats)"
+            intAwayScore = "$awayScore"
             intSpectators = $null
             strHomeGoalDetails = $null
             strHomeRedCards = $null
@@ -74,14 +89,14 @@ foreach ( $date in $dates) {
             strAwayLineupForward = $null
             strAwayLineupSubstitutes = $null
             strAwayFormation = $null
-            intHomeShots = "$($game.htsog)"
-            intAwayShots = "$($game.atsog)"
+            intHomeShots = $null
+            intAwayShots = $null
             dateEvent = "$($date.Year)-$($date.Month)-$($date.Day)"
             strDate = $null
             strTime = $null
             strTVStation = $null
-            idHomeTeam = $($thesportsdbTeams.($game.hta).idTeam)
-            idAwayTeam = $($thesportsdbTeams.($game.ata).idTeam)
+            idHomeTeam = $($thesportsdbTeams.($homeTeamShort).idTeam)
+            idAwayTeam = $($thesportsdbTeams.($awayTeamShort).idTeam)
             strResult = $null
             strRaceCircuit = $null
             strRaceCountry = $null
@@ -95,7 +110,8 @@ foreach ( $date in $dates) {
         }
     }
 } 
-
+$events
+return
 $events | ConvertTo-Csv -NoTypeInformation | out-file -Encoding ascii -FilePath "C:\temp\results.csv" -Force
 
 
