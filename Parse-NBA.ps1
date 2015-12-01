@@ -110,8 +110,7 @@ foreach ( $date in $dates) {
         }
     }
 } 
-$events
-return
-$events | ConvertTo-Csv -NoTypeInformation | out-file -Encoding ascii -FilePath "C:\temp\results.csv" -Force
+
+$events | ConvertTo-Csv -NoTypeInformation | out-file -Encoding ascii -FilePath "C:\temp\NBAresults.csv" -Force
 
 
