@@ -66,7 +66,7 @@ foreach ( $date in $dates) {
             strSeason = "1516"
             strDescriptionEN = $null
             strHomeTeam = "$homeTeam"
-            strAwayTeam = "$awayTteam"
+            strAwayTeam = "$awayTeam"
             intHomeScore = "$homeScore"
             intRound = "0"
             intAwayScore = "$awayScore"
