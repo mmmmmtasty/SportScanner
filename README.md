@@ -1,6 +1,7 @@
 # SportScanner
 
 [![Join the chat at https://gitter.im/mmmmmtasty/SportScanner](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/mmmmmtasty/SportScanner?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Scanner and Metadata Agent for Plex that uses www.thesportsdb.com
 
 #Installation
