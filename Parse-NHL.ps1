@@ -31,7 +31,8 @@ $totalGames = 0
 
 #Get all the events that happened on this day
 foreach ( $date in $dates) {
-    $schedUrl = "http://live.nhle.com/GameData/GCScoreboard/$($date.Year)-$($date.Month.ToString("00"))-$($date.Day.ToString("00")).jsonp"
+    $properDate = "$($date.Year)-$($date.Month.ToString("00"))-$($date.Day.ToString("00"))"
+    $schedUrl = "http://live.nhle.com/GameData/GCScoreboard/$properDate.jsonp"
     $games = ([System.Text.Encoding]::ASCII.GetString((Invoke-WebRequest $schedUrl).Content) -replace "loadScoreboard\((.*)\)", '$1' | ConvertFrom-Json).games
     if ( !$games ) {
         continue
@@ -44,7 +45,7 @@ foreach ( $date in $dates) {
             idEvent = $null
             idSoccerXML = $null
             strEvent = "$($thesportsdbTeams.($game.hta).strTeam) vs $($thesportsdbTeams.($game.ata).strTeam)"
-            strFilename = "NHL $($date.Year)-$($date.Month)-$($date.Day) $($thesportsdbTeams.($game.hta).strTeam) vs $($thesportsdbTeams.($game.ata).strTeam)"
+            strFilename = "NHL $properDate $($thesportsdbTeams.($game.hta).strTeam) vs $($thesportsdbTeams.($game.ata).strTeam)"
             strSport = "Ice Hockey"
             idLeague = "4380"
             strLeague = "NHL"
@@ -76,7 +77,7 @@ foreach ( $date in $dates) {
             strAwayFormation = $null
             intHomeShots = "$($game.htsog)"
             intAwayShots = "$($game.atsog)"
-            dateEvent = "$($date.Year)-$($date.Month)-$($date.Day)"
+            dateEvent = "$properDate"
             strDate = $null
             strTime = $null
             strTVStation = $null

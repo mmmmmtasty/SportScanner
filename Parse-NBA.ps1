@@ -33,7 +33,8 @@ $LeagueID = '00'
 
 #Get all the events that happened on this day for league 00
 foreach ( $date in $dates) {
-    $schedUrl = "http://stats.nba.com/stats/scoreboard/?GameDate=$($date.Year)-$($date.Month)-$($date.Day)&LeagueID=$LeagueID&DayOffset=0" 
+    $properDate = "$($date.Year)-$($date.Month.ToString("00"))-$($date.Day.ToString("00"))"
+    $schedUrl = "http://stats.nba.com/stats/scoreboard/?GameDate=$properDate&LeagueID=$LeagueID&DayOffset=0" 
     $output = ((Invoke-WebRequest $schedUrl).Content | ConvertFrom-Json).resultSets
     $games = ($output | where { $_.Name -eq 'GameHeader'}).rowSet
     $scores = ($output | where { $_.Name -eq 'LineScore'}).rowSet
@@ -59,7 +60,7 @@ foreach ( $date in $dates) {
             idEvent = $null
             idSoccerXML = $null
             strEvent = "$homeTeam vs $awayTeam"
-            strFilename = "NBA $($date.Year)-$($date.Month)-$($date.Day) $homeTeam vs $awayTeam"
+            strFilename = "NBA $properDate $homeTeam vs $awayTeam"
             strSport = "Basketball"
             idLeague = "4387"
             strLeague = "NBA"
@@ -91,7 +92,7 @@ foreach ( $date in $dates) {
             strAwayFormation = $null
             intHomeShots = $null
             intAwayShots = $null
-            dateEvent = "$($date.Year)-$($date.Month)-$($date.Day)"
+            dateEvent = "$properDate"
             strDate = $null
             strTime = $null
             strTVStation = $null
