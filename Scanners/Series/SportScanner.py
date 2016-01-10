@@ -96,9 +96,9 @@ def Scan(path, files, mediaList, subdirs):
                     else:
                         season = int(year)
 
-                    #ep = int('%02d%02d%04d' % (month, day, (random.randint(0, 9999))))
-                    #This has to be changed as each file needs to get the same episode number on every scan
-                    ep = int('%02d%02d%04d' % (month, day, abs(hash(file)) % (10 ** 4)))
+                    # Using a hash so that each file gets the same episode number on every scan
+                    # The year must be included for seasons that run over a year boundary
+                    ep = int('%s%02d%02d%04d' % (year[-2:],month, day, abs(hash(file)) % (10 ** 4)))
                     tv_show = Media.Episode(show, season, ep, title, int(year))
                     tv_show.released_at = '%s-%02d-%02d' % (year, month, day)
                     tv_show.parts.append(clean_files[file])
