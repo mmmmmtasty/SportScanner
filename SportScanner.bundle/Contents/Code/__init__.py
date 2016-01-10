@@ -217,31 +217,44 @@ class SportScannerAgent(Agent.TV_Shows):
                     episode_media = media.seasons[s].episodes[e]
 
                     @task
-                    def UpdateEpisode(episode=episode, season_metadata=season_metadata, episode_media=episode_media):
+                    def UpdateEpisode(episode=episode, season_metadata=season_metadata, episode_media=episode_media, metadata=metadata):
                         Log("SS: Matching episode number {0}: {1}".format(e, episode_media.title))
                         matched_episode = None
                         # First try and match the filename exactly as it is
+
+                        filename = os.path.splitext(os.path.basename(episode_media.items[0].parts[0].file))[0]
+                        whackRx = ['([hHx][\.]?264)[^0-9].*', '[^[0-9](720[pP]).*', '[^[0-9](1080[pP]).*',
+                                   '[^[0-9](480[pP]).*', '[^[0-9](540[pP]).*']
+                        for rx in whackRx:
+                            filename = re.sub(rx, "", filename)
+                        # Replace all '-' with '_'
+                        filename = re.sub(r'[-\.]', '_', filename)
+                        # Replace the date separators with '-'
+                        filename = re.sub(r'(\d{4}).(\d{2}).(\d{2})', r'\1-\2-\3', filename)
+
                         try:
-                            filename = os.path.splitext(os.path.basename(episode_media.items[0].parts[0].file))[0]
-                            whackRx = ['([hHx][\.]?264)[^0-9].*', '[^[0-9](720[pP]).*', '[^[0-9](1080[pP]).*',
-                                       '[^[0-9](480[pP]).*', '[^[0-9](540[pP]).*']
-                            for rx in whackRx:
-                                filename = re.sub(rx, "", filename)
-                            # Replace all '-' with '_'
-                            filename = re.sub(r'[-\.]', '_', filename)
-                            # Replace the date separators with '-'
-                            filename = re.sub(r'(\d{4}).(\d{2}).(\d{2})', r'\1-\2-\3', filename)
                             url = "{0}searchfilename.php?e={1}".format(SPORTSDB_API, filename)
                             results = JSON.ObjectFromString(GetResultFromNetwork(url, True))
                             matched_episode = results['event'][0]
                             Log("SS: Matched {0} using filename search".format(matched_episode['strEvent']))
                         except:
                             pass
+
                         # Then try and generate a filename that might work
                         # Take the full name of the league, add on the date of the event
                         # Then chuck the title on the end and hope the home/away ordering is correct for this sport
-
-
+                        if matched_episode is None:
+                            try:
+                                bastard_year = re.sub(r'(\d{4})(\d{2})(\d{2})', r'\1-\2-\3', episode_media.originally_available_at)
+                                bastard_filename = '{0} {1} {2}'.format(metadata.title, bastard_year, episode_media.title)
+                                # Replace all ' ' with '_'
+                                bastard_filename = re.sub(r' ', '_', bastard_filename)
+                                url = "{0}searchfilename.php?e={1}".format(SPORTSDB_API, bastard_filename)
+                                results = JSON.ObjectFromString(GetResultFromNetwork(url, True))
+                                matched_episode = results['event'][0]
+                                Log("SS: Matched {0} using filename search".format(matched_episode['strEvent']))
+                            except:
+                                pass
 
                         if matched_episode is None:
                             # If the file doesn't match perfectly, try and match based on dates and event titles
@@ -257,6 +270,14 @@ class SportScannerAgent(Agent.TV_Shows):
                                         total_matches += 1
                                         closeness = similar(episode_media.title,
                                                             season_metadata['events'][current_event]['strEvent'])
+                                        # Take a second closeness with bastard name
+                                        bastard_title = "{0} {1}".format(metadata.title, episode_media.title)
+                                        bastard_closeness = similar(bastard_title,
+                                                            season_metadata['events'][current_event]['strEvent'])
+                                        if bastard_closeness > closeness:
+                                            closeness = bastard_closeness
+                                            Log("SS: Using {0} from match with {1}".format(closeness, bastard_title))
+
                                         Log("SS: Match ratio of {0} between {1} and {2}".format(closeness,
                                                                                                 episode_media.title,
                                                                                                 season_metadata[
@@ -297,8 +318,9 @@ class SportScannerAgent(Agent.TV_Shows):
                                     extra_details = "{0} in {1}, {2}".format(extra_details, matched_episode['strCity'], matched_episode['strCountry'])
                                 else:
                                     extra_details = "{0} in {1}".format(extra_details, matched_episode['strCountry'])
-
-                        episode.summary = "{0}\n\n{1}".format(extra_details, matched_episode['strDescriptionEN'])
+                        summary = "{0}\n\n{1}".format(extra_details, matched_episode['strDescriptionEN'])
+                        Log("SS: summary: {0}".format(summary))
+                        episode.summary = summary
                         episode.originally_available_at = datetime.datetime.strptime(
                             matched_episode['dateEvent'], "%Y-%m-%d").date()
 
