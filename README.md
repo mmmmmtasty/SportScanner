@@ -32,37 +32,38 @@ Plex main folder location:
 
 #Media Format
 
-The SportScanner scanner currently requires a very specific folder/filename setup to work properly. This is not good and is not intended to stay this way and will be extended over time to gather information from more places than just the filename and the first level folder. 
+The SportScanner scanner requires one of two folder structures to work correctly, the first of which matches Plex's standard folder structure.
 
-So create a library of type "TV Show" with the SportScanner scanner and metadata agent selected. In this example we will call it ~/LibraryRoot/. The next level of directories should be the name of the sport as defined by www.thesportsdb.com. Some examples are included below.
+##RECOMMENDED METHOD
 
-~/LibraryRoot/Soccer/
-~/LibraryRoot/Ice Hockey/
-~/LibraryRoot/Motorsport/
+Follow the Plex standards for folder structure - TV Show\Season\<files>. For SportScanner, TV Shows = League Name. For example for 2015/2016 NHL you would do something like the following:
 
-##Flat folder structure
-
-All files can be placed directly into the folder you created in the first step. All information required to match the file should be in the file name. 
-
-Inside this directory you can dump all files that you want to be scanned and added but there are requirement for what must be in the filename.
-
- - League Name
- - Date
- - Title
-
-An example filename would be:
-
- - EPL.2015.08.30.Swansea-City.vs.Manchester-United.720p.HDTV.30fps.x264-Reborn4HD.mkv
-
-##Information in folder structure
-
-You can alternatively provide information in the folder structure. You can then split by Sport, League and Season. For example for 2015/2016 NHL you would do something like the following:
-
- - ~LibraryRoot/Ice Hockey/NHL/Season 1516/NHL.2015.09.25.New-York-Islanders.vs.Philadelphia-Flyers.720p.HDTV.60fps.x264-Reborn4HD_h.mp4
+ - ~LibraryRoot/NHL/Season 1516/NHL.2015.09.25.New-York-Islanders.vs.Philadelphia-Flyers.720p.HDTV.60fps.x264-Reborn4HD_h.mp4
 
 In this scenario you still need all the information in the file name, I aim to remove that requirement down the line. The only information that comes only from the folder structure is the season. 
 
+##Alternative naming standard
+
+You can also choose to ignore the season directory and have the scanner work it out with a folder structure like so:
+
+ - ~LibraryRoot/Ice Hockey/NHL/NHL.2015.09.25.New-York-Islanders.vs.Philadelphia-Flyers.720p.HDTV.60fps.x264-Reborn4HD_h.mp4
+
+ THERE IS A DOWN SIDE TO THIS! For this to work you must include a file in each league directory called "SportScanner.txt" that contains information about how the seasons work for this sport. The first line in the file will always be "XXXX" or "XXYY". "XXXX" means that the seasons happens within one calendar year and will therefore be named "2015" of "1999" for example. "XXYY" means that a season occurs across two seasons and will take the format "1516" or "9899" for example. When you define the season as "XXYY" you MUST then on the next line write the integer values of a month and a day in the form "month,day". This should be a a month and a day somewhere in the off-season for that sport. This tells the scanner when one season has finished and the next one is beginning to ensure that it puts files in the correct season based off the date the event happened. As an example, if you are trying to add NHL you would create a file at the following path:
+
+  - ~LibraryRoot/Ice Hockey/NHL/SportScanner.txt
+
+In this instance the contents of this file would be as follows, saying that seasons should be in "XXYY" format and a date in the middle of the off-season is 1st July:
+
+XXYY
+7,1
+
+## NOT RECOMMENDED (but works for now)
+
+SportScanner does not actually pay attention to the name of the League directory when it comes to matching events - all info has to be in the filename. This means that you can still group all sports together and as long as they share a season format you can create a SportScanner.txt file as outlined above and everything will work.
+
+This is rubbish, it kind of accidentally works, I don't recommend it as I will cut it out as part of improvement works in future.
+
 #Known Issues
- - No posters for seasons or individual event thumbs
+ - No posters for seasons
  - Can only handle individual files, not multipart or those in folders
- - All relevant information needs to be in the filename even if it is already outlined in the folder structure for now
+ - All information must be in the filename regardless of the directory structure.

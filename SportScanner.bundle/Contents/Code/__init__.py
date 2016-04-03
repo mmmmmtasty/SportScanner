@@ -29,7 +29,7 @@ def GetResultFromNetwork(url, fetchContent=True):
 
     try:
         netLock.acquire()
-        Log("SS: Retrieving URL: " + url)
+        #Log("SS: Retrieving URL: " + url)
 
         tries = TOTAL_TRIES
         while tries > 0:
@@ -69,6 +69,14 @@ def GetResultFromNetwork(url, fetchContent=True):
 
     return None
 
+def GetLeagueDetails(id):
+    url = "{0}lookupleague.php?id={1}".format(SPORTSDB_API, id)
+    try:
+        details = (JSON.ObjectFromString(GetResultFromNetwork(url, True)))['leagues'][0]
+    except:
+        Log("SS: Could not retrieve shows from thesportsdb.com")
+
+    return details
 
 def Start():
     # Let's put this up when things are all stable shall we?
@@ -81,80 +89,83 @@ class SportScannerAgent(Agent.TV_Shows):
     languages = ['en']
 
     def search(self, results, media, lang, manual):
-        # Get the show name and query the web service for that info
-        match = re.match('^(.*?): (.*)', media.show)
-        sport = match.group(1)
-        show_title = match.group(2)
+        # Get all leagues defined in thesportsdb and match this one
+        show_title = media.show
         Log("SS: Attempting to match {0}".format(show_title))
-        url = "{0}search_all_leagues.php?s={1}".format(SPORTSDB_API, sport)
+        url = "{0}all_leagues.php".format(SPORTSDB_API)
         try:
-            potential_shows = (JSON.ObjectFromString(GetResultFromNetwork(url, True)))['countrys']
+            potential_leagues = (JSON.ObjectFromString(GetResultFromNetwork(url, True)))['leagues']
         except:
             Log("SS: Could not retrieve shows from thesportsdb.com")
 
         match = False
 
         # Check to see if there is a perfect match
-        for i in range(0, len(potential_shows)):
-            x = potential_shows[i]
-            # Log("SS: Comparing {0] to {1}".format(x['strLeague'], show_title))
-            if x['strLeague'] == show_title:
-                Log("SS: Found a perfect match for {0}".format(show_title))
-                results.Append(
-                    MetadataSearchResult(
-                        id=x['idLeague'],
-                        name=show_title,
-                        year=int(x['intFormedYear']),
-                        lang='en',
-                        score=100
-                    )
-                )
-                match = True
-                continue
-            if x['strLeagueAlternate'] is not None:
-                if show_title in x['strLeagueAlternate'].split(","):
+        if potential_leagues is not None:
+            for i in range(0, len(potential_leagues)):
+                # Log("SS: Comparing {0] to {1}".format(x['strLeague'], show_title))
+                # Get the full details of the league
+                league_details = GetLeagueDetails(potential_leagues[i]['idLeague'])
+                if league_details['strLeague'] == show_title:
+                    Log("SS: Found a perfect match for {0}".format(show_title))
                     results.Append(
                         MetadataSearchResult(
-                            id=x['idLeague'],
+                            id=league_details['idLeague'],
                             name=show_title,
-                            year=int(x['intFormedYear']),
+                            year=int(league_details['intFormedYear']),
                             lang='en',
                             score=100
                         )
                     )
                     match = True
                     continue
+                if league_details['strLeagueAlternate'] is not None:
+                    if show_title in league_details['strLeagueAlternate'].split(","):
+                        results.Append(
+                            MetadataSearchResult(
+                                id=league_details['idLeague'],
+                                name=show_title,
+                                year=int(league_details['intFormedYear']),
+                                lang='en',
+                                score=100
+                            )
+                        )
+                        match = True
+                        continue
 
         # See if anything else comes close if we are doing a deeper manual search and haven't found anything already
-        # if manual and not match:
         if not match and manual:
             Log("SS: Doing a comparison match, no exact matches found")
-            for i in range(0, len(potential_shows)):
-                x = potential_shows[i]
-                current_league = x['strLeague']
-                score = (similar(current_league, show_title) * 100)
+            for i in range(0, len(potential_leagues)):
+                # Get league details
+                league_details = GetLeagueDetails(potential_leagues[i]['idLeague'])
+                score = (similar(league_details['strLeague'], show_title) * 100)
 
+                # Match with 60% similarity
                 if score > 60:
-                    Log("SS: Matched {0} with a score of {1}".format(current_league, score))
+                    Log("SS: Matched {0} with a score of {1}".format(league_details['strLeague'], score))
                     results.Append(
                         MetadataSearchResult(
-                            id=x['idLeague'],
-                            name=current_league,
-                            year=int(x['intFormedYear']),
+                            id=league_details['idLeague'],
+                            name=league_details['strLeague'],
+                            year=int(league_details['intFormedYear']),
                             lang='en',
                             score=score
                         )
                     )
-                if x['strLeagueAlternate'] is not None:
-                    y = x['strLeagueAlternate'].split(",")
-                    for j in range(0, len(y)):
-                        score = (similar(y[j], show_title) * 100)
+
+                # Match against alternate league names
+                if league_details['strLeagueAlternate'] is not None:
+                    alt_names = league_details['strLeagueAlternate'].split(",")
+                    for j in range(0, len(alt_names)):
+                        score = (similar(alt_names[j], show_title) * 100)
+                        # Match with 60% similarity
                         if score > 60:
                             results.Append(
                                 MetadataSearchResult(
-                                    id=x['idLeague'],
+                                    id=league_details['idLeague'],
                                     name=show_title,
-                                    year=int(x['intFormedYear']),
+                                    year=int(league_details['intFormedYear']),
                                     lang='en',
                                     score=score
                                 )
@@ -185,39 +196,12 @@ class SportScannerAgent(Agent.TV_Shows):
         def UpdateEpisodes():
             # Go through available episodes
             for s in media.seasons:
-                # Get events for the season we care about
-                url = "{0}eventsseason.php?id={1}&s={2}".format(SPORTSDB_API, metadata.id, str(s).zfill(4))
-                season_metadata = JSON.ObjectFromString(GetResultFromNetwork(url, True))
-
-                # #There is currently no concept of a season having art in thesportsdb!
-                #
-                # # I don't believe either of these actually do anything
-                # metadata.seasons[s].summary = data['seasons'][s]['summary']
-                # metadata.seasons[s].title = data['seasons'][s]['name']
-                #
-                # Log("SS: Downloading posters for {0}".format(data['seasons'][s]['name']))
-                # # Download the episode thumbnail
-                # valid_names = list()
-                #
-                # if 'posters' in data['seasons'][s]:
-                #   for poster in data['seasons'][s]['posters']:
-                #     try:
-                #       metadata.seasons[s].posters[poster] = Proxy.Media(GetResultFromNetwork(poster, False))
-                #       valid_names.append(poster)
-                #     except:
-                #       Log("SS: Failed to add poster for {0}".format(s))
-                #       pass
-                # else:
-                #   Log("SS: No season posters to download for {0}".format(s))
-                #
-                # metadata.seasons[s].posters.validate_keys(valid_names)
-
                 for e in media.seasons[s].episodes:
                     episode = metadata.seasons[s].episodes[e]
                     episode_media = media.seasons[s].episodes[e]
 
                     @task
-                    def UpdateEpisode(episode=episode, season_metadata=season_metadata, episode_media=episode_media, metadata=metadata):
+                    def UpdateEpisode(episode=episode, league_metadata=league_metadata, episode_media=episode_media, metadata=metadata):
                         Log("SS: Matching episode number {0}: {1}".format(e, episode_media.title))
                         matched_episode = None
                         # First try and match the filename exactly as it is
@@ -257,47 +241,55 @@ class SportScannerAgent(Agent.TV_Shows):
                                 pass
 
                         if matched_episode is None:
+                            Log("SS: Could not match on filename, trying dates and titles")
                             # If the file doesn't match perfectly, try and match based on dates and event titles
                             closest_event = None
                             best_score = 0
                             total_matches = 0
-                            # First try and match an episode
-                            for current_event in range(len(season_metadata['events'])):
-                                # Log("SS: Comparing {0} to {1}".format(season_metadata['episodes'][p]['title'],
-                                # episode_media.title))
-                                if ("dateEvent" in season_metadata['events'][current_event]) and episode_media.originally_available_at:
-                                    if season_metadata['events'][current_event]['dateEvent'] == episode_media.originally_available_at:
-                                        total_matches += 1
-                                        closeness = similar(episode_media.title,
-                                                            season_metadata['events'][current_event]['strEvent'])
-                                        # Take a second closeness with bastard name
-                                        bastard_title = "{0} {1}".format(metadata.title, episode_media.title)
-                                        bastard_closeness = similar(bastard_title,
-                                                            season_metadata['events'][current_event]['strEvent'])
-                                        if bastard_closeness > closeness:
-                                            closeness = bastard_closeness
-                                            Log("SS: Using {0} from match with {1}".format(closeness, bastard_title))
 
-                                        Log("SS: Match ratio of {0} between {1} and {2}".format(closeness,
-                                                                                                episode_media.title,
-                                                                                                season_metadata[
-                                                                                                    'events'][
-                                                                                                    current_event][
-                                                                                                    'strEvent']))
-                                        # If they are a perfect match then we are done
-                                        if closeness == 1:
-                                            best_score = 1
-                                            closest_event = current_event
-                                            break
-                                        elif closeness > best_score:
-                                            best_score = closeness
-                                            closest_event = current_event
-                                            continue
+                            # Get all events in that sport/league/day
+                            match = re.search(r'(?P<year>\d{4})-(?P<month>\d{1,2})-(?P<day>\d{1,2})', episode_media.originally_available_at, re.IGNORECASE)
+                            if match:
+                                # Replace all spaces with underscores for league name
+                                league_name = re.sub(r' ', '_', league_metadata['strLeague'])
+                                url = "{0}eventsday.php?d={1}-{2}-{3}&l={4}".format(SPORTSDB_API, match.group('year'), match.group('month'), match.group('day'), league_name)
+                                day_events = JSON.ObjectFromString(GetResultFromNetwork(url, True))
+
+                                Log("SS: Searching through {0} events".format(len(day_events['events'])))
+                                for current_event in range(len(day_events['events'])):
+                                    # Log("SS: Comparing {0} to {1}".format(season_metadata['events'][current_event]['strEvent'], episode_media.title))
+                                    # Log("SS: Checking dateEvent: {0}".format(day_events['events'][current_event]['dateEvent']))
+                                    if ("dateEvent" in day_events['events'][current_event]) and episode_media.originally_available_at:
+                                        if day_events['events'][current_event]['dateEvent'] == episode_media.originally_available_at:
+                                            total_matches += 1
+                                            closeness = similar(episode_media.title,
+                                                                day_events['events'][current_event]['strEvent'])
+                                            # Take a second closeness with bastard name
+                                            bastard_title = "{0} {1}".format(metadata.title, episode_media.title)
+                                            bastard_closeness = similar(bastard_title,
+                                                                day_events['events'][current_event]['strEvent'])
+                                            if bastard_closeness > closeness:
+                                                closeness = bastard_closeness
+                                                Log("SS: Using {0} from match with {1}".format(closeness, bastard_title))
+
+                                            Log("SS: Match ratio of {0} between {1} and {2}".format(closeness, episode_media.title, day_events['events'][current_event]['strEvent']))
+                                            # If they are a perfect match then we are done
+                                            if closeness == 1:
+                                                best_score = 1
+                                                closest_event = current_event
+                                                break
+                                            elif closeness > best_score:
+                                                best_score = closeness
+                                                closest_event = current_event
+                                                continue
+
+                            if total_matches == 0:
+                                Log("SS: No events took place on {0}".format(episode_media.originally_available_at))
 
                             Log("SS: Best match was {0}".format(best_score))
-                            # Only accept if the match is better than 80% or 50% if there is only one event on that date
-                            if best_score > 0.8 or (best_score > 0.5 and total_matches == 1):
-                                matched_episode = season_metadata['events'][closest_event]
+                            # Only accept if the match is better than 80% or assume we have found the correct event if there is only one on that date
+                            if best_score > 0.8 or total_matches == 1:
+                                matched_episode = day_events['events'][closest_event]
 
                         if matched_episode is None:
                             Log("SS: Could not match {0}".format(episode_media.title))
@@ -309,7 +301,7 @@ class SportScannerAgent(Agent.TV_Shows):
                         extra_details = ""
                         if matched_episode['strAwayTeam'] is not None and matched_episode['strHomeTeam'] is not None:
                             extra_details = "{0} vs. {1}\n".format(matched_episode['strHomeTeam'], matched_episode['strAwayTeam'])
-                        if matched_episode['dateEvent'] is not None and matched_episode['strTime']:
+                        if matched_episode['dateEvent'] is not None and matched_episode['strTime'] is not None:
                             extra_details = "{0}Played on {1} at {2}\n".format(extra_details, matched_episode['dateEvent'], matched_episode['strTime'])
                         if matched_episode['strCircuit'] is not None:
                             extra_details = "{0}Race venue: {1}".format(extra_details, matched_episode['strCircuit'])
@@ -318,7 +310,7 @@ class SportScannerAgent(Agent.TV_Shows):
                                     extra_details = "{0} in {1}, {2}".format(extra_details, matched_episode['strCity'], matched_episode['strCountry'])
                                 else:
                                     extra_details = "{0} in {1}".format(extra_details, matched_episode['strCountry'])
-                        summary = "{0}\n\n{1}".format(extra_details, matched_episode['strDescriptionEN'])
+                        summary = "{0}\n\n{1}\n\nMatched by SportScanner.".format(extra_details, matched_episode['strDescriptionEN'])
                         Log("SS: summary: {0}".format(summary))
                         episode.summary = summary
                         episode.originally_available_at = datetime.datetime.strptime(

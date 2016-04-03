@@ -19,19 +19,12 @@ regex_title_file_name = [
     '.*'
 ]
 
-seasons = {"Soccer": {"split_date": [7, 1], "season_format": "xxyy"},
-           "Ice Hockey": {"split_date": [7, 1], "season_format": "xxyy"},
-           "Motorsport": {"season_format": "yyyy"},
-           "Baseball": {"season_format": "yyyy"},
-           "Basketball": {"split_date": [7, 1], "season_format": "xxyy"}}
-
-
 # Look for episodes.
 def Scan(path, files, mediaList, subdirs):
     print "SS: Starting scan"
-    # print "SS: path |", path, "|"
-    # print "SS: files |", files, "|"
-    # print "SS: subdirs |", subdirs, "|"
+    #print "SS: path |", path, "|"
+    #print "SS: files |", files, "|"
+    #print "SS: subdirs |", subdirs, "|"
 
     # Scan for video files.
     VideoFiles.Scan(path, files, mediaList, subdirs)
@@ -57,16 +50,13 @@ def Scan(path, files, mediaList, subdirs):
 
     paths = Utils.SplitPath(path)
 
-    if len(paths) == 1 and len(paths[0]) == 0:
+    if len(paths) == 1 and len(paths[0]) == 0 or len(path) == 0 :
+        # This is just a load of files dumped in the root directory - we can't deal with this properly
         print "SS: In TLD, no files here can be scanned"
         return
+
     elif len(paths) == 1 and len(paths[0]) > 0:
-        # The first layer or directories has to be the sport or nothing will work
-        # Any files we find at this level MUST have the sport information in their filename
-        sport = paths[0]
-        print "SS: Assuming {0} is a sport, scanning individual files".format(sport)
-        # pprint(clean_files)
-        # Look for ALL the information we need in the filename
+        # These files have been dumped into a League directory but have no seasons.
         for file in clean_files:
             print "SS: Working on file | {0} |".format(file)
             for rx in regex_all_in_file_name:
@@ -77,24 +67,46 @@ def Scan(path, files, mediaList, subdirs):
                     month = int(match.group('month'))
                     day = int(match.group('day'))
                     show = re.sub('[^0-9a-zA-Z]+', ' ', match.group('show'))
-                    show = "{0}: {1}".format(sport, show)
                     title = re.sub('[^0-9a-zA-Z]+', ' ', match.group('title'))
-                    if sport in seasons:
-                        season_type = seasons[sport]['season_format']
-                        if season_type == "xxyy":
-                            dates = seasons[sport]['split_date']
-                            if month < dates[0] or (month == dates[0] and day < dates[1]):
-                                short_year = year[-2:]
-                                year_before = str(int(short_year) - 1)
-                                season = int("{0}{1}".format(year_before, short_year))
-                            else:
-                                short_year = year[-2:]
-                                year_after = str(int(short_year) + 1)
-                                season = int("{0}{1}".format(short_year, year_after))
-                        else:
-                            season = int(year)
+                    season = year
+
+                    # Work out where the .SportScanner file should be
+                    filename = re.sub(r'(.*\\).*?$',r'\1SportScanner.txt',clean_files[file])
+                    print "SS: FileName: {0}".format(filename)
+
+                    # Check to see if a .SportScanner file exists, then read in the contents
+                    if os.path.isfile(filename):
+                        size = os.path.getsize(filename)
+                        fd = os.open(filename, os.O_RDONLY)
+                        file_contents = os.read(fd, size)
+                        # print "SS: FileContents: {0}".format(file_contents)
+                        season_match = re.search('(?P<season>XX..)',file_contents, re.IGNORECASE)
+                        if season_match:
+                            season_format = season_match.group('season').lower()
+                            print "SS: Using {0} season format for {1}".format(season_format, show)
+
+                            if season_format == "xxyy":
+                               # If this is a split season then get the dates
+                                split_dates_match = re.search(r'(?P<month>\d{1,2}),(?P<day>\d{1,2})', file_contents, re.IGNORECASE)
+                                if split_dates_match:
+                                    split_month = int(split_dates_match.group('month'))
+                                    split_day = int(split_dates_match.group('day'))
+                                    print "SS: Split date is {0}-{1}".format(split_month, split_day)
+                                    print "SS: Event date is {0}-{1}".format(month, day)
+                                    if month < split_month or (month == split_month and day < split_day):
+                                        print "SS: Event happened before split date"
+                                        short_year = year[-2:]
+                                        year_before = str(int(short_year) - 1)
+                                        season = int("{0}{1}".format(year_before, short_year))
+                                    else:
+                                        print "SS: Event happened after split date"
+                                        short_year = year[-2:]
+                                        year_after = str(int(short_year) + 1)
+                                        season = int("{0}{1}".format(short_year, year_after))
+                                else:
+                                    print "SS: Could not match dates"
                     else:
-                        season = int(year)
+                        print "SS: Could not find {0}, defaulting to XXXX season format"
 
                     # Using a hash so that each file gets the same episode number on every scan
                     # The year must be included for seasons that run over a year boundary
@@ -106,24 +118,19 @@ def Scan(path, files, mediaList, subdirs):
                     break
                 else:
                     print "SS: No match found for {0}".format(file)
-
     elif len(paths) >= 2:
-        # Here we assume that it is in this format: Sport/League
-        sport = paths[0]
-        show = "{0}: {1}".format(sport, paths[1])
-        print "SS: Assuming {0} is a sport and {1} is the show, scanning individual files".format(sport, show)
-        # pprint(clean_files)
-        season = 0
+        # Here we assume that it is in this format: League/Season
+        show = paths[0]
 
+        season = 0
         # Look for the season in obvious ways or fail
-        if len(paths) >= 3:
-            match = re.match('Season (\d{4})', paths[2])
+        match = re.match('Season (\d{4})', paths[1])
+        if match:
+            season = match.group(1)
+        else:
+            match = re.match('(\d{4})', paths[1])
             if match:
                 season = match.group(1)
-            else:
-                match = re.match('(\d{4})', paths[2])
-                if match:
-                    season = match.group(1)
 
         # Look for ALL the information we need in the filename - but trust what we have already found
         for file in clean_files:
@@ -136,27 +143,10 @@ def Scan(path, files, mediaList, subdirs):
                     month = int(match.group('month'))
                     day = int(match.group('day'))
                     title = re.sub('[^0-9a-zA-Z]+', ' ', match.group('title'))
-                    # Work out what season we should add this to
-                    if sport in seasons and season == 0:
-                        season_type = seasons[sport]['season_format']
-                        if season_type == "xxyy":
-                            dates = seasons[sport]['split_date']
-                            if month < dates[0] or (month == dates[0] and day < dates[1]):
-                                short_year = year[-2:]
-                                year_before = str(int(short_year) - 1)
-                                season = int("{0}{1}".format(year_before, short_year))
-                            else:
-                                short_year = year[-2:]
-                                year_after = str(int(short_year) + 1)
-                                season = int("{0}{1}".format(short_year, year_after))
-                        else:
-                            season = int(year)
-                    elif season == 0:
-                        season = int(year)
 
-                    #ep = int('%02d%02d%04d' % (month, day, (random.randint(0, 9999))))
-                    #This has to be changed as each file needs to get the same episode number on every scan
-                    ep = int('%02d%02d%04d' % (month, day, abs(hash(file)) % (10 ** 4)))
+                    # Using a hash so that each file gets the same episode number on every scan
+                    # The year must be included for seasons that run over a year boundary
+                    ep = int('%s%02d%02d%04d' % (year[-2:],month, day, abs(hash(file)) % (10 ** 4)))
                     tv_show = Media.Episode(show, season, ep, title, int(year))
                     tv_show.released_at = '%s-%02d-%02d' % (year, month, day)
                     tv_show.parts.append(clean_files[file])
