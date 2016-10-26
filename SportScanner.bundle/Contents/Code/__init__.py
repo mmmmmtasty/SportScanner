@@ -122,6 +122,7 @@ class SportScannerAgent(Agent.TV_Shows):
         #Check if we can reverse match. This requires an API call for each sport.
         if not match:
             if potential_leagues is not None:
+                cached_leagues = {} # We will use this in the next step. This will remove an additional API call for every sport.
                 for i in range(0, len(potential_leagues)):
                     # Log("SS: Comparing {0] to {1}".format(x['strLeague'], show_title))
                     # Get the full details of the league
@@ -147,7 +148,15 @@ class SportScannerAgent(Agent.TV_Shows):
             Log("SS: Doing a comparison match, no exact matches found")
             for i in range(0, len(potential_leagues)):
                 # Get league details
-                league_details = GetLeagueDetails(potential_leagues[i]['idLeague'])
+                # The values won't have changed since the first run through. We could create a dict that stores each sport.
+                # This will greatly improve the speed of this step.
+                if i in cached_leagues: #Check if a cached value exists.
+                    #Cached value exists. Use it.
+                    league_details = cached_leagues[i]
+                else:
+                    #Shouldn't ever reach here as we loaded every sport in the previous step.
+                    league_details = GetLeagueDetails(potential_leagues[i]['idLeague'])
+                    
                 score = (similar(league_details['strLeague'], show_title) * 100)
 
                 # Match with 60% similarity
