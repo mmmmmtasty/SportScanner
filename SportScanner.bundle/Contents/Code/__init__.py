@@ -101,13 +101,12 @@ class SportScannerAgent(Agent.TV_Shows):
         match = False
 
         # Check to see if there is a perfect match
+        # Iterate through all of the sports primary names. If this fails then we can make a call for each sport and match against alternate names.
         if potential_leagues is not None:
-            for i in range(0, len(potential_leagues)):
-                # Log("SS: Comparing {0] to {1}".format(x['strLeague'], show_title))
-                # Get the full details of the league
-                league_details = GetLeagueDetails(potential_leagues[i]['idLeague'])
-                if league_details['strLeague'] == show_title:
+            for league in potential_leagues: #So far we've only made 1 API call to TSDB.
+                if show_title == league['strLeague']:
                     Log("SS: Found a perfect match for {0}".format(show_title))
+                    league_details = GetLeagueDetails(league['idLeague']) # Match found. Get the rest of the details.
                     results.Append(
                         MetadataSearchResult(
                             id=league_details['idLeague'],
@@ -118,20 +117,30 @@ class SportScannerAgent(Agent.TV_Shows):
                         )
                     )
                     match = True
-                    continue
-                if league_details['strLeagueAlternate'] is not None:
-                    if show_title in league_details['strLeagueAlternate'].split(","):
-                        results.Append(
-                            MetadataSearchResult(
-                                id=league_details['idLeague'],
-                                name=show_title,
-                                year=int(league_details['intFormedYear']),
-                                lang='en',
-                                score=100
+                    break # Break. We've found the show we're looking for. Do we need to keep looking?
+                    
+        #Check if we can reverse match. This requires an API call for each sport.
+        if not match:
+            if potential_leagues is not None:
+                for i in range(0, len(potential_leagues)):
+                    # Log("SS: Comparing {0] to {1}".format(x['strLeague'], show_title))
+                    # Get the full details of the league
+                    league_details = GetLeagueDetails(potential_leagues[i]['idLeague'])
+                    cached_leagues[i] = league_details
+                    # Match against the alternate names.
+                    if league_details['strLeagueAlternate'] is not None:
+                        if show_title in league_details['strLeagueAlternate'].split(","):
+                            results.Append(
+                                MetadataSearchResult(
+                                    id=league_details['idLeague'],
+                                    name=show_title,
+                                    year=int(league_details['intFormedYear']),
+                                    lang='en',
+                                    score=100
+                                )
                             )
-                        )
-                        match = True
-                        continue
+                            match = True
+                            break # Break. We've found the show we're looking for. Do we need to keep looking?
 
         # See if anything else comes close if we are doing a deeper manual search and haven't found anything already
         if not match and manual:
