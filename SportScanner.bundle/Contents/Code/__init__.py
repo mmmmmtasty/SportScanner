@@ -69,7 +69,12 @@ def GetResultFromNetwork(url, fetchContent=True):
 
     return None
 
-def GetLeagueDetails(id):
+def GetLeagueDetails(id, cache = None):
+    if cache is not None:
+        if id in cache: # Check if a cached value exists.
+            # Cached value exists. Use it.
+            return cache[id]
+    # Nothing in cache or no cache provided.
     url = "{0}lookupleague.php?id={1}".format(SPORTSDB_API, id)
     try:
         details = (JSON.ObjectFromString(GetResultFromNetwork(url, True)))['leagues'][0]
@@ -87,6 +92,7 @@ def Start():
 class SportScannerAgent(Agent.TV_Shows):
     name = 'SportScanner'
     languages = ['en']
+    cached_leagues = {}  # We will use this in the next step. This will remove an additional API call for every sport.
 
     def search(self, results, media, lang, manual):
         # Get all leagues defined in thesportsdb and match this one
@@ -106,7 +112,8 @@ class SportScannerAgent(Agent.TV_Shows):
             for league in potential_leagues: #So far we've only made 1 API call to TSDB.
                 if show_title == league['strLeague']:
                     Log("SS: Found a perfect match for {0}".format(show_title))
-                    league_details = GetLeagueDetails(league['idLeague']) # Match found. Get the rest of the details.
+                    league_details = GetLeagueDetails(league['idLeague'], self.cached_leagues) # Match found. Get the rest of the details.
+                    self.cached_leagues[league['idLeague']] = league_details
                     results.Append(
                         MetadataSearchResult(
                             id=league_details['idLeague'],
@@ -122,12 +129,11 @@ class SportScannerAgent(Agent.TV_Shows):
         #Check if we can reverse match. This requires an API call for each sport.
         if not match:
             if potential_leagues is not None:
-                cached_leagues = {} # We will use this in the next step. This will remove an additional API call for every sport.
                 for i in range(0, len(potential_leagues)):
                     # Log("SS: Comparing {0] to {1}".format(x['strLeague'], show_title))
                     # Get the full details of the league
-                    league_details = GetLeagueDetails(potential_leagues[i]['idLeague'])
-                    cached_leagues[i] = league_details
+                    league_details = GetLeagueDetails(potential_leagues[i]['idLeague'], self.cached_leagues)
+                    self.cached_leagues[i] = league_details
                     # Match against the alternate names.
                     if league_details['strLeagueAlternate'] is not None:
                         if show_title in league_details['strLeagueAlternate'].split(","):
@@ -148,14 +154,8 @@ class SportScannerAgent(Agent.TV_Shows):
             Log("SS: Doing a comparison match, no exact matches found")
             for i in range(0, len(potential_leagues)):
                 # Get league details
-                # The values won't have changed since the first run through. We could create a dict that stores each sport.
-                # This will greatly improve the speed of this step.
-                if i in cached_leagues: #Check if a cached value exists.
-                    #Cached value exists. Use it.
-                    league_details = cached_leagues[i]
-                else:
-                    #Shouldn't ever reach here as we loaded every sport in the previous step.
-                    league_details = GetLeagueDetails(potential_leagues[i]['idLeague'])
+                league_details = GetLeagueDetails(potential_leagues[i]['idLeague'], self.cached_leagues)
+                self.cached_leagues[potential_leagues[i]['idLeague']] = league_details
                     
                 score = (similar(league_details['strLeague'], show_title) * 100)
 
