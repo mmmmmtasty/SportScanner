@@ -133,7 +133,7 @@ class SportScannerAgent(Agent.TV_Shows):
                     # Log("SS: Comparing {0] to {1}".format(x['strLeague'], show_title))
                     # Get the full details of the league
                     league_details = GetLeagueDetails(potential_leagues[i]['idLeague'], self.cached_leagues)
-                    self.cached_leagues[i] = league_details
+                    self.cached_leagues[league_details['idLeague']] = league_details
                     # Match against the alternate names.
                     if league_details['strLeagueAlternate'] is not None:
                         if show_title in league_details['strLeagueAlternate'].split(","):
