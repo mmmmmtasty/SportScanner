@@ -69,7 +69,12 @@ def GetResultFromNetwork(url, fetchContent=True):
 
     return None
 
-def GetLeagueDetails(id):
+def GetLeagueDetails(id, cache = None):
+    if cache is not None:
+        if id in cache: # Check if a cached value exists.
+            # Cached value exists. Use it.
+            return cache[id]
+    # Nothing in cache or no cache provided.
     url = "{0}lookupleague.php?id={1}".format(SPORTSDB_API, id)
     try:
         details = (JSON.ObjectFromString(GetResultFromNetwork(url, True)))['leagues'][0]
@@ -87,6 +92,7 @@ def Start():
 class SportScannerAgent(Agent.TV_Shows):
     name = 'SportScanner'
     languages = ['en']
+    cached_leagues = {}  # We will use this in the next step. This will remove an additional API call for every sport.
 
     def search(self, results, media, lang, manual):
         # Get all leagues defined in thesportsdb and match this one
@@ -101,13 +107,13 @@ class SportScannerAgent(Agent.TV_Shows):
         match = False
 
         # Check to see if there is a perfect match
+        # Iterate through all of the sports primary names. If this fails then we can make a call for each sport and match against alternate names.
         if potential_leagues is not None:
-            for i in range(0, len(potential_leagues)):
-                # Log("SS: Comparing {0] to {1}".format(x['strLeague'], show_title))
-                # Get the full details of the league
-                league_details = GetLeagueDetails(potential_leagues[i]['idLeague'])
-                if league_details['strLeague'] == show_title:
+            for league in potential_leagues: #So far we've only made 1 API call to TSDB.
+                if show_title == league['strLeague']:
                     Log("SS: Found a perfect match for {0}".format(show_title))
+                    league_details = GetLeagueDetails(league['idLeague'], self.cached_leagues) # Match found. Get the rest of the details.
+                    self.cached_leagues[league['idLeague']] = league_details
                     results.Append(
                         MetadataSearchResult(
                             id=league_details['idLeague'],
@@ -118,27 +124,39 @@ class SportScannerAgent(Agent.TV_Shows):
                         )
                     )
                     match = True
-                    continue
-                if league_details['strLeagueAlternate'] is not None:
-                    if show_title in league_details['strLeagueAlternate'].split(","):
-                        results.Append(
-                            MetadataSearchResult(
-                                id=league_details['idLeague'],
-                                name=show_title,
-                                year=int(league_details['intFormedYear']),
-                                lang='en',
-                                score=100
+                    break # Break. We've found the show we're looking for. Do we need to keep looking?
+                    
+        #Check if we can reverse match. This requires an API call for each sport.
+        if not match:
+            if potential_leagues is not None:
+                for i in range(0, len(potential_leagues)):
+                    # Log("SS: Comparing {0] to {1}".format(x['strLeague'], show_title))
+                    # Get the full details of the league
+                    league_details = GetLeagueDetails(potential_leagues[i]['idLeague'], self.cached_leagues)
+                    self.cached_leagues[league_details['idLeague']] = league_details
+                    # Match against the alternate names.
+                    if league_details['strLeagueAlternate'] is not None:
+                        if show_title in league_details['strLeagueAlternate'].split(","):
+                            results.Append(
+                                MetadataSearchResult(
+                                    id=league_details['idLeague'],
+                                    name=show_title,
+                                    year=int(league_details['intFormedYear']),
+                                    lang='en',
+                                    score=100
+                                )
                             )
-                        )
-                        match = True
-                        continue
+                            match = True
+                            break # Break. We've found the show we're looking for. Do we need to keep looking?
 
         # See if anything else comes close if we are doing a deeper manual search and haven't found anything already
         if not match and manual:
             Log("SS: Doing a comparison match, no exact matches found")
             for i in range(0, len(potential_leagues)):
                 # Get league details
-                league_details = GetLeagueDetails(potential_leagues[i]['idLeague'])
+                league_details = GetLeagueDetails(potential_leagues[i]['idLeague'], self.cached_leagues)
+                self.cached_leagues[potential_leagues[i]['idLeague']] = league_details
+                    
                 score = (similar(league_details['strLeague'], show_title) * 100)
 
                 # Match with 60% similarity
