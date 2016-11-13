@@ -7,8 +7,12 @@
 #Get all the teams in the league according to thesportsdb
 $thesportsdbTeams = @{}
 
+# Set up web session
+$websession = new-object Microsoft.PowerShell.Commands.WebRequestSession
+$websession.Headers.Add("Referer","http://stats.nba.com/scores")
+
 $teamUrl = "http://www.thesportsdb.com/api/v1/json/8123456712556/lookup_all_teams.php?id=4387"
-$teams = (Invoke-WebRequest $teamUrl | ConvertFrom-Json).teams
+$teams = (Invoke-WebRequest $teamUrl -WebSession $websession | ConvertFrom-Json).teams
 
 
 
@@ -35,7 +39,7 @@ $LeagueID = '00'
 foreach ( $date in $dates) {
     $properDate = "$($date.Year)-$($date.Month.ToString("00"))-$($date.Day.ToString("00"))"
     $schedUrl = "http://stats.nba.com/stats/scoreboard/?GameDate=$properDate&LeagueID=$LeagueID&DayOffset=0" 
-    $output = ((Invoke-WebRequest $schedUrl).Content | ConvertFrom-Json).resultSets
+    $output = ((Invoke-WebRequest $schedUrl -WebSession $websession).Content | ConvertFrom-Json).resultSets
     $games = ($output | where { $_.Name -eq 'GameHeader'}).rowSet
     $scores = ($output | where { $_.Name -eq 'LineScore'}).rowSet
     if ( !($games -and $scores) ) {
