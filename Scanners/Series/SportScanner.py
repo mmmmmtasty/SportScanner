@@ -9,6 +9,8 @@ from pprint import pprint
 regex_all_in_file_name = [
     '(?P<show>.*?)[^0-9a-zA-Z]+(?P<year>[0-9]{4})[^0-9a-zA-Z]+(?P<month>[0-9]{2})[^0-9a-zA-Z]+(?P<day>[0-9]{2})['
     '^0-9a-zA-Z]+(?P<title>.*)$',
+    '^(?P<show>.*?)-(?P<season>[0-9]{4}).*-([0-9a-zA-z]+-)(?P<year>[0-9]{4})(?P<month>[0-9]{2})(?P<day>[0-9]{2})'
+    '-(?P<title>.*)$'
 ]
 
 regex_date_title_file_name = [
@@ -68,7 +70,10 @@ def Scan(path, files, mediaList, subdirs):
                     day = int(match.group('day'))
                     show = re.sub('[^0-9a-zA-Z]+', ' ', match.group('show'))
                     title = re.sub('[^0-9a-zA-Z]+', ' ', match.group('title'))
-                    season = year
+                    if 'season' in match.groups():
+                        season = match.group('season')
+                    else:
+                        season = year
 
                     # Work out where the .SportScanner file should be
                     filename = re.sub(r'(.*\\).*?$',r'\1SportScanner.txt',clean_files[file])
