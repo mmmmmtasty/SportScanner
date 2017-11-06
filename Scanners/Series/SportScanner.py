@@ -10,7 +10,7 @@ regex_all_in_file_name = [
     '(?P<show>.*?)[^0-9a-zA-Z]+(?P<year>[0-9]{4})[^0-9a-zA-Z]+(?P<month>[0-9]{2})[^0-9a-zA-Z]+(?P<day>[0-9]{2})['
     '^0-9a-zA-Z]+(?P<title>.*)$',
     '^(?P<show>.*?)-(?P<season>[0-9]{4}).*-([0-9a-zA-z]+-)(?P<year>[0-9]{4})(?P<month>[0-9]{2})(?P<day>[0-9]{2})'
-    '[-_](?P<title>.*?)(_ALT)?'
+    '[-_](?P<title>.*?)(_ALT)?$'
 ]
 
 regex_date_title_file_name = [
