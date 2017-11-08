@@ -74,7 +74,7 @@ foreach ($date in $dates) {
             strAwayFormation = $null
             intHomeShots = $null
             intAwayShots = $null
-            dateEvent = "$properDate"
+            dateEvent = "$($date.date)"
             strDate = $null
             strTime = $null
             strTVStation = $null
