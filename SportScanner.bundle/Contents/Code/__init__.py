@@ -1,6 +1,9 @@
 import re, time, os, datetime
 from pprint import pprint
 from difflib import SequenceMatcher
+import urllib2
+import certifi
+import requests
 
 netLock = Thread.Lock()
 
@@ -13,7 +16,7 @@ RETRY_TIMEOUT = MIN_RETRY_TIMEOUT
 TOTAL_TRIES = 1
 BACKUP_TRIES = -1
 
-SPORTSDB_API = "http://www.thesportsdb.com/api/v1/json/8123456712556/"
+SPORTSDB_API = "https://www.thesportsdb.com/api/v1/json/8123456712556/"
 
 headers = {'User-agent': 'Plex/Nine'}
 
@@ -35,9 +38,9 @@ def GetResultFromNetwork(url, fetchContent=True):
         while tries > 0:
 
             try:
-                result = HTTP.Request(url, headers=headers, timeout=60)
+                result = requests.get(url, headers=headers, verify=certifi.where())
                 if fetchContent:
-                    result = result.content
+                    result = result.text
 
                 failureCount = 0
                 successCount += 1
