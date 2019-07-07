@@ -227,6 +227,18 @@ class SportScannerAgent(Agent.TV_Shows):
                         matched_episode = None
                         # First try and match the filename exactly as it is
 
+                        # jump in here for some additional metadata logic
+                        additional_metadata_file = os.path.splitext(episode_media.items[0].parts[0].file)[0] + '.SportScanner'
+                        additional_metadata_subtitle = '';
+                        if os.path.isfile(additional_metadata_file):
+                            additional_metadata_size = os.path.getsize(additional_metadata_file)
+                            additional_metadata_fd = os.open(additional_metadata_file, os.O_RDONLY)
+                            additional_metadata_lines = os.read(additional_metadata_fd, additional_metadata_size).splitlines()
+                            os.close(additional_metadata_fd)
+                            if len(additional_metadata_lines) > 1:
+                                additional_metadata_subtitle = additional_metadata_lines[1]
+                        additional_metadata_subtitle = additional_metadata_subtitle.strip()
+
                         filename = os.path.splitext(os.path.basename(episode_media.items[0].parts[0].file))[0]
                         whackRx = ['([hHx][\.]?264)[^0-9].*', '[^[0-9](720[pP]).*', '[^[0-9](1080[pP]).*',
                                    '[^[0-9](480[pP]).*', '[^[0-9](540[pP]).*']
@@ -317,7 +329,10 @@ class SportScannerAgent(Agent.TV_Shows):
                             return
 
                         Log("SS: Updating metadata for {0}".format(matched_episode['strEvent']))
-                        episode.title = matched_episode['strEvent']
+                        if len(additional_metadata_subtitle) > 0:
+                            episode.title = matched_episode['strEvent'] + ' ' + additional_metadata_subtitle
+                        else:
+                            episode.title = matched_episode['strEvent']
                         #Generate a useful description based on the available fields
                         extra_details = ""
                         if matched_episode['strAwayTeam'] is not None and matched_episode['strHomeTeam'] is not None:

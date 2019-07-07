@@ -68,3 +68,12 @@ This is rubbish, it kind of accidentally works, I don't recommend it as I will c
  - No posters for seasons
  - Can only handle individual files, not multipart or those in folders
  - All information must be in the filename regardless of the directory structure.
+
+#Additional Metadata
+
+The presence of a .SportScanner metadata file can be used to append additional text to the title of the event as well as override a portion of the episode number.
+Normally the episode number is of the form `YYMMDDHHHH` where YY is the year, MM is the month, DD is the day, and HHHH is based on a hash.  If the first line of the `.SportScanner` file is a number it will be used in place of the hash.
+The second line of the `.SportScanner` file will be appended to the title of the event.
+
+ - ~LibraryRoot/NHL/Season 1516/NHL.2015.09.25.New-York-Islanders.vs.Philadelphia-Flyers.720p.HDTV.60fps.x264-Reborn4HD_h.mp4
+ - ~LibraryRoot/NHL/Season 1516/NHL.2015.09.25.New-York-Islanders.vs.Philadelphia-Flyers.720p.HDTV.60fps.x264-Reborn4HD_h.SportScanner

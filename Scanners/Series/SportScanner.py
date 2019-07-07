@@ -61,6 +61,22 @@ def Scan(path, files, mediaList, subdirs):
         # These files have been dumped into a League directory but have no seasons.
         for file in clean_files:
             print "SS: Working on file | {0} |".format(file)
+
+            # jump in here for some additional metadata logic
+            additional_metadata_file = os.path.splitext(clean_files[file])[0] + '.SportScanner'
+            additional_metadata_subepisode = '';
+            if os.path.isfile(additional_metadata_file):
+                additional_metadata_size = os.path.getsize(additional_metadata_file)
+                additional_metadata_fd = os.open(additional_metadata_file, os.O_RDONLY)
+                additional_metadata_lines = os.read(additional_metadata_fd, additional_metadata_size).splitlines()
+                os.close(additional_metadata_fd)
+                if len(additional_metadata_lines) > 0:
+                    additional_metadata_subepisode = additional_metadata_lines[0]
+            try:
+                additional_metadata_subepisode = int(additional_metadata_subepisode)
+            except ValueError:
+                additional_metadata_subepisode = -1
+
             for rx in regex_all_in_file_name:
                 match = re.search(rx, file, re.IGNORECASE)
                 if match:
@@ -115,7 +131,10 @@ def Scan(path, files, mediaList, subdirs):
 
                     # Using a hash so that each file gets the same episode number on every scan
                     # The year must be included for seasons that run over a year boundary
-                    ep = int('%s%02d%02d%04d' % (year[-2:],month, day, abs(hash(file)) % (10 ** 4)))
+                    if additional_metadata_subepisode < 0:
+                        ep = int('%s%02d%02d%04d' % (year[-2:],month, day, abs(hash(file)) % (10 ** 4)))
+                    else:
+                        ep = int('%s%02d%02d%04d' % (year[-2:],month, day, additional_metadata_subepisode))
                     tv_show = Media.Episode(show, season, ep, title, int(year))
                     tv_show.released_at = '%s-%02d-%02d' % (year, month, day)
                     tv_show.parts.append(clean_files[file])
@@ -140,6 +159,22 @@ def Scan(path, files, mediaList, subdirs):
         # Look for ALL the information we need in the filename - but trust what we have already found
         for file in clean_files:
             print "SS: Working on file | {0} |".format(file)
+            
+            # jump in here for some additional metadata logic
+            additional_metadata_file = os.path.splitext(clean_files[file])[0] + '.SportScanner'
+            additional_metadata_subepisode = '';
+            if os.path.isfile(additional_metadata_file):
+                additional_metadata_size = os.path.getsize(additional_metadata_file)
+                additional_metadata_fd = os.open(additional_metadata_file, os.O_RDONLY)
+                additional_metadata_lines = os.read(additional_metadata_fd, additional_metadata_size).splitlines()
+                os.close(additional_metadata_fd)
+                if len(additional_metadata_lines) > 0:
+                    additional_metadata_subepisode = additional_metadata_lines[0]
+            try:
+                additional_metadata_subepisode = int(additional_metadata_subepisode)
+            except ValueError:
+                additional_metadata_subepisode = -1
+            
             for rx in regex_all_in_file_name:
                 match = re.search(rx, file, re.IGNORECASE)
                 if match:
@@ -151,7 +186,10 @@ def Scan(path, files, mediaList, subdirs):
 
                     # Using a hash so that each file gets the same episode number on every scan
                     # The year must be included for seasons that run over a year boundary
-                    ep = int('%s%02d%02d%04d' % (year[-2:],month, day, abs(hash(file)) % (10 ** 4)))
+                    if additional_metadata_subepisode < 0:
+                        ep = int('%s%02d%02d%04d' % (year[-2:],month, day, abs(hash(file)) % (10 ** 4)))
+                    else:
+                        ep = int('%s%02d%02d%04d' % (year[-2:],month, day, additional_metadata_subepisode))
                     tv_show = Media.Episode(show, season, ep, title, int(year))
                     tv_show.released_at = '%s-%02d-%02d' % (year, month, day)
                     tv_show.parts.append(clean_files[file])
