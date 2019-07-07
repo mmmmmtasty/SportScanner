@@ -75,5 +75,14 @@ The presence of a .SportScanner metadata file can be used to append additional t
 Normally the episode number is of the form `YYMMDDHHHH` where YY is the year, MM is the month, DD is the day, and HHHH is based on a hash.  If the first line of the `.SportScanner` file is a number it will be used in place of the hash.
 The second line of the `.SportScanner` file will be appended to the title of the event.
 
- - ~LibraryRoot/NHL/Season 1516/NHL.2015.09.25.New-York-Islanders.vs.Philadelphia-Flyers.720p.HDTV.60fps.x264-Reborn4HD_h.mp4
- - ~LibraryRoot/NHL/Season 1516/NHL.2015.09.25.New-York-Islanders.vs.Philadelphia-Flyers.720p.HDTV.60fps.x264-Reborn4HD_h.SportScanner
+ - ~LibraryRoot/Formula 1/Season 2019/Formula 1 2019-06-30 Austrian Grand Prix - 03 Post-Race Analysis.mp4
+ - ~LibraryRoot/Formula 1/Season 2019/Formula 1 2019-06-30 Austrian Grand Prix - 03 Post-Race Analysis.SportScanner
+
+In the above example, the `Formula 1 2019-06-30 Austrian Grand Prix - 03 Post-Race Analysis.SportScanner` file contains the following text:
+
+```
+3
+(Post-Race Analysis)
+```
+
+The resulting episode number is `1906300003` and the resulting title is `Austrian Grand Prix (Post-Race Analysis)`
