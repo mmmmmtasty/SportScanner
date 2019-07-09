@@ -6,7 +6,7 @@
 
 Scanner and Metadata Agent for Plex that uses www.thesportsdb.com
 
-#Installation
+# Installation
 
 Plex main folder location:
 
@@ -31,11 +31,11 @@ Plex main folder location:
  - You may need to restart Plex
  - Create a new library and under Advanced options you should be able to select "SportScanner" as both your scanner and metadata agent.
 
-#Media Format
+# Media Format
 
 The SportScanner scanner requires one of two folder structures to work correctly, the first of which matches Plex's standard folder structure.
 
-##RECOMMENDED METHOD
+## RECOMMENDED METHOD
 
 Follow the Plex standards for folder structure - TV Show\Season\<files>. For SportScanner, TV Shows = League Name. For example for 2015/2016 NHL you would do something like the following:
 
@@ -43,7 +43,7 @@ Follow the Plex standards for folder structure - TV Show\Season\<files>. For Spo
 
 In this scenario you still need all the information in the file name, I aim to remove that requirement down the line. The only information that comes only from the folder structure is the season. 
 
-##Alternative naming standard
+## Alternative naming standard
 
 You can also choose to ignore the season directory and have the scanner work it out with a folder structure like so:
 
@@ -64,12 +64,12 @@ SportScanner does not actually pay attention to the name of the League directory
 
 This is rubbish, it kind of accidentally works, I don't recommend it as I will cut it out as part of improvement works in future.
 
-#Known Issues
+# Known Issues
  - No posters for seasons
  - Can only handle individual files, not multipart or those in folders
  - All information must be in the filename regardless of the directory structure.
 
-#Additional Metadata
+# Additional Metadata
 
 The presence of a .SportScanner metadata file can be used to append additional text to the title of the event as well as override a portion of the episode number.
 Normally the episode number is of the form `YYMMDDHHHH` where YY is the year, MM is the month, DD is the day, and HHHH is based on a hash.  If the first line of the `.SportScanner` file is a number it will be used in place of the hash.
