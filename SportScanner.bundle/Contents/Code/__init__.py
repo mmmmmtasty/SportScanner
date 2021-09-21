@@ -138,7 +138,7 @@ class SportScannerAgent(Agent.TV_Shows):
                     league_details = GetLeagueDetails(potential_leagues[i]['idLeague'], self.cached_leagues)
                     self.cached_leagues[league_details['idLeague']] = league_details
                     # Match against the alternate names.
-                    if league_details['strLeagueAlternate'] is not None:
+                    if league_details.get('strLeagueAlternate') is not None:
                         if show_title in league_details['strLeagueAlternate'].split(","):
                             results.Append(
                                 MetadataSearchResult(
@@ -176,7 +176,7 @@ class SportScannerAgent(Agent.TV_Shows):
                     )
 
                 # Match against alternate league names
-                if league_details['strLeagueAlternate'] is not None:
+                if league_details.get('strLeagueAlternate') is not None:
                     alt_names = league_details['strLeagueAlternate'].split(",")
                     for j in range(0, len(alt_names)):
                         score = (similar(alt_names[j], show_title) * 100)
@@ -320,14 +320,14 @@ class SportScannerAgent(Agent.TV_Shows):
                         episode.title = matched_episode['strEvent']
                         #Generate a useful description based on the available fields
                         extra_details = ""
-                        if matched_episode['strAwayTeam'] is not None and matched_episode['strHomeTeam'] is not None:
+                        if matched_episode.get('strAwayTeam') is not None and matched_episode.get('strHomeTeam') is not None:
                             extra_details = "{0} vs. {1}\n".format(matched_episode['strHomeTeam'], matched_episode['strAwayTeam'])
-                        if matched_episode['dateEvent'] is not None and matched_episode['strTime'] is not None:
+                        if matched_episode.get('dateEvent') is not None and matched_episode.get('strTime') is not None:
                             extra_details = "{0}Played on {1} at {2}\n".format(extra_details, matched_episode['dateEvent'], matched_episode['strTime'])
-                        if matched_episode['strCircuit'] is not None:
+                        if matched_episode.get('strCircuit') is not None:
                             extra_details = "{0}Race venue: {1}".format(extra_details, matched_episode['strCircuit'])
-                            if matched_episode['strCountry'] is not None:
-                                if matched_episode['strCity'] is not None:
+                            if matched_episode.get('strCountry') is not None:
+                                if matched_episode.get('strCity') is not None:
                                     extra_details = "{0} in {1}, {2}".format(extra_details, matched_episode['strCity'], matched_episode['strCountry'])
                                 else:
                                     extra_details = "{0} in {1}".format(extra_details, matched_episode['strCountry'])
@@ -339,7 +339,7 @@ class SportScannerAgent(Agent.TV_Shows):
 
                         # Download the episode thumbnail
                         valid_names = list()
-                        if matched_episode['strThumb'] is not None:
+                        if matched_episode.get('strThumb') is not None:
                             thumb = matched_episode['strThumb']
                             if thumb not in episode.thumbs:
                                 try:
@@ -366,12 +366,12 @@ class SportScannerAgent(Agent.TV_Shows):
             Log("Downloading Images")
             # Each image is stored separately so we have to do something strange here
             # This looks through all the strPoster keys to see if they exist (strPoster, strPoster1 etc.)
-            if league_metadata['strPoster'] is not None:
+            if league_metadata.get('strPoster') is not None:
                 posters_to_dl.append(league_metadata['strPoster'])
                 for b in range(1, 10):
                     key_name = "strPoster{0}".format(b)
                     if key_name in league_metadata:
-                        if league_metadata[key_name] is not None:
+                        if league_metadata.get(key_name) is not None:
                             posters_to_dl.append(league_metadata[key_name])
                             # posters_to_dl.append("{0}/preview".format(league_metadata[key_name]))
                     else:
@@ -398,12 +398,12 @@ class SportScannerAgent(Agent.TV_Shows):
             metadata.posters.validate_keys(posters_to_dl)
 
             # Each image is stored separately so we have to do something strange here
-            if league_metadata['strBanner'] is not None:
+            if league_metadata.get('strBanner') is not None:
                 banners_to_dl.append(league_metadata['strBanner'])
                 for b in range(1, 10):
                     key_name = "strBanner{0}".format(b)
                     if key_name in league_metadata:
-                        if league_metadata[key_name] is not None:
+                        if league_metadata.get(key_name) is not None:
                             banners_to_dl.append(league_metadata[key_name])
                             # banners_to_dl.append("{0}/preview".format(league_metadata[key_name]))
                 for i in range(len(banners_to_dl)):
@@ -428,7 +428,7 @@ class SportScannerAgent(Agent.TV_Shows):
             for b in range(1, 10):
                 key_name = "strFanart{0}".format(b)
                 if key_name in league_metadata:
-                    if league_metadata[key_name] is not None:
+                    if league_metadata.get(key_name) is not None:
                         fanart_to_dl.append(league_metadata[key_name])
                         # fanart_to_dl.append("{0}/preview".format(league_metadata[key_name]))
             for i in range(len(fanart_to_dl)):
