@@ -9,7 +9,6 @@ that are also useful for external consumption.
 """
 
 import codecs
-import collections
 import contextlib
 import io
 import os
@@ -20,6 +19,8 @@ import sys
 import tempfile
 import warnings
 import zipfile
+from collections import OrderedDict
+from urllib3.util import make_headers
 
 from .__version__ import __version__
 from . import certs
@@ -27,9 +28,9 @@ from . import certs
 from ._internal_utils import to_native_string
 from .compat import parse_http_list as _parse_list_header
 from .compat import (
-    quote, urlparse, bytes, str, OrderedDict, unquote, getproxies,
+    quote, urlparse, bytes, str, unquote, getproxies,
     proxy_bypass, urlunparse, basestring, integer_types, is_py3,
-    proxy_bypass_environment, getproxies_environment)
+    proxy_bypass_environment, getproxies_environment, Mapping)
 from .cookies import cookiejar_from_dict
 from .structures import CaseInsensitiveDict
 from .exceptions import (
@@ -38,6 +39,13 @@ from .exceptions import (
 NETRC_FILES = ('.netrc', '_netrc')
 
 DEFAULT_CA_BUNDLE_PATH = certs.where()
+
+DEFAULT_PORTS = {'http': 80, 'https': 443}
+
+# Ensure that ', ' is used to preserve previous delimiter behavior.
+DEFAULT_ACCEPT_ENCODING = ", ".join(
+    re.split(r",\s*", make_headers(accept_encoding=True)["accept-encoding"])
+)
 
 
 if sys.platform == 'win32':
@@ -146,7 +154,7 @@ def super_len(o):
                 current_position = total_length
         else:
             if hasattr(o, 'seek') and total_length is None:
-                # StringIO and BytesIO have seek but no useable fileno
+                # StringIO and BytesIO have seek but no usable fileno
                 try:
                     # seek to end of file
                     o.seek(0, 2)
@@ -167,18 +175,24 @@ def super_len(o):
 def get_netrc_auth(url, raise_errors=False):
     """Returns the Requests tuple auth for a given url from netrc."""
 
+    netrc_file = os.environ.get('NETRC')
+    if netrc_file is not None:
+        netrc_locations = (netrc_file,)
+    else:
+        netrc_locations = ('~/{}'.format(f) for f in NETRC_FILES)
+
     try:
         from netrc import netrc, NetrcParseError
 
         netrc_path = None
 
-        for f in NETRC_FILES:
+        for f in netrc_locations:
             try:
-                loc = os.path.expanduser('~/{0}'.format(f))
+                loc = os.path.expanduser(f)
             except KeyError:
                 # os.path.expanduser can fail when $HOME is undefined and
-                # getpwuid fails. See http://bugs.python.org/issue20164 &
-                # https://github.com/requests/requests/issues/1846
+                # getpwuid fails. See https://bugs.python.org/issue20164 &
+                # https://github.com/psf/requests/issues/1846
                 return
 
             if os.path.exists(loc):
@@ -210,7 +224,7 @@ def get_netrc_auth(url, raise_errors=False):
             if raise_errors:
                 raise
 
-    # AppEngine hackiness.
+    # App Engine hackiness.
     except (ImportError, AttributeError):
         pass
 
@@ -237,6 +251,10 @@ def extract_zipped_paths(path):
     archive, member = os.path.split(path)
     while archive and not os.path.exists(archive):
         archive, prefix = os.path.split(archive)
+        if not prefix:
+            # If we don't check for an empty prefix after the split (in other words, archive remains unchanged after the split),
+            # we _can_ end up in an infinite loop on a rare corner case affecting a small number of users
+            break
         member = '/'.join([prefix, member])
 
     if not zipfile.is_zipfile(archive):
@@ -248,11 +266,26 @@ def extract_zipped_paths(path):
 
     # we have a valid zip archive and a valid member of that archive
     tmp = tempfile.gettempdir()
-    extracted_path = os.path.join(tmp, *member.split('/'))
+    extracted_path = os.path.join(tmp, member.split('/')[-1])
     if not os.path.exists(extracted_path):
-        extracted_path = zip_file.extract(member, path=tmp)
-
+        # use read + write to avoid the creating nested folders, we only want the file, avoids mkdir racing condition
+        with atomic_open(extracted_path) as file_handler:
+            file_handler.write(zip_file.read(member))
     return extracted_path
+
+
+@contextlib.contextmanager
+def atomic_open(filename):
+    """Write a file to the disk in an atomic fashion"""
+    replacer = os.rename if sys.version_info[0] == 2 else os.replace
+    tmp_descriptor, tmp_name = tempfile.mkstemp(dir=os.path.dirname(filename))
+    try:
+        with os.fdopen(tmp_descriptor, 'wb') as tmp_handler:
+            yield tmp_handler
+        replacer(tmp_name, filename)
+    except BaseException:
+        os.remove(tmp_name)
+        raise
 
 
 def from_key_val_list(value):
@@ -265,7 +298,9 @@ def from_key_val_list(value):
         >>> from_key_val_list([('key', 'val')])
         OrderedDict([('key', 'val')])
         >>> from_key_val_list('string')
-        ValueError: need more than 1 value to unpack
+        Traceback (most recent call last):
+        ...
+        ValueError: cannot encode objects that are not 2-tuples
         >>> from_key_val_list({'key': 'val'})
         OrderedDict([('key', 'val')])
 
@@ -291,7 +326,9 @@ def to_key_val_list(value):
         >>> to_key_val_list({'key': 'val'})
         [('key', 'val')]
         >>> to_key_val_list('string')
-        ValueError: cannot encode objects that are not 2-tuples.
+        Traceback (most recent call last):
+        ...
+        ValueError: cannot encode objects that are not 2-tuples
 
     :rtype: list
     """
@@ -301,7 +338,7 @@ def to_key_val_list(value):
     if isinstance(value, (str, bytes, bool, int)):
         raise ValueError('cannot encode objects that are not 2-tuples')
 
-    if isinstance(value, collections.Mapping):
+    if isinstance(value, Mapping):
         value = value.items()
 
     return list(value)
@@ -467,7 +504,7 @@ def _parse_content_type_header(header):
             if index_of_equals != -1:
                 key = param[:index_of_equals].strip(items_to_strip)
                 value = param[index_of_equals + 1:].strip(items_to_strip)
-            params_dict[key] = value
+            params_dict[key.lower()] = value
     return content_type, params_dict
 
 
@@ -490,6 +527,10 @@ def get_encoding_from_headers(headers):
 
     if 'text' in content_type:
         return 'ISO-8859-1'
+
+    if 'application/json' in content_type:
+        # Assume UTF-8 based on RFC 4627: https://www.ietf.org/rfc/rfc4627.txt since the charset was unset
+        return 'utf-8'
 
 
 def stream_decode_response_unicode(iterator, r):
@@ -696,6 +737,8 @@ def should_bypass_proxies(url, no_proxy):
 
     :rtype: bool
     """
+    # Prioritize lowercase environment variables over uppercase
+    # to keep a consistent behaviour with other http projects (curl, wget).
     get_proxy = lambda k: os.environ.get(k) or os.environ.get(k.upper())
 
     # First check whether no_proxy is defined. If it is, check that the URL
@@ -704,6 +747,10 @@ def should_bypass_proxies(url, no_proxy):
     if no_proxy is None:
         no_proxy = get_proxy('no_proxy')
     parsed = urlparse(url)
+
+    if parsed.hostname is None:
+        # URLs don't always have hostnames, e.g. file:/// urls.
+        return True
 
     if no_proxy:
         # We need to check whether we match here. We need to see if we match
@@ -724,7 +771,7 @@ def should_bypass_proxies(url, no_proxy):
         else:
             host_with_port = parsed.hostname
             if parsed.port:
-                host_with_port += ':{0}'.format(parsed.port)
+                host_with_port += ':{}'.format(parsed.port)
 
             for host in no_proxy:
                 if parsed.hostname.endswith(host) or host_with_port.endswith(host):
@@ -732,13 +779,8 @@ def should_bypass_proxies(url, no_proxy):
                     # to apply the proxies on this URL.
                     return True
 
-    # If the system proxy settings indicate that this URL should be bypassed,
-    # don't proxy.
-    # The proxy_bypass function is incredibly buggy on OS X in early versions
-    # of Python 2.6, so allow this call to fail. Only catch the specific
-    # exceptions we've seen, though: this call failing in other ways can reveal
-    # legitimate problems.
     with set_environ('no_proxy', no_proxy_arg):
+        # parsed.hostname can be `None` in cases such as a file URI.
         try:
             bypass = proxy_bypass(parsed.hostname)
         except (TypeError, socket.gaierror):
@@ -803,7 +845,7 @@ def default_headers():
     """
     return CaseInsensitiveDict({
         'User-Agent': default_user_agent(),
-        'Accept-Encoding': ', '.join(('gzip', 'deflate')),
+        'Accept-Encoding': DEFAULT_ACCEPT_ENCODING,
         'Accept': '*/*',
         'Connection': 'keep-alive',
     })
