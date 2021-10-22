@@ -40,7 +40,11 @@ def GetResultFromNetwork(url, fetchContent=True):
             try:
                 result = requests.get(url, headers=headers, verify=certifi.where())
                 if fetchContent:
-                    result = result.text
+                    if result.encoding is None:
+                        # binary download
+                        result = result.content
+                    else:
+                        result = result.text
 
                 failureCount = 0
                 successCount += 1
@@ -193,7 +197,7 @@ class SportScannerAgent(Agent.TV_Shows):
                                 )
                             )
 
-    def update(self, metadata, media, lang):
+    def update(self, metadata, media, lang, force):
         Log("SS: update for: {0}".format(metadata.id))
 
         # We're not trying to read cached ones for now - let's get the new stuff every time
@@ -357,15 +361,15 @@ class SportScannerAgent(Agent.TV_Shows):
                         valid_names = list()
                         if matched_episode.get('strThumb') is not None:
                             thumb = matched_episode['strThumb']
-                            if thumb not in episode.thumbs:
+                            if thumb not in episode.thumbs or force:
                                 try:
-                                    episode.thumbs[thumb] = Proxy.Media(GetResultFromNetwork(thumb, False))
+                                    episode.thumbs[thumb] = Proxy.Media(GetResultFromNetwork(thumb, True))
                                     valid_names.append(thumb)
                                 except:
                                     Log("SS: Failed to add thumbnail for {0}".format(episode.title))
                                     pass
-                                else:
-                                    Log("SS: No new thumbnails to download for {0}".format(episode.title))
+                            else:
+                                Log("SS: No new thumbnails to download for {0}".format(episode.title))
                         else:
                             Log("SS: No thumbs to download for {0}".format(episode.title))
 
