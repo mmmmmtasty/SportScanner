@@ -297,7 +297,7 @@ class SportScannerAgent(Agent.TV_Shows):
                                 for current_event in range(len(day_events['events'])):
                                     # Log("SS: Comparing {0} to {1}".format(season_metadata['events'][current_event]['strEvent'], episode_media.title))
                                     # Log("SS: Checking dateEvent: {0}".format(day_events['events'][current_event]['dateEvent']))
-                                    if ("dateEvent" in day_events['events'][current_event]) and episode_media.originally_available_at:
+                                    if ("dateEvent" in day_events['events'][current_event]) and hasattr(episode_media,'originally_available_at'):
                                         if day_events['events'][current_event]['dateEvent'] == episode_media.originally_available_at:
                                             total_matches += 1
                                             closeness = similar(episode_media.title,
