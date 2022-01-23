@@ -110,6 +110,7 @@ class SportScannerAgent(Agent.TV_Shows):
         try:
             potential_leagues = (JSON.ObjectFromString(GetResultFromNetwork(url, True)))['leagues']
         except:
+            potential_leagues = None
             Log("SS: Could not retrieve shows from thesportsdb.com")
 
         match = False
