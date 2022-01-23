@@ -4,6 +4,12 @@ from difflib import SequenceMatcher
 import urllib2
 import certifi
 import requests
+import ConfigParser
+
+config = ConfigParser.SafeConfigParser()
+config.add_section('thesportsdb.com')
+config.set('thesportsdb.com','apikey','8123456712556')
+configread = config.read('SportsScanner.ini')
 
 netLock = Thread.Lock()
 
@@ -16,7 +22,7 @@ RETRY_TIMEOUT = MIN_RETRY_TIMEOUT
 TOTAL_TRIES = 1
 BACKUP_TRIES = -1
 
-SPORTSDB_API = "https://www.thesportsdb.com/api/v1/json/8123456712556/"
+SPORTSDB_API = "https://www.thesportsdb.com/api/v1/json/{0}/".format(config.get('thesportsdb.com','apikey'))
 
 headers = {'User-agent': 'Plex/Nine'}
 
