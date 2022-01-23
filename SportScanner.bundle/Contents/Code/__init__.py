@@ -99,6 +99,8 @@ def Start():
 class SportScannerAgent(Agent.TV_Shows):
     name = 'SportScanner'
     languages = ['en']
+    primary_provider = True
+    fallback_provider = ['com.plexapp.agents.localmedia']
     accepts_from = ['com.plexapp.agents.localmedia']
     cached_leagues = {}  # We will use this in the next step. This will remove an additional API call for every sport.
 
