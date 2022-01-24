@@ -92,7 +92,7 @@ def Scan(path, files, mediaList, subdirs):
                         season = year
 
                     # Work out where the .SportScanner file should be
-                    filename = re.sub(r'(.*\\).*?$',r'\1SportScanner.txt',clean_files[file])
+                    filename = "{0}{1}SportScanner.txt".format(os.path.dirname(clean_files[file]),os.path.sep)
                     print "SS: FileName: {0}".format(filename)
 
                     # Check to see if a .SportScanner file exists, then read in the contents
