@@ -4,6 +4,12 @@ from difflib import SequenceMatcher
 import urllib2
 import certifi
 import requests
+import ConfigParser
+
+config = ConfigParser.SafeConfigParser()
+config.add_section('thesportsdb.com')
+config.set('thesportsdb.com','apikey','8123456712556')
+configread = config.read('SportsScanner.ini')
 
 netLock = Thread.Lock()
 
@@ -16,7 +22,7 @@ RETRY_TIMEOUT = MIN_RETRY_TIMEOUT
 TOTAL_TRIES = 1
 BACKUP_TRIES = -1
 
-SPORTSDB_API = "https://www.thesportsdb.com/api/v1/json/8123456712556/"
+SPORTSDB_API = "https://www.thesportsdb.com/api/v1/json/{0}/".format(config.get('thesportsdb.com','apikey'))
 
 headers = {'User-agent': 'Plex/Nine'}
 
@@ -99,6 +105,8 @@ def Start():
 class SportScannerAgent(Agent.TV_Shows):
     name = 'SportScanner'
     languages = ['en']
+    primary_provider = True
+    fallback_provider = ['com.plexapp.agents.localmedia']
     accepts_from = ['com.plexapp.agents.localmedia']
     cached_leagues = {}  # We will use this in the next step. This will remove an additional API call for every sport.
 
@@ -110,6 +118,7 @@ class SportScannerAgent(Agent.TV_Shows):
         try:
             potential_leagues = (JSON.ObjectFromString(GetResultFromNetwork(url, True)))['leagues']
         except:
+            potential_leagues = None
             Log("SS: Could not retrieve shows from thesportsdb.com")
 
         match = False
