@@ -12,14 +12,14 @@ try:
 except ImportError:
     sportsdb = ''
 try:
-    sportsdb = base64.b64decode(thesportsdb.sportsdb.encode('ascii')).decode('ascii')
+    sportsdb = ''.join(map(str,[chr(ord(a) ^ ord(b)) for a,b in zip (base64.b64decode(thesportsdb.sportsdbkey1),base64.b64decode(thesportsdb.sportsdbkey2))]))
 except AttributeError:
     sportsdb = ''
 
 config = ConfigParser.SafeConfigParser()
 config.add_section('thesportsdb.com')
 config.set('thesportsdb.com','apikey',sportsdb)
-configread = config.read('SportsScanner.ini')
+_ = config.read('SportsScanner.ini')
 
 netLock = Thread.Lock()
 
