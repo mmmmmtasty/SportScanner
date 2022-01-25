@@ -34,6 +34,23 @@ def Scan(path, files, mediaList, subdirs):
     # print "SS: files |", files, "|"
     # print "SS: subdirs |", subdirs, "|"
 
+
+    def NumberEpisode(year,month,day,filehash,sub):
+        if not re.match(r"^[0-9]{4}$",year):
+	    raise ValueError("Incorrectly formatted year. Must be 4 char str: {0}".format(year))
+
+        if (year > "2021"):
+            if sub < 0:
+                ep = int('%s%02d%02d%03d' % (year[-2:],month, day, filehash % (10 ** 3)))
+            else:
+                ep = int('%s%02d%02d%03d' % (year[-2:],month, day, sub))
+        else:
+            if sub < 0:
+                ep = int('%s%02d%02d%03d' % (year[-2:],month, day, filehash % (10 ** 4)))
+            else:
+                ep = int('%s%02d%02d%03d' % (year[-2:],month, day, sub))
+        return ep
+
     # Here we have only video files in files, path is only the TLD, media is empty, subdirs is populated
     # No files here? Then what are we doing!
     clean_files = dict()
@@ -131,10 +148,9 @@ def Scan(path, files, mediaList, subdirs):
 
                     # Using a hash so that each file gets the same episode number on every scan
                     # The year must be included for seasons that run over a year boundary
-                    if additional_metadata_subepisode < 0:
-                        ep = int('%s%02d%02d%04d' % (year[-2:],month, day, abs(hash(file)) % (10 ** 4)))
-                    else:
-                        ep = int('%s%02d%02d%04d' % (year[-2:],month, day, additional_metadata_subepisode))
+                    # Issue #37: Episode numbers made after the year 2022 overrun the 32-bit unsigned
+                    #    integer. Use a function to create a 9-character hash for years 2022 and up
+                    ep = NumberEpisode(year,month,day,abs(hash(file)),additional_metadata_subepisode)
                     tv_show = Media.Episode(show, season, ep, title, int(year))
                     tv_show.released_at = '%s-%02d-%02d' % (year, month, day)
                     tv_show.parts.append(clean_files[file])
@@ -186,10 +202,9 @@ def Scan(path, files, mediaList, subdirs):
 
                     # Using a hash so that each file gets the same episode number on every scan
                     # The year must be included for seasons that run over a year boundary
-                    if additional_metadata_subepisode < 0:
-                        ep = int('%s%02d%02d%04d' % (year[-2:],month, day, abs(hash(file)) % (10 ** 4)))
-                    else:
-                        ep = int('%s%02d%02d%04d' % (year[-2:],month, day, additional_metadata_subepisode))
+                    # Issue #37: Episode numbers made after the year 2022 overrun the 32-bit unsigned
+                    #    integer. Use a function to create a 9-character hash for years 2022 and up
+                    ep = NumberEpisode(year,month,day,abs(hash(file)),additional_metadata_subepisode)
                     tv_show = Media.Episode(show, season, ep, title, int(year))
                     tv_show.released_at = '%s-%02d-%02d' % (year, month, day)
                     tv_show.parts.append(clean_files[file])
