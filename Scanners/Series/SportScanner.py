@@ -39,7 +39,7 @@ def Scan(path, files, mediaList, subdirs):
         if not re.match(r"^[0-9]{4}$",year):
 	    raise ValueError("Incorrectly formatted year. Must be 4 char str: {0}".format(year))
 
-        if (year > "2021"):
+        if int(year) > 2021:
             if sub < 0:
                 ep = int('%s%02d%02d%03d' % (year[-2:],month, day, filehash % (10 ** 3)))
             else:
