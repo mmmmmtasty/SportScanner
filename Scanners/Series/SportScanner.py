@@ -46,9 +46,9 @@ def Scan(path, files, mediaList, subdirs):
                 ep = int('%s%02d%02d%03d' % (year[-2:],month, day, sub))
         else:
             if sub < 0:
-                ep = int('%s%02d%02d%03d' % (year[-2:],month, day, filehash % (10 ** 4)))
+                ep = int('%s%02d%02d%04d' % (year[-2:],month, day, filehash % (10 ** 4)))
             else:
-                ep = int('%s%02d%02d%03d' % (year[-2:],month, day, sub))
+                ep = int('%s%02d%02d%04d' % (year[-2:],month, day, sub))
         return ep
 
     # Here we have only video files in files, path is only the TLD, media is empty, subdirs is populated
