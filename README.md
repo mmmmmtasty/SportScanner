@@ -86,3 +86,15 @@ In the above example, the `Formula 1 2019-06-30 Austrian Grand Prix - 03 Post-Ra
 ```
 
 The resulting episode number is `1906300003` and the resulting title is `Austrian Grand Prix (Post-Race Analysis)`
+
+# API Key
+
+if you have your own API key for thesportsdb.com and want to use it, create a file in the SportScanner data directory.  On Linux, this directory is
+```
+/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Plug-in Support/Data/com.plexapp.agents.sportscanner
+```
+Create a plain text file named 'SportScanner.ini' in that directory (case sensitive if your OS is) and enter
+```
+[thesportsdb.com]
+apikey=<your api key>
+```
