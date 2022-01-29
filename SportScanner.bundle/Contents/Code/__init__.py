@@ -5,11 +5,21 @@ import urllib2
 import certifi
 import requests
 import ConfigParser
+import base64
+
+try:
+    import thesportsdb
+except ImportError:
+    sportsdb = ''
+try:
+    sportsdb = ''.join(map(str,[chr(ord(a) ^ ord(b)) for a,b in zip (base64.b64decode(thesportsdb.sportsdbkey1),base64.b64decode(thesportsdb.sportsdbkey2))]))
+except AttributeError:
+    sportsdb = ''
 
 config = ConfigParser.SafeConfigParser()
 config.add_section('thesportsdb.com')
-config.set('thesportsdb.com','apikey','8123456712556')
-configread = config.read('SportsScanner.ini')
+config.set('thesportsdb.com','apikey',sportsdb)
+_ = config.read('SportsScanner.ini')
 
 netLock = Thread.Lock()
 
@@ -236,7 +246,7 @@ class SportScannerAgent(Agent.TV_Shows):
                     episode_media = media.seasons[s].episodes[e]
 
                     @task
-                    def UpdateEpisode(episode=episode, league_metadata=league_metadata, episode_media=episode_media, metadata=metadata):
+                    def UpdateEpisode(e=e, episode=episode, league_metadata=league_metadata, episode_media=episode_media, metadata=metadata):
                         Log("SS: Matching episode number {0}: {1}".format(e, episode_media.title))
                         matched_episode = None
                         # First try and match the filename exactly as it is
