@@ -2,7 +2,18 @@
 
 [![Join the chat at https://gitter.im/mmmmmtasty/SportScanner](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/mmmmmtasty/SportScanner?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-# This project is no longer actively maintained. Please submit PRs and I will review but support is patchy at best! Thanks for watching!
+# Status Update
+
+I am intending to make some improvements to this scanner and metadata agent. Please feel free to raise issues with requests. Support may still be patchy ;)
+
+Whish list:
+  - Shell script for fast unraid testing
+  - Consider writing tests to enable more refactoring/expansion without breaking existing functionality
+  - Consider new thesportsdb.com APIs to see if they add value
+  - Consider support for multi-part events, double headers and cup competitions
+  - Investigate alternatives or improvements to season setup
+
+-------------
 
 Scanner and Metadata Agent for Plex that uses www.thesportsdb.com
 
