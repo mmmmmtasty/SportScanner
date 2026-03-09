@@ -3,6 +3,7 @@ name: Publish SportScanner 2 Image
 on:
   push:
     branches:
+      - master
       - main
     tags:
       - "v*"
