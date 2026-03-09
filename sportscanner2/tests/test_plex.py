@@ -23,7 +23,7 @@ def test_register_provider_and_group_uses_current_plex_group_endpoints() -> None
     create_group_route = respx.post("http://plex:32400/media/providers/metadata/group").mock(
         return_value=httpx.Response(
             200,
-            json={"MediaContainer": {"MetadataAgentProviderGroup": {"id": 42}}},
+            json={"MediaContainer": {"MetadataAgentProviderGroup": [{"id": 42}]}},
         )
     )
 
@@ -80,3 +80,9 @@ def test_register_provider_and_group_reuses_existing_group() -> None:
 
     assert not create_group_route.called
     assert result.provider_group_id == 99
+
+
+def test_extract_group_id_accepts_object_or_list() -> None:
+    assert PlexPmsClient._extract_group_id({"MediaContainer": {"MetadataAgentProviderGroup": {"id": 7}}}) == 7
+    assert PlexPmsClient._extract_group_id({"MediaContainer": {"MetadataAgentProviderGroup": [{"id": 8}]}}) == 8
+    assert PlexPmsClient._extract_group_id({"MediaContainer": {"MetadataAgentProviderGroup": []}}) is None

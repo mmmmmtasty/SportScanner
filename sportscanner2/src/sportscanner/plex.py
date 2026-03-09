@@ -23,6 +23,21 @@ class PlexPmsClient:
     def with_credentials(self, base_url: str | None, token: str | None) -> "PlexPmsClient":
         return PlexPmsClient(base_url=base_url or self.base_url, token=token or self.token)
 
+    @staticmethod
+    def _extract_group_id(payload: dict) -> int | None:
+        container = payload.get("MediaContainer", {}) if isinstance(payload, dict) else {}
+        group = container.get("MetadataAgentProviderGroup")
+        if isinstance(group, list):
+            if not group:
+                return None
+            first = group[0]
+            if isinstance(first, dict) and first.get("id") is not None:
+                return int(first["id"])
+            return None
+        if isinstance(group, dict) and group.get("id") is not None:
+            return int(group["id"])
+        return None
+
     def register_provider_and_group(
         self,
         *,
@@ -61,7 +76,9 @@ class PlexPmsClient:
                     params={"title": provider_group_name, "primaryIdentifier": provider_identifier},
                 )
                 create_response.raise_for_status()
-                group_id = int(create_response.json()["MediaContainer"]["MetadataAgentProviderGroup"]["id"])
+                group_id = self._extract_group_id(create_response.json())
+                if group_id is None:
+                    raise ValueError("Plex did not return a provider group id")
 
         return PlexRegistrationResult(
             provider_identifier=provider_identifier,
