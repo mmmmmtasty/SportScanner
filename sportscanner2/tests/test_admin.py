@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from sportscanner.plex import PlexRegistrationResult
+
 
 def test_settings_page_explains_plex_fields(provider_app) -> None:
     client = TestClient(provider_app)
@@ -28,6 +30,47 @@ def test_save_settings_redirects_back_to_settings(provider_app) -> None:
         },
         follow_redirects=False,
     )
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("/admin/settings")
+
+
+def test_register_plex_redirects_to_get_result_page(provider_app) -> None:
+    class FakePlex:
+        def with_credentials(self, base_url, token):
+            return self
+
+        def register_provider_and_group(self, *, provider_uri, provider_identifier, provider_group_name):
+            return PlexRegistrationResult(
+                provider_identifier=provider_identifier,
+                provider_uri=provider_uri,
+                provider_group_id=42,
+            )
+
+    provider_app.state.services.plex = FakePlex()
+    client = TestClient(provider_app)
+
+    client.post(
+        "/admin/settings",
+        data={
+            "pms_url": "http://plex:32400",
+            "pms_token": "abc123",
+            "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_group_name": "SportScanner 2",
+        },
+        follow_redirects=False,
+    )
+
+    response = client.post("/admin/register-plex", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("http://testserver/admin/register-plex?")
+
+
+def test_register_plex_result_page_requires_query_values(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/register-plex", follow_redirects=False)
 
     assert response.status_code == 303
     assert response.headers["location"].endswith("/admin/settings")

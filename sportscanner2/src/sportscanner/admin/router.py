@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 
 from sportscanner.db.models import AppSetting, Competition, CompetitionSeason, Event, ReviewTask, Segment, SegmentStatus
+from sportscanner.plex import PlexRegistrationResult
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -190,7 +191,7 @@ def save_settings(
 
 
 @router.post("/register-plex", response_class=HTMLResponse)
-def register_with_plex(request: Request) -> HTMLResponse:
+def register_with_plex(request: Request) -> RedirectResponse:
     services = request.app.state.services
     with _session_factory(request)() as session:
         pms_url = _setting(session, "pms_url", services.settings.pms_url)
@@ -211,6 +212,28 @@ def register_with_plex(request: Request) -> HTMLResponse:
         provider_identifier="tv.plex.agents.custom.sportscanner.metadata",
         provider_group_name=group_name or services.settings.plex_provider_group_name,
     )
+    destination = request.url_for("plex_registration_page").include_query_params(
+        provider_identifier=result.provider_identifier,
+        provider_uri=result.provider_uri,
+        provider_group_id=result.provider_group_id,
+    )
+    return RedirectResponse(url=str(destination), status_code=303)
+
+
+@router.get("/register-plex", response_class=HTMLResponse)
+def plex_registration_page(
+    request: Request,
+    provider_identifier: str | None = None,
+    provider_uri: str | None = None,
+    provider_group_id: int | None = None,
+) -> HTMLResponse:
+    if not provider_identifier or not provider_uri:
+        return RedirectResponse(url=f"{request.url_for('settings_page')}", status_code=303)
+    result = PlexRegistrationResult(
+        provider_identifier=provider_identifier,
+        provider_uri=provider_uri,
+        provider_group_id=provider_group_id,
+    )
     return _render(request, "plex_registration.html", {"result": result})
 
 
@@ -218,4 +241,3 @@ def register_with_plex(request: Request) -> HTMLResponse:
 def rescan(request: Request) -> RedirectResponse:
     request.app.state.services.organizer.rescan_incoming()
     return RedirectResponse(url=f"{request.url_for('dashboard')}", status_code=303)
-
