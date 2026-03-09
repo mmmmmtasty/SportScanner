@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<p>Enter these when you are ready to connect SportScanner to Plex.</p>
+<form method="post" action="{{ request.url_for('save_settings') }}">
+  <label>
+    Plex Server URL
+    <input name="pms_url" value="{{ values.pms_url or '' }}" placeholder="http://192.168.1.20:32400" />
+    <small>The full URL for your Plex Media Server. The default Plex port is 32400.</small>
+  </label>
+  <label>
+    Plex Token (X-Plex-Token)
+    <input name="pms_token" value="{{ values.pms_token or '' }}" placeholder="Paste your Plex token here" />
+    <small>In Plex Web App, open any library item, click Get Info, then View XML, and copy the X-Plex-Token value.</small>
+  </label>
+  <label>
+    Provider Public URL
+    <input
+      name="provider_public_url"
+      value="{{ values.provider_public_url or '' }}"
+      placeholder="http://192.168.1.50:32699"
+    />
+    <small>The address Plex uses to reach SportScanner. Use a real IP or hostname, not localhost.</small>
+  </label>
+  <label>
+    Provider Group Name In Plex
+    <input
+      name="plex_provider_group_name"
+      value="{{ values.plex_provider_group_name or '' }}"
+      placeholder="SportScanner 2"
+    />
+    <small>This is the Agent name you will choose inside Plex. Leaving the default is fine.</small>
+  </label>
+  <button type="submit">Save Settings</button>
+</form>
+<form method="post" action="{{ request.url_for('register_with_plex') }}">
+  <button type="submit" class="secondary">Register Provider And Group</button>
+</form>
+{% endblock %}

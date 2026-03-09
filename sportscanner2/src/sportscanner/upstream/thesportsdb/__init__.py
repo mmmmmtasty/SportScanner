@@ -1,0 +1,2 @@
+"""TheSportsDB adapter and client."""
+

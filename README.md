@@ -1,5 +1,8 @@
 # SportScanner
 
+If you want the newer self-hosted Docker/web app, start with [sportscanner2/README.md](sportscanner2/README.md).
+This top-level README is for the legacy Plex scanner and metadata agent.
+
 [![Join the chat at https://gitter.im/mmmmmtasty/SportScanner](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/mmmmmtasty/SportScanner?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 # Status Update

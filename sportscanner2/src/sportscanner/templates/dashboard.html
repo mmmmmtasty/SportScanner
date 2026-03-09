@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<header>
+  <h1>Dashboard</h1>
+  <p>TheSportsDB mode: <strong>{{ api_mode }}</strong></p>
+</header>
+<section class="grid cards">
+  <article><h2>{{ stats.competitions }}</h2><p>Competitions</p></article>
+  <article><h2>{{ stats.seasons }}</h2><p>Seasons</p></article>
+  <article><h2>{{ stats.published_segments }}</h2><p>Published Segments</p></article>
+  <article><h2>{{ stats.review_tasks }}</h2><p>Open Review Tasks</p></article>
+</section>
+<section class="actions">
+  <form method="post" action="{{ request.url_for('rescan') }}">
+    <button type="submit">Rescan Incoming</button>
+  </form>
+</section>
+{% endblock %}
+

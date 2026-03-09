@@ -1,0 +1,23 @@
+body {
+  background:
+    radial-gradient(circle at top left, rgba(255, 214, 102, 0.18), transparent 30%),
+    radial-gradient(circle at top right, rgba(0, 102, 204, 0.16), transparent 26%),
+    linear-gradient(180deg, #f8f7f1 0%, #eef2f7 100%);
+}
+
+main.container {
+  padding-block: 2rem 4rem;
+}
+
+.cards article {
+  text-align: center;
+}
+
+.cards h2 {
+  font-size: 2.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.actions {
+  margin-top: 2rem;
+}

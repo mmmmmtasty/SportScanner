@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}SportScanner 2{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <link rel="stylesheet" href="{{ request.url_for('static', path='app.css') }}" />
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  </head>
+  <body>
+    <main class="container">
+      <nav>
+        <ul>
+          <li><strong>SportScanner 2</strong></li>
+        </ul>
+        <ul>
+          <li><a href="{{ request.url_for('dashboard') }}">Dashboard</a></li>
+          <li><a href="{{ request.url_for('review_queue') }}">Review</a></li>
+          <li><a href="{{ request.url_for('competitions') }}">Competitions</a></li>
+          <li><a href="{{ request.url_for('settings_page') }}">Settings</a></li>
+        </ul>
+      </nav>
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+  </html>
+

@@ -1,0 +1,17 @@
+services:
+  sportscanner2:
+    image: "${SPORTSCANNER_IMAGE:-ghcr.io/mmmmmtasty/sportscanner2:latest}"
+    ports:
+      - "32699:32699"
+    environment:
+      SPORTSCANNER_DB_PATH: /data/sportscanner.db
+      SPORTSCANNER_INCOMING_DIR: /incoming
+      SPORTSCANNER_LIBRARY_DIR: /library
+      SPORTSCANNER_ASSET_CACHE_DIR: /data/cache
+      SPORTSCANNER_LOG_LEVEL: info
+      SPORTSCANNER_TSDB_API_MODE: auto
+      TSDB_API_KEY: "${TSDB_API_KEY:-123}"
+    volumes:
+      - ./data:/data
+      - ./incoming:/incoming:ro
+      - ./library:/library

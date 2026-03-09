@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Plex Registration{% endblock %}
+{% block content %}
+<h1>Plex Registration</h1>
+<article>
+  <p><strong>Provider Identifier:</strong> {{ result.provider_identifier }}</p>
+  <p><strong>Provider URI:</strong> {{ result.provider_uri }}</p>
+  <p><strong>Provider Group ID:</strong> {{ result.provider_group_id }}</p>
+</article>
+{% endblock %}
+

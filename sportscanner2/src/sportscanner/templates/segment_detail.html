@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Segment{% endblock %}
+{% block content %}
+<h1>Segment {{ segment.id }}</h1>
+<form method="post" action="{{ request.url_for('update_segment', segment_id=segment.id) }}">
+  <label>
+    Title
+    <input name="title" value="{{ segment.title }}" />
+  </label>
+  <label>
+    Kind
+    <input name="kind" value="{{ segment.kind }}" />
+  </label>
+  <button type="submit">Save</button>
+</form>
+<p><strong>Source:</strong> {{ segment.source_path }}</p>
+<p><strong>Managed:</strong> {{ segment.managed_path or "" }}</p>
+<p><strong>Status:</strong> {{ segment.status }}</p>
+{% endblock %}
+

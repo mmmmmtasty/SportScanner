@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Competitions{% endblock %}
+{% block content %}
+<h1>Competitions</h1>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Sport</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for competition in competitions %}
+    <tr>
+      <td>{{ competition.name }}</td>
+      <td>{{ competition.sport or "" }}</td>
+      <td><a href="{{ request.url_for('competition_detail', competition_id=competition.id) }}">Open</a></td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="3">No competitions.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+

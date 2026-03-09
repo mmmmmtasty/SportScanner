@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Competition{% endblock %}
+{% block content %}
+<h1>{{ competition.name }}</h1>
+<p>{{ competition.description or "" }}</p>
+<section>
+  <h2>Seasons</h2>
+  <ul>
+    {% for season in seasons %}
+    <li>{{ season.label }}{% if not season.is_complete %} (incomplete){% endif %}</li>
+    {% else %}
+    <li>No seasons.</li>
+    {% endfor %}
+  </ul>
+</section>
+<section>
+  <h2>Segments</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Episode</th>
+        <th>Title</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for segment in segments %}
+      <tr>
+        <td>{{ segment.episode_number or "" }}</td>
+        <td><a href="{{ request.url_for('segment_detail', segment_id=segment.id) }}">{{ segment.title }}</a></td>
+        <td>{{ segment.status }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="3">No segments.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
+

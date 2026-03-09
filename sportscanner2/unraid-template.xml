@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>SportScanner2</Name>
+  <Repository>ghcr.io/mmmmmtasty/sportscanner2:latest</Repository>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/mmmmmtasty/SportScanner</Support>
+  <Project>https://github.com/mmmmmtasty/SportScanner</Project>
+  <Overview>Plex custom metadata provider and managed sports library organizer.</Overview>
+  <Category>MediaApp:Video</Category>
+  <WebUI>http://[IP]:[PORT:32699]/admin/</WebUI>
+  <TemplateURL>https://github.com/mmmmmtasty/SportScanner</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/mmmmmtasty/SportScanner/main/.github/icon.png</Icon>
+  <Config Name="Web UI Port" Target="32699" Default="32699" Mode="tcp" Type="Port" Display="always" Required="true" />
+  <Config Name="AppData" Target="/data" Default="/mnt/user/appdata/sportscanner2" Mode="rw" Type="Path" Display="always" Required="true" />
+  <Config Name="Incoming" Target="/incoming" Default="/mnt/user/media/incoming" Mode="ro" Type="Path" Display="always" Required="true" />
+  <Config Name="Library" Target="/library" Default="/mnt/user/media/plex/sportscanner2" Mode="rw" Type="Path" Display="always" Required="true" />
+  <Config Name="TheSportsDB API Key" Target="TSDB_API_KEY" Default="123" Mode="" Type="Variable" Display="always" Required="true" />
+</Container>
