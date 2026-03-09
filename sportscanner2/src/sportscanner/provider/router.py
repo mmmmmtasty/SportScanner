@@ -23,9 +23,7 @@ from sportscanner.provider.schemas import (
     ImageModel,
     MatchRequestModel,
     MediaContainerModel,
-    MediaProviderModel,
     MetadataItemModel,
-    ProviderFeature,
     SearchResultModel,
 )
 
@@ -115,17 +113,22 @@ def _episode_metadata(competition: Competition, season: CompetitionSeason, segme
 
 @router.get("")
 def provider_root() -> dict[str, Any]:
-    features = [
-        ProviderFeature(key="/library/metadata", type="metadata", mediaTypes=[2, 3, 4]),
-        ProviderFeature(key="/library/metadata/matches", type="match", method="POST", mediaTypes=[2, 3, 4]),
-    ]
-    provider = MediaProviderModel(
-        identifier=GUID_PREFIX,
-        title="SportScanner 2",
-        version=__version__,
-        features=features,
-    )
-    return {"MediaProvider": provider.model_dump(exclude_none=True)}
+    return {
+        "MediaProvider": {
+            "identifier": GUID_PREFIX,
+            "title": "SportScanner 2",
+            "version": __version__,
+            "Types": [
+                {"type": 2, "Scheme": [{"scheme": GUID_PREFIX}]},
+                {"type": 3, "Scheme": [{"scheme": GUID_PREFIX}]},
+                {"type": 4, "Scheme": [{"scheme": GUID_PREFIX}]},
+            ],
+            "Feature": [
+                {"type": "metadata", "key": "/library/metadata"},
+                {"type": "match", "key": "/library/metadata/matches"},
+            ],
+        }
+    }
 
 
 @router.post("/library/metadata/matches")
@@ -332,4 +335,3 @@ def metadata_images(request: Request, rating_key: str) -> dict[str, Any]:
                 raise HTTPException(status_code=404, detail="Unknown episode")
             images = [ImageModel(type="thumb", url=segment.thumb_url, alt=segment.title)] if segment.thumb_url else []
     return _container(size=len(images), totalSize=len(images), Image=images)
-

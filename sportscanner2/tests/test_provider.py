@@ -24,8 +24,11 @@ def test_provider_root(provider_app) -> None:
     response = client.get("/provider/tv")
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["MediaProvider"]["identifier"] == "tv.plex.agents.custom.sportscanner.metadata"
+    provider = response.json()["MediaProvider"]
+    assert provider["identifier"] == "tv.plex.agents.custom.sportscanner.metadata"
+    assert any(item["type"] == 4 for item in provider["Types"])
+    assert any(item["type"] == "metadata" for item in provider["Feature"])
+    assert any(item["type"] == "match" for item in provider["Feature"])
 
 
 def test_provider_matches_show(provider_app) -> None:
