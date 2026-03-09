@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import create_engine
@@ -153,4 +154,9 @@ def provider_app(settings: Settings, seeded_db, metadata_source: FakeMetadataSou
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     app.include_router(provider_router)
     app.include_router(admin_router)
+
+    @app.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        return RedirectResponse(url="/admin/", status_code=307)
+
     return app

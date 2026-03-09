@@ -3,6 +3,14 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
+def test_root_redirects_to_admin(provider_app) -> None:
+    client = TestClient(provider_app)
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/admin/"
+
+
 def test_provider_root(provider_app) -> None:
     client = TestClient(provider_app)
     response = client.get("/provider/tv")
@@ -38,4 +46,3 @@ def test_provider_episode_metadata(provider_app) -> None:
     metadata = response.json()["MediaContainer"]["Metadata"][0]
     assert metadata["index"] == 1150
     assert metadata["grandparentTitle"] == "Formula 1"
-

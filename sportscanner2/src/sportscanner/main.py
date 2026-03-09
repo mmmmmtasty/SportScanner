@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
@@ -56,6 +57,10 @@ def create_app() -> FastAPI:
     app.include_router(provider_router)
     app.include_router(admin_router)
 
+    @app.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        return RedirectResponse(url="/admin/", status_code=307)
+
     @app.get("/health")
     def health() -> dict[str, object]:
         with session_factory() as session:
@@ -70,4 +75,3 @@ def create_app() -> FastAPI:
         }
 
     return app
-
