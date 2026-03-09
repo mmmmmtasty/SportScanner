@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "SportScanner",
+  "project_id": "e86b4a95-8552-4c8f-9b9b-a8aa65a5d5f2"
+}

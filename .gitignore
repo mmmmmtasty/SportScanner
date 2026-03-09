@@ -8,3 +8,7 @@ sportscanner2/.pytest_cache/
 sportscanner2/data/
 sportscanner2/incoming/
 sportscanner2/library/
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
