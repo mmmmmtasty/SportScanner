@@ -33,11 +33,15 @@ class PlexPmsClient:
         if not self.configured():
             raise ValueError("Plex PMS URL and token are required")
 
-        with httpx.Client(base_url=self.base_url, headers={"X-Plex-Token": self.token}, timeout=20.0) as client:
+        with httpx.Client(
+            base_url=self.base_url,
+            headers={"X-Plex-Token": self.token, "Accept": "application/json"},
+            timeout=20.0,
+        ) as client:
             response = client.post("/media/providers/metadata", params={"uri": provider_uri})
             response.raise_for_status()
 
-            groups_response = client.get("/media/providers/metadata/agent-providers")
+            groups_response = client.get("/media/providers/metadata/group")
             groups_response.raise_for_status()
             container = groups_response.json().get("MediaContainer", {})
             groups = container.get("MetadataAgentProviderGroup", []) or []
@@ -45,7 +49,7 @@ class PlexPmsClient:
                 (
                     item for item in groups
                     if item.get("title") == provider_group_name
-                    or item.get("primaryProviderIdentifier") == provider_identifier
+                    or item.get("primaryIdentifier") == provider_identifier
                 ),
                 None,
             )
@@ -53,12 +57,8 @@ class PlexPmsClient:
                 group_id = int(existing_group["id"])
             else:
                 create_response = client.post(
-                    "/media/providers/metadata/agent-providers",
-                    json={
-                        "title": provider_group_name,
-                        "primaryProviderIdentifier": provider_identifier,
-                        "sourceType": "tv",
-                    },
+                    "/media/providers/metadata/group",
+                    params={"title": provider_group_name, "primaryIdentifier": provider_identifier},
                 )
                 create_response.raise_for_status()
                 group_id = int(create_response.json()["MediaContainer"]["MetadataAgentProviderGroup"]["id"])

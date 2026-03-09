@@ -83,7 +83,7 @@ def test_register_plex_failure_renders_html_error(provider_app) -> None:
             return self
 
         def register_provider_and_group(self, *, provider_uri, provider_identifier, provider_group_name):
-            request = httpx.Request("GET", "http://plex:32400/media/providers/metadata/agent-providers")
+            request = httpx.Request("GET", "http://plex:32400/media/providers/metadata/group")
             response = httpx.Response(400, request=request, text="Bad Request")
             raise httpx.HTTPStatusError("bad request", request=request, response=response)
 
