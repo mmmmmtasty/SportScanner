@@ -2,10 +2,17 @@
 {% block title %}Plex Registration{% endblock %}
 {% block content %}
 <h1>Plex Registration</h1>
+{% if error %}
+<article>
+  <header>Registration failed</header>
+  <p>{{ error }}</p>
+  <p><a href="{{ request.url_for('settings_page') }}">Back to Settings</a></p>
+</article>
+{% elif result %}
 <article>
   <p><strong>Provider Identifier:</strong> {{ result.provider_identifier }}</p>
   <p><strong>Provider URI:</strong> {{ result.provider_uri }}</p>
   <p><strong>Provider Group ID:</strong> {{ result.provider_group_id }}</p>
 </article>
+{% endif %}
 {% endblock %}
-

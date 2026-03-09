@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 from fastapi.testclient import TestClient
 
 from sportscanner.plex import PlexRegistrationResult
@@ -74,3 +75,34 @@ def test_register_plex_result_page_requires_query_values(provider_app) -> None:
 
     assert response.status_code == 303
     assert response.headers["location"].endswith("/admin/settings")
+
+
+def test_register_plex_failure_renders_html_error(provider_app) -> None:
+    class FakePlex:
+        def with_credentials(self, base_url, token):
+            return self
+
+        def register_provider_and_group(self, *, provider_uri, provider_identifier, provider_group_name):
+            request = httpx.Request("GET", "http://plex:32400/media/providers/metadata/agent-providers")
+            response = httpx.Response(400, request=request, text="Bad Request")
+            raise httpx.HTTPStatusError("bad request", request=request, response=response)
+
+    provider_app.state.services.plex = FakePlex()
+    client = TestClient(provider_app)
+
+    client.post(
+        "/admin/settings",
+        data={
+            "pms_url": "http://plex:32400",
+            "pms_token": "abc123",
+            "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_group_name": "SportScanner 2",
+        },
+        follow_redirects=False,
+    )
+
+    response = client.post("/admin/register-plex", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Registration failed" in response.text
+    assert "Plex returned 400 Bad Request." in response.text

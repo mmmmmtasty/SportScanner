@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
@@ -25,6 +26,21 @@ def _session_factory(request: Request):
 def _setting(session, key: str, fallback: str | None = None) -> str | None:
     setting = session.get(AppSetting, key)
     return setting.value if setting is not None else fallback
+
+
+def _settings_values(request: Request) -> dict[str, str | None]:
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        return {
+            "pms_url": _setting(session, "pms_url", services.settings.pms_url),
+            "pms_token": _setting(session, "pms_token", services.settings.pms_token),
+            "provider_public_url": _setting(session, "provider_public_url", services.settings.provider_public_url),
+            "plex_provider_group_name": _setting(
+                session,
+                "plex_provider_group_name",
+                services.settings.plex_provider_group_name,
+            ),
+        }
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -151,18 +167,7 @@ def update_segment(
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request) -> HTMLResponse:
-    services = request.app.state.services
-    with _session_factory(request)() as session:
-        values = {
-            "pms_url": _setting(session, "pms_url", services.settings.pms_url),
-            "pms_token": _setting(session, "pms_token", services.settings.pms_token),
-            "provider_public_url": _setting(session, "provider_public_url", services.settings.provider_public_url),
-            "plex_provider_group_name": _setting(
-                session,
-                "plex_provider_group_name",
-                services.settings.plex_provider_group_name,
-            ),
-        }
+    values = _settings_values(request)
     return _render(request, "settings.html", {"values": values})
 
 
@@ -207,11 +212,34 @@ def register_with_plex(request: Request) -> RedirectResponse:
         raise HTTPException(status_code=400, detail="provider_public_url is required")
 
     plex = services.plex.with_credentials(pms_url, pms_token)
-    result = plex.register_provider_and_group(
-        provider_uri=f"{public_url.rstrip('/')}/provider/tv",
-        provider_identifier="tv.plex.agents.custom.sportscanner.metadata",
-        provider_group_name=group_name or services.settings.plex_provider_group_name,
-    )
+    try:
+        result = plex.register_provider_and_group(
+            provider_uri=f"{public_url.rstrip('/')}/provider/tv",
+            provider_identifier="tv.plex.agents.custom.sportscanner.metadata",
+            provider_group_name=group_name or services.settings.plex_provider_group_name,
+        )
+    except ValueError as exc:
+        return _render(
+            request,
+            "plex_registration.html",
+            {"error": str(exc), "result": None, "values": _settings_values(request)},
+        )
+    except httpx.HTTPStatusError as exc:
+        detail = f"Plex returned {exc.response.status_code} {exc.response.reason_phrase}."
+        body = exc.response.text.strip()
+        if body:
+            detail = f"{detail} {body[:300]}"
+        return _render(
+            request,
+            "plex_registration.html",
+            {"error": detail, "result": None, "values": _settings_values(request)},
+        )
+    except httpx.HTTPError as exc:
+        return _render(
+            request,
+            "plex_registration.html",
+            {"error": f"Could not reach Plex: {exc}", "result": None, "values": _settings_values(request)},
+        )
     destination = request.url_for("plex_registration_page").include_query_params(
         provider_identifier=result.provider_identifier,
         provider_uri=result.provider_uri,
