@@ -159,4 +159,8 @@ def provider_app(settings: Settings, seeded_db, metadata_source: FakeMetadataSou
     def root() -> RedirectResponse:
         return RedirectResponse(url="/admin/", status_code=307)
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> RedirectResponse:
+        return RedirectResponse(url="/static/favicon.svg", status_code=307)
+
     return app

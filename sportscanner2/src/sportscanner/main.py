@@ -61,6 +61,10 @@ def create_app() -> FastAPI:
     def root() -> RedirectResponse:
         return RedirectResponse(url="/admin/", status_code=307)
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> RedirectResponse:
+        return RedirectResponse(url="/static/favicon.svg", status_code=307)
+
     @app.get("/health")
     def health() -> dict[str, object]:
         with session_factory() as session:

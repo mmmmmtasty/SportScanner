@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}SportScanner 2{% endblock %}</title>
+    <link rel="icon" href="{{ request.url_for('static', path='favicon.svg') }}" type="image/svg+xml" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
     <link rel="stylesheet" href="{{ request.url_for('static', path='app.css') }}" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
@@ -25,4 +26,3 @@
     </main>
   </body>
   </html>
-

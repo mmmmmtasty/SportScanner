@@ -11,6 +11,14 @@ def test_root_redirects_to_admin(provider_app) -> None:
     assert response.headers["location"] == "/admin/"
 
 
+def test_favicon_redirects_to_static_asset(provider_app) -> None:
+    client = TestClient(provider_app)
+    response = client.get("/favicon.ico", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/static/favicon.svg"
+
+
 def test_provider_root(provider_app) -> None:
     client = TestClient(provider_app)
     response = client.get("/provider/tv")
