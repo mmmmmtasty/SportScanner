@@ -102,6 +102,51 @@ def _segment_id_for_source_path(db_path: Path, source_path: Path) -> str:
         engine.dispose()
 
 
+def _cleanup_live_test_state(db_path: Path, incoming_dir: Path, library_dir: Path) -> None:
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    source_pattern = f"{incoming_dir}/live-plex-%/%"
+    managed_pattern = "%Austrian Grand Prix Live Test %.mkv"
+    try:
+        with factory() as session:
+            rows = session.execute(
+                text(
+                    """
+                    SELECT id, source_path, managed_path
+                    FROM segment
+                    WHERE source_path LIKE :source_pattern
+                       OR managed_path LIKE :managed_pattern
+                    """
+                ),
+                {
+                    "source_pattern": source_pattern,
+                    "managed_pattern": managed_pattern,
+                },
+            ).all()
+            segment_ids = [str(row[0]) for row in rows]
+            if segment_ids:
+                placeholders = ", ".join(f":segment_id_{index}" for index in range(len(segment_ids)))
+                params = {f"segment_id_{index}": segment_id for index, segment_id in enumerate(segment_ids)}
+                session.execute(text(f"DELETE FROM review_task WHERE segment_id IN ({placeholders})"), params)
+                session.execute(text(f"DELETE FROM override WHERE segment_id IN ({placeholders})"), params)
+                session.execute(text(f"DELETE FROM segment WHERE id IN ({placeholders})"), params)
+                session.commit()
+    finally:
+        engine.dispose()
+
+    for fixture_dir in incoming_dir.glob("live-plex-*"):
+        for path in sorted(fixture_dir.glob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+        if fixture_dir.exists():
+            fixture_dir.rmdir()
+
+    season_dir = library_dir / "Formula 1" / season_directory_name(2025)
+    for path in season_dir.glob("Formula 1 - 2025-06-29 - Austrian Grand Prix Live Test *.mkv"):
+        if path.is_file():
+            path.unlink()
+
+
 def _plex_sections(client: httpx.Client, plex_base_url: str, plex_token: str) -> list[ET.Element]:
     response = client.get(
         f"{plex_base_url}/library/sections",
@@ -162,6 +207,59 @@ def _metadata_children(client: httpx.Client, plex_base_url: str, plex_token: str
     response = client.get(f"{plex_base_url}{key}", params={"X-Plex-Token": plex_token})
     assert response.status_code == 200, f"Plex metadata children failed for {key}: {response.text}"
     return ET.fromstring(response.text)
+
+
+def _metadata_details(client: httpx.Client, plex_base_url: str, plex_token: str, rating_key: str) -> ET.Element:
+    response = client.get(
+        f"{plex_base_url}/library/metadata/{rating_key}",
+        params={"includeGuids": 1, "X-Plex-Token": plex_token},
+    )
+    assert response.status_code == 200, f"Plex metadata fetch failed for {rating_key}: {response.text}"
+    root = ET.fromstring(response.text)
+    item = root.find(".//Video")
+    if item is None:
+        item = root.find(".//Directory")
+    assert item is not None, f"Plex metadata payload for {rating_key} did not include an item"
+    return item
+
+
+def _delete_metadata(client: httpx.Client, plex_base_url: str, plex_token: str, rating_key: str) -> None:
+    response = client.delete(
+        f"{plex_base_url}/library/metadata/{rating_key}",
+        params={"X-Plex-Token": plex_token},
+    )
+    assert response.status_code == 200, f"Plex metadata delete failed for {rating_key}: {response.text}"
+
+
+def _delete_stale_live_test_show(
+    client: httpx.Client,
+    plex_base_url: str,
+    plex_token: str,
+    section_id: int,
+) -> None:
+    show = next(
+        (
+            directory
+            for directory in _show_directories(client, plex_base_url, plex_token, section_id)
+            if directory.attrib.get("title") == "Formula 1"
+        ),
+        None,
+    )
+    if show is None:
+        return
+
+    season_items = _metadata_children(client, plex_base_url, plex_token, show.attrib["key"]).findall(".//Directory")
+    media_paths: list[str] = []
+    for season in season_items:
+        for video in _metadata_children(client, plex_base_url, plex_token, season.attrib["key"]).findall(".//Video"):
+            part = video.find(".//Part")
+            if part is not None and part.attrib.get("file"):
+                media_paths.append(part.attrib["file"])
+
+    if any("Austrian Grand Prix Live Test" not in path for path in media_paths):
+        pytest.skip("Sport_Test contains non-live-test Formula 1 media; refusing to delete it during the live test")
+
+    _delete_metadata(client, plex_base_url, plex_token, show.attrib["ratingKey"])
 
 
 def test_live_plex_registration_and_library() -> None:
@@ -238,6 +336,7 @@ def test_live_ingest_and_metadata_resolution() -> None:
         assert health.status_code == 200, f"SportScanner health check failed: {health.text}"
         health_payload = health.json()
         library_dir = Path(health_payload["library_dir"])
+        _cleanup_live_test_state(db_path, incoming_dir, library_dir)
         section = _find_library_section(
             client=plex_client,
             plex_base_url=plex_base_url,
@@ -245,6 +344,22 @@ def test_live_ingest_and_metadata_resolution() -> None:
             library_name=library_name,
         )
         section_id = int(section.attrib["key"])
+        _delete_stale_live_test_show(
+            client=plex_client,
+            plex_base_url=plex_base_url,
+            plex_token=plex_token,
+            section_id=section_id,
+        )
+        _poll_until(
+            time.monotonic() + 30,
+            lambda: None
+            if any(
+                directory.attrib.get("title") == "Formula 1"
+                for directory in _show_directories(plex_client, plex_base_url, plex_token, section_id)
+            )
+            else True,
+            "Plex did not remove the stale Formula 1 live-test show before the clean scan",
+        )
         location = section.find("./Location")
         assert location is not None and location.attrib.get("path"), "Plex library is missing a Location path"
         plex_library_root = PurePosixPath(location.attrib["path"])
@@ -262,8 +377,6 @@ def test_live_ingest_and_metadata_resolution() -> None:
         expected_plexmatch = expected_managed_path.parent / ".plexmatch"
         relative_managed_path = expected_managed_path.relative_to(library_dir)
         plex_managed_path = str(plex_library_root.joinpath(*relative_managed_path.parts))
-        plex_refresh_path = str(plex_library_root.joinpath(*relative_managed_path.parent.parts))
-
         fixture_dir.mkdir(parents=True, exist_ok=True)
         fixture_path.write_text("live plex integration", encoding="utf-8")
         fixture_sidecar.write_text(
@@ -377,6 +490,28 @@ def test_live_ingest_and_metadata_resolution() -> None:
             assert provider_metadata["originallyAvailableAt"] == "2025-06-29"
             assert provider_metadata["guid"].startswith(f"{provider_identifier}://episode/")
 
+            plex_metadata = _poll_until(
+                time.monotonic() + 90,
+                lambda: (
+                    item
+                    if (
+                        (item := _metadata_details(
+                            plex_client,
+                            plex_base_url,
+                            plex_token,
+                            episode.attrib["ratingKey"],
+                        )).attrib.get("guid", "").startswith(f"{provider_identifier}://episode/")
+                        and item.attrib.get("title") == expected_title
+                    )
+                    else None
+                ),
+                f"Plex never applied provider-backed metadata to {expected_title}",
+            )
+            assert plex_metadata.attrib.get("guid") == provider_metadata["guid"]
+            assert plex_metadata.attrib.get("title") == provider_metadata["title"]
+            assert plex_metadata.attrib.get("grandparentTitle") == provider_metadata["grandparentTitle"]
+            assert plex_metadata.attrib.get("originallyAvailableAt") == provider_metadata["originallyAvailableAt"]
+
         finally:
             if fixture_sidecar.exists():
                 fixture_sidecar.unlink()
@@ -384,3 +519,4 @@ def test_live_ingest_and_metadata_resolution() -> None:
                 fixture_path.unlink()
             if fixture_dir.exists():
                 fixture_dir.rmdir()
+            _cleanup_live_test_state(db_path, incoming_dir, library_dir)
