@@ -24,6 +24,15 @@
     <small>The address Plex uses to reach SportScanner. Use a real IP or hostname, not localhost.</small>
   </label>
   <label>
+    Provider Identifier In Plex
+    <input
+      name="plex_provider_identifier"
+      value="{{ values.plex_provider_identifier or '' }}"
+      placeholder="tv.plex.agents.custom.sportscanner.metadata"
+    />
+    <small>This must be unique per SportScanner runtime. Use a distinct suffix for your local test server.</small>
+  </label>
+  <label>
     Provider Group Name In Plex
     <input
       name="plex_provider_group_name"

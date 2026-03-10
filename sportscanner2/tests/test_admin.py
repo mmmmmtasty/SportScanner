@@ -14,6 +14,7 @@ def test_settings_page_explains_plex_fields(provider_app) -> None:
     assert response.status_code == 200
     assert "Plex Server URL" in response.text
     assert "Plex Token (X-Plex-Token)" in response.text
+    assert "Provider Identifier In Plex" in response.text
     assert "Save Settings" in response.text
     assert "Register Provider And Group" in response.text
 
@@ -27,6 +28,7 @@ def test_save_settings_redirects_back_to_settings(provider_app) -> None:
             "pms_url": "http://plex:32400",
             "pms_token": "abc123",
             "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_identifier": "tv.plex.agents.custom.sportscanner.metadata",
             "plex_provider_group_name": "SportScanner 2",
         },
         follow_redirects=False,
@@ -57,6 +59,7 @@ def test_register_plex_redirects_to_get_result_page(provider_app) -> None:
             "pms_url": "http://plex:32400",
             "pms_token": "abc123",
             "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_identifier": "tv.plex.agents.custom.sportscanner.metadata.local",
             "plex_provider_group_name": "SportScanner 2",
         },
         follow_redirects=False,
@@ -96,6 +99,7 @@ def test_register_plex_failure_renders_html_error(provider_app) -> None:
             "pms_url": "http://plex:32400",
             "pms_token": "abc123",
             "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_identifier": "tv.plex.agents.custom.sportscanner.metadata.local",
             "plex_provider_group_name": "SportScanner 2",
         },
         follow_redirects=False,

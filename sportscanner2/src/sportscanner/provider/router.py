@@ -7,9 +7,8 @@ from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
 
 from sportscanner import __version__
-from sportscanner.db.models import Competition, CompetitionSeason, ReviewTaskStatus, Segment, SegmentStatus
+from sportscanner.db.models import AppSetting, Competition, CompetitionSeason, Event, ReviewTaskStatus, Segment, SegmentStatus
 from sportscanner.provider.rating_keys import (
-    GUID_PREFIX,
     make_episode_guid,
     make_episode_rating_key,
     make_season_guid,
@@ -45,11 +44,33 @@ def _container(**kwargs: Any) -> dict[str, Any]:
     return {"MediaContainer": MediaContainerModel(**kwargs).model_dump(exclude_none=True)}
 
 
+def _setting(request: Request, key: str, fallback: str) -> str:
+    with _session_factory(request)() as session:
+        setting = session.get(AppSetting, key)
+    return setting.value if setting is not None else fallback
+
+
+def _provider_identifier(request: Request) -> str:
+    return _setting(
+        request,
+        "plex_provider_identifier",
+        request.app.state.services.settings.plex_provider_identifier,
+    )
+
+
+def _provider_title(request: Request) -> str:
+    return _setting(
+        request,
+        "plex_provider_group_name",
+        request.app.state.services.settings.plex_provider_group_name,
+    )
+
+
 def _sequence_score(left: str, right: str) -> int:
     return round(SequenceMatcher(None, left.lower(), right.lower()).ratio() * 100)
 
 
-def _show_metadata(request: Request, competition: Competition) -> MetadataItemModel:
+def _show_metadata(request: Request, competition: Competition, guid_prefix: str) -> MetadataItemModel:
     session_factory = _session_factory(request)
     with session_factory() as session:
         leaf_count = session.scalar(
@@ -63,7 +84,7 @@ def _show_metadata(request: Request, competition: Competition) -> MetadataItemMo
     rating_key = make_show_rating_key(competition.id)
     return MetadataItemModel(
         ratingKey=rating_key,
-        guid=make_show_guid(competition.id),
+        guid=make_show_guid(competition.id, guid_prefix),
         key=f"/library/metadata/{rating_key}",
         type="show",
         title=competition.name,
@@ -74,54 +95,62 @@ def _show_metadata(request: Request, competition: Competition) -> MetadataItemMo
     )
 
 
-def _season_metadata(competition: Competition, season: CompetitionSeason) -> MetadataItemModel:
+def _season_metadata(competition: Competition, season: CompetitionSeason, guid_prefix: str) -> MetadataItemModel:
     rating_key = make_season_rating_key(competition.id, season.season_number)
     return MetadataItemModel(
         ratingKey=rating_key,
-        guid=make_season_guid(competition.id, season.season_number),
+        guid=make_season_guid(competition.id, season.season_number, guid_prefix),
         key=f"/library/metadata/{rating_key}",
         type="season",
         title=season.label,
         index=season.season_number,
-        parentGuid=make_show_guid(competition.id),
+        parentGuid=make_show_guid(competition.id, guid_prefix),
         parentRatingKey=make_show_rating_key(competition.id),
         parentTitle=competition.name,
     )
 
 
-def _episode_metadata(competition: Competition, season: CompetitionSeason, segment: Segment) -> MetadataItemModel:
+def _episode_metadata(
+    competition: Competition,
+    season: CompetitionSeason,
+    event_date,
+    segment: Segment,
+    guid_prefix: str,
+) -> MetadataItemModel:
     rating_key = make_episode_rating_key(segment.id)
     return MetadataItemModel(
         ratingKey=rating_key,
-        guid=make_episode_guid(segment.id),
+        guid=make_episode_guid(segment.id, guid_prefix),
         key=f"/library/metadata/{rating_key}",
         type="episode",
         title=segment.title,
         summary=segment.summary,
         index=segment.episode_number,
-        parentGuid=make_season_guid(competition.id, season.season_number),
+        parentGuid=make_season_guid(competition.id, season.season_number, guid_prefix),
         parentIndex=season.season_number,
         parentRatingKey=make_season_rating_key(competition.id, season.season_number),
         parentTitle=season.label,
-        grandparentGuid=make_show_guid(competition.id),
+        grandparentGuid=make_show_guid(competition.id, guid_prefix),
         grandparentRatingKey=make_show_rating_key(competition.id),
         grandparentTitle=competition.name,
-        originallyAvailableAt=segment.air_date,
+        originallyAvailableAt=event_date or segment.air_date,
         thumb=segment.thumb_url,
     )
 
 
 @router.get("")
-def provider_root() -> dict[str, Any]:
+def provider_root(request: Request) -> dict[str, Any]:
+    guid_prefix = _provider_identifier(request)
+    provider_title = _provider_title(request)
     return {
         "MediaProvider": {
-            "identifier": GUID_PREFIX,
-            "title": "SportScanner 2",
+            "identifier": guid_prefix,
+            "title": provider_title,
             "version": __version__,
             "Types": [
-                {"type": 2, "Scheme": [{"scheme": GUID_PREFIX}]},
-                {"type": 3, "Scheme": [{"scheme": GUID_PREFIX}]},
-                {"type": 4, "Scheme": [{"scheme": GUID_PREFIX}]},
+                {"type": 2, "Scheme": [{"scheme": guid_prefix}]},
+                {"type": 3, "Scheme": [{"scheme": guid_prefix}]},
+                {"type": 4, "Scheme": [{"scheme": guid_prefix}]},
             ],
             "Feature": [
                 {"type": "metadata", "key": "/library/metadata"},
@@ -134,9 +163,10 @@ def provider_root() -> dict[str, Any]:
 @router.post("/library/metadata/matches")
 def metadata_matches(request: Request, payload: MatchRequestModel) -> dict[str, Any]:
     session_factory = _session_factory(request)
+    guid_prefix = _provider_identifier(request)
     if payload.guid:
         try:
-            entity_type, values = parse_guid(payload.guid)
+            entity_type, values = parse_guid(payload.guid, guid_prefix)
         except ValueError:
             entity_type = ""
             values = ()
@@ -150,7 +180,7 @@ def metadata_matches(request: Request, payload: MatchRequestModel) -> dict[str, 
                         SearchResult=[
                             SearchResultModel(
                                 id=competition.id,
-                                guid=make_show_guid(competition.id),
+                                guid=make_show_guid(competition.id, guid_prefix),
                                 name=competition.name,
                                 score=100,
                             )
@@ -171,7 +201,7 @@ def metadata_matches(request: Request, payload: MatchRequestModel) -> dict[str, 
             results.append(
                 SearchResultModel(
                     id=competition.id,
-                    guid=make_show_guid(competition.id),
+                    guid=make_show_guid(competition.id, guid_prefix),
                     name=competition.name,
                     score=score,
                     year=competition.formed_year,
@@ -184,13 +214,14 @@ def metadata_matches(request: Request, payload: MatchRequestModel) -> dict[str, 
 @router.get("/library/metadata/{rating_key}")
 def metadata_by_rating_key(request: Request, rating_key: str) -> dict[str, Any]:
     session_factory = _session_factory(request)
+    guid_prefix = _provider_identifier(request)
     entity_type, values = parse_rating_key(rating_key)
     with session_factory() as session:
         if entity_type == "show":
             competition = session.get(Competition, values[0])
             if competition is None:
                 raise HTTPException(status_code=404, detail="Unknown show")
-            item = _show_metadata(request, competition)
+            item = _show_metadata(request, competition, guid_prefix)
         elif entity_type == "season":
             competition_id, season_number = values[0], int(values[1])
             competition = session.get(Competition, competition_id)
@@ -202,7 +233,7 @@ def metadata_by_rating_key(request: Request, rating_key: str) -> dict[str, Any]:
             )
             if competition is None or season is None:
                 raise HTTPException(status_code=404, detail="Unknown season")
-            item = _season_metadata(competition, season)
+            item = _season_metadata(competition, season, guid_prefix)
         else:
             segment = session.scalar(
                 select(Segment)
@@ -217,13 +248,15 @@ def metadata_by_rating_key(request: Request, rating_key: str) -> dict[str, Any]:
             competition = session.get(Competition, season.competition_id)
             if competition is None:
                 raise HTTPException(status_code=404, detail="Missing show")
-            item = _episode_metadata(competition, season, segment)
+            event = session.get(Event, segment.event_id) if segment.event_id else None
+            item = _episode_metadata(competition, season, event.date if event is not None else None, segment, guid_prefix)
     return _container(size=1, totalSize=1, Metadata=[item])
 
 
 @router.get("/library/metadata/{rating_key}/children")
 def metadata_children(request: Request, rating_key: str) -> dict[str, Any]:
     session_factory = _session_factory(request)
+    guid_prefix = _provider_identifier(request)
     entity_type, values = parse_rating_key(rating_key)
     with session_factory() as session:
         if entity_type == "show":
@@ -238,7 +271,7 @@ def metadata_children(request: Request, rating_key: str) -> dict[str, Any]:
                     .order_by(CompetitionSeason.season_number.asc())
                 )
             )
-            items = [_season_metadata(competition, season) for season in seasons]
+            items = [_season_metadata(competition, season, guid_prefix) for season in seasons]
         elif entity_type == "season":
             competition_id, season_number = values[0], int(values[1])
             competition = session.get(Competition, competition_id)
@@ -260,7 +293,16 @@ def metadata_children(request: Request, rating_key: str) -> dict[str, Any]:
                     .order_by(Segment.episode_number.asc())
                 )
             )
-            items = [_episode_metadata(competition, season, segment) for segment in segments]
+            items = [
+                _episode_metadata(
+                    competition,
+                    season,
+                    session.get(Event, segment.event_id).date if segment.event_id and session.get(Event, segment.event_id) else None,
+                    segment,
+                    guid_prefix,
+                )
+                for segment in segments
+            ]
         else:
             raise HTTPException(status_code=404, detail="Episodes do not have children")
 
@@ -298,7 +340,13 @@ def metadata_grandchildren(request: Request, rating_key: str) -> dict[str, Any]:
             )
         )
         items = [
-            _episode_metadata(competition, seasons[segment.competition_season_id], segment)
+            _episode_metadata(
+                competition,
+                seasons[segment.competition_season_id],
+                session.get(Event, segment.event_id).date if segment.event_id and session.get(Event, segment.event_id) else None,
+                segment,
+                _provider_identifier(request),
+            )
             for segment in segments
         ]
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from sportscanner.db.models import Event
 
 
 def test_root_redirects_to_admin(provider_app) -> None:
@@ -26,9 +29,23 @@ def test_provider_root(provider_app) -> None:
     assert response.status_code == 200
     provider = response.json()["MediaProvider"]
     assert provider["identifier"] == "tv.plex.agents.custom.sportscanner.metadata"
+    assert provider["title"] == "SportScanner 2"
     assert any(item["type"] == 4 for item in provider["Types"])
     assert any(item["type"] == "metadata" for item in provider["Feature"])
     assert any(item["type"] == "match" for item in provider["Feature"])
+
+
+def test_provider_root_uses_configured_identifier(provider_app) -> None:
+    provider_app.state.services.settings.plex_provider_identifier = "tv.plex.agents.custom.sportscanner.metadata.local"
+    provider_app.state.services.settings.plex_provider_group_name = "SportScanner 2 Local"
+    client = TestClient(provider_app)
+
+    response = client.get("/provider/tv")
+
+    assert response.status_code == 200
+    provider = response.json()["MediaProvider"]
+    assert provider["identifier"] == "tv.plex.agents.custom.sportscanner.metadata.local"
+    assert provider["title"] == "SportScanner 2 Local"
 
 
 def test_provider_matches_show(provider_app) -> None:
@@ -57,3 +74,18 @@ def test_provider_episode_metadata(provider_app) -> None:
     metadata = response.json()["MediaContainer"]["Metadata"][0]
     assert metadata["index"] == 1150
     assert metadata["grandparentTitle"] == "Formula 1"
+
+
+def test_provider_episode_metadata_prefers_event_date(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
+        assert event is not None
+        event.date = event.date.replace(day=30)
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.get("/provider/tv/library/metadata/episode_seg_primary")
+
+    assert response.status_code == 200
+    metadata = response.json()["MediaContainer"]["Metadata"][0]
+    assert metadata["originallyAvailableAt"] == "2025-06-30"

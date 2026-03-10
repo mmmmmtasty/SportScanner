@@ -76,6 +76,8 @@ def settings(tmp_path: Path) -> Settings:
         asset_cache_dir=cache,
         tsdb_api_key="123",
         tsdb_api_mode="v1",
+        plex_provider_identifier="tv.plex.agents.custom.sportscanner.metadata",
+        plex_provider_group_name="SportScanner 2",
     )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from sportscanner.upstream.thesportsdb.client import TheSportsDbClient
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    logging.getLogger("sportscanner").setLevel(settings.log_level.upper())
     engine = create_sqlite_engine(settings)
     init_db(engine)
     session_factory = create_session_factory(engine)

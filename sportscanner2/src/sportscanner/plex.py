@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import httpx
@@ -10,6 +11,9 @@ class PlexRegistrationResult:
     provider_identifier: str
     provider_uri: str
     provider_group_id: int | None
+
+
+logger = logging.getLogger("sportscanner.plex")
 
 
 class PlexPmsClient:
@@ -54,7 +58,11 @@ class PlexPmsClient:
             timeout=20.0,
         ) as client:
             response = client.post("/media/providers/metadata", params={"uri": provider_uri})
-            response.raise_for_status()
+            if response.status_code != 409:
+                response.raise_for_status()
+                logger.info("plex_provider_registered provider_identifier=%s provider_uri=%s", provider_identifier, provider_uri)
+            else:
+                logger.info("plex_provider_conflict_reused provider_identifier=%s provider_uri=%s", provider_identifier, provider_uri)
 
             groups_response = client.get("/media/providers/metadata/group")
             groups_response.raise_for_status()
@@ -70,6 +78,7 @@ class PlexPmsClient:
             )
             if existing_group is not None:
                 group_id = int(existing_group["id"])
+                logger.info("plex_group_reused provider_group_name=%s provider_group_id=%s", provider_group_name, group_id)
             else:
                 create_response = client.post(
                     "/media/providers/metadata/group",
@@ -79,6 +88,7 @@ class PlexPmsClient:
                 group_id = self._extract_group_id(create_response.json())
                 if group_id is None:
                     raise ValueError("Plex did not return a provider group id")
+                logger.info("plex_group_created provider_group_name=%s provider_group_id=%s", provider_group_name, group_id)
 
         return PlexRegistrationResult(
             provider_identifier=provider_identifier,

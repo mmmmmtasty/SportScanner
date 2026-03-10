@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
@@ -11,6 +12,8 @@ try:
 except ImportError:  # pragma: no cover - optional when watchdog is unavailable
     FileSystemEventHandler = object  # type: ignore[assignment]
     Observer = None  # type: ignore[assignment]
+
+logger = logging.getLogger("sportscanner.organizer.watcher")
 
 
 class _Handler(FileSystemEventHandler):  # pragma: no cover - thin watchdog wrapper
@@ -25,6 +28,7 @@ class _Handler(FileSystemEventHandler):  # pragma: no cover - thin watchdog wrap
         path = Path(event.src_path)
         if not is_media_file(path):
             return
+        logger.info("watcher_detected_file path=%s", path)
         existing = self._timers.get(event.src_path)
         if existing is not None:
             existing.cancel()
@@ -43,12 +47,14 @@ class OrganizerWatcher:
 
     def start(self) -> None:
         if Observer is None or not self.incoming_dir.exists():
+            logger.info("watcher_disabled incoming_dir=%s observer_available=%s", self.incoming_dir, Observer is not None)
             return
         handler = _Handler(self.organizer, self.debounce_seconds)
         observer = Observer()
         observer.schedule(handler, str(self.incoming_dir), recursive=True)
         observer.start()
         self._observer = observer
+        logger.info("watcher_started incoming_dir=%s debounce_seconds=%s", self.incoming_dir, self.debounce_seconds)
 
     def stop(self) -> None:
         if self._observer is None:
@@ -56,3 +62,4 @@ class OrganizerWatcher:
         self._observer.stop()
         self._observer.join(timeout=5)
         self._observer = None
+        logger.info("watcher_stopped incoming_dir=%s", self.incoming_dir)

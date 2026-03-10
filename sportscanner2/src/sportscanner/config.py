@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     pms_url: str | None = Field(default=None)
     pms_token: str | None = Field(default=None)
     provider_public_url: str | None = Field(default=None)
+    plex_provider_identifier: str = Field(default="tv.plex.agents.custom.sportscanner.metadata")
     plex_provider_group_name: str = Field(default="SportScanner 2")
 
     @property
@@ -37,4 +38,3 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
-

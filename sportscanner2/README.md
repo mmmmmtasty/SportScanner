@@ -1,5 +1,7 @@
 # SportScanner 2
 
+## What It Is
+
 SportScanner 2 is a self-hosted sports media organizer for Plex.
 
 It does three jobs:
@@ -11,10 +13,10 @@ It does three jobs:
 If a file is unclear, SportScanner does not guess. It keeps the file out of Plex and puts it in the
 web `Review` queue instead.
 
-The old Plex scanner and metadata agent still exist elsewhere in this repository for legacy use.
-This README is only for the new app in `sportscanner2/`.
+This app lives in `sportscanner2/`. The older Plex scanner and metadata agent elsewhere in this repo
+are legacy code.
 
-## Read This First
+### Important Rules
 
 - Plex must point at the managed `library` folder, not `incoming`.
 - `incoming` can be mounted read-only. SportScanner only reads from it.
@@ -22,7 +24,7 @@ This README is only for the new app in `sportscanner2/`.
 - Plex must be able to reach SportScanner by IP or hostname. Do not use `localhost` unless Plex and
   SportScanner are truly running in the same container or host namespace.
 
-## What You Need
+### What You Need
 
 - Plex Media Server that supports custom metadata providers
 - A TheSportsDB API key
@@ -34,58 +36,35 @@ This README is only for the new app in `sportscanner2/`.
 For basic testing, TheSportsDB currently documents `123` as the public development key.
 For regular use, use your own key.
 
-## What The Settings Screen Means
+## Install
 
-PMS means Plex Media Server.
+### Published Image Repository
 
-- `Plex Server URL`: the base URL of your Plex server, usually `http://YOUR-SERVER-IP:32400`
-- `Plex Token (X-Plex-Token)`: Plex's API token; think of it as a long password SportScanner uses
-  to register itself with Plex
-- `Provider Public URL`: the URL Plex uses to reach SportScanner, usually
-  `http://YOUR-SERVER-IP:32699`
-- `Provider Group Name In Plex`: the name that appears in Plex's `Agent` dropdown; leaving
-  `SportScanner 2` is fine
+This repository publishes a multi-architecture container image to GitHub Container Registry.
 
-## How To Get Your Plex Token
-
-1. Open the Plex Web App.
-2. Open any movie, show, or episode details page.
-3. Click `Get Info`.
-4. Click `View XML`.
-5. Copy the `X-Plex-Token` value from the page URL.
-
-Plex's official token article is linked at the end of this README.
-
-## Published Image Repository
-
-This repository now includes a GitHub Actions workflow that publishes a multi-architecture container
-image to GitHub Container Registry on pushes to `main` and on version tags.
-
-Official image path:
+Default image:
 
 ```text
 ghcr.io/mmmmmtasty/sportscanner2:latest
 ```
 
-If you fork this repository, the same workflow will publish to:
+If you fork this repository and keep the GitHub Actions workflow, your fork can publish:
 
 ```text
 ghcr.io/YOUR-GITHUB-OWNER/sportscanner2:latest
 ```
 
-after the first successful Actions run.
-
-## Fastest Docker Setup
+### Docker Install
 
 Run these commands from `sportscanner2/`.
 
-### 1. Create Local Folders
+#### 1. Create Local Folders
 
 ```bash
 mkdir -p data incoming library
 ```
 
-### 2. Start The Container
+#### 2. Start The Container
 
 ```bash
 docker run -d \
@@ -104,7 +83,7 @@ docker run -d \
 
 If you have your own TheSportsDB key, replace `123`.
 
-### 3. Confirm It Started
+#### 3. Confirm It Started
 
 ```bash
 curl http://127.0.0.1:32699/health
@@ -114,10 +93,12 @@ curl http://127.0.0.1:32699/provider/tv
 Then open:
 
 ```text
-http://127.0.0.1:32699/admin/
+http://127.0.0.1:32699/
 ```
 
-### Docker Compose
+The root URL should redirect to `/admin/`.
+
+#### Docker Compose
 
 The included `docker-compose.yml` also works:
 
@@ -135,11 +116,134 @@ docker build -t sportscanner2:latest .
 SPORTSCANNER_IMAGE=sportscanner2:latest docker compose up -d
 ```
 
-## First-Time Setup In SportScanner
+### Unraid Install
+
+With the published image, you do not need to copy the source tree onto Unraid just to create the
+container.
+
+#### 1. Create The Container In The Unraid Web UI
+
+1. Open the Unraid web interface.
+2. Click `Docker`.
+3. Click `Add Container`.
+4. Set `Name` to `sportscanner2`.
+5. Set `Repository` to `ghcr.io/mmmmmtasty/sportscanner2:latest`.
+6. Set `Network Type` to `Bridge`.
+7. Add a port mapping:
+   - host port `32699`
+   - container port `32699`
+8. Add a path mapping for `data`:
+   - host path `/mnt/user/appdata/sportscanner2`
+   - container path `/data`
+9. Add a path mapping for `incoming`:
+   - host path `/mnt/user/media/incoming`
+   - container path `/incoming`
+10. Add a path mapping for `library`:
+    - host path `/mnt/user/media/plex/sportscanner2`
+    - container path `/library`
+11. Add a variable:
+    - name `TSDB_API_KEY`
+    - value `123` for testing, or your own key
+12. Click `Apply`.
+
+#### 2. Open The Web UI
+
+After the container starts, open the container `WebUI` action in Unraid, or browse to:
+
+```text
+http://YOUR-UNRAID-IP:32699/
+```
+
+#### Recommended Unraid Folder Choices
+
+- Put `data` under `/mnt/user/appdata/sportscanner2`
+- Put `incoming` and `library` on the same share or pool if you want hardlinks
+- If `incoming` and `library` land on different underlying devices, SportScanner will copy files
+  instead of hardlinking them
+
+#### Optional: Use The Included Unraid Template
+
+This repository includes `unraid-template.xml`.
+
+If you want to use it:
+
+1. Copy `unraid-template.xml` to:
+
+```text
+/boot/config/plugins/dockerMan/templates-user/sportscanner2.xml
+```
+
+2. Open the file and confirm the `Repository` value points at the image you want, for example:
+
+```text
+ghcr.io/mmmmmtasty/sportscanner2:latest
+```
+
+3. Go back to `Docker` in the Unraid web UI.
+4. Click `Add Container`.
+5. Select the SportScanner template if it appears in the template list.
+6. Adjust the host paths before clicking `Apply`.
+
+#### If You Want To Publish Your Own Image
+
+If you are maintaining your own GitHub fork:
+
+1. Push the repo to GitHub.
+2. Let the `Publish SportScanner 2 Image` workflow run.
+3. Use `ghcr.io/YOUR-GITHUB-OWNER/sportscanner2:latest` as the Unraid `Repository` value.
+
+### Local Python Install
+
+If you want to run directly from a checkout instead of Docker:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+mkdir -p data/cache incoming library
+export PYTHONPATH="$PWD/src"
+export SPORTSCANNER_DB_PATH="$PWD/data/sportscanner.db"
+export SPORTSCANNER_INCOMING_DIR="$PWD/incoming"
+export SPORTSCANNER_LIBRARY_DIR="$PWD/library"
+export SPORTSCANNER_ASSET_CACHE_DIR="$PWD/data/cache"
+export TSDB_API_KEY="123"
+.venv/bin/uvicorn sportscanner.main:create_app --factory --host 0.0.0.0 --port 32699
+```
+
+If you are upgrading an existing database, run this first:
+
+```bash
+PYTHONPATH=src .venv/bin/alembic upgrade head
+```
+
+## Configure
+
+### What The Settings Screen Means
+
+PMS means Plex Media Server.
+
+- `Plex Server URL`: the base URL of your Plex server, usually `http://YOUR-SERVER-IP:32400`
+- `Plex Token (X-Plex-Token)`: Plex's API token; think of it as a long password SportScanner uses
+  to register itself with Plex
+- `Provider Public URL`: the URL Plex uses to reach SportScanner, usually
+  `http://YOUR-SERVER-IP:32699`
+- `Provider Group Name In Plex`: the name that appears in Plex's `Agent` dropdown; leaving
+  `SportScanner 2` is fine
+
+### How To Get Your Plex Token
+
+1. Open the Plex Web App.
+2. Open any movie, show, or episode details page.
+3. Click `Get Info`.
+4. Click `View XML`.
+5. Copy the `X-Plex-Token` value from the page URL.
+
+Plex's official token article is linked at the end of this README.
+
+### Configure SportScanner
 
 These steps match the current admin UI.
 
-### 1. Open The Admin UI
+#### 1. Open The Admin UI
 
 Go to:
 
@@ -154,7 +258,7 @@ You should see these top navigation links:
 - `Competitions`
 - `Settings`
 
-### 2. Save The Plex Connection Settings
+#### 2. Save The Plex Connection Settings
 
 1. Click `Settings`.
 2. Fill in:
@@ -169,24 +273,22 @@ Use these examples:
 - `Plex Server URL`: `http://192.168.1.20:32400`
 - `Provider Public URL`: `http://192.168.1.50:32699`
 
-### 3. Register SportScanner With Plex
+#### 3. Register SportScanner With Plex
 
 1. Stay on `Settings`.
 2. Click `Register Provider And Group`.
-3. You should land on a `Plex Registration` page that shows:
+3. If it succeeds, you should land on a `Plex Registration` page that shows:
    - `Provider Identifier`
    - `Provider URI`
    - `Provider Group ID`
+4. If it fails, fix the values on the `Settings` page first.
 
-If that page does not load, stop and fix the Plex URL, Plex token, or Provider Public URL before
-doing anything else in Plex.
-
-## First-Time Setup In Plex
+### Configure Plex
 
 SportScanner can register the metadata provider for you, but you still create or edit the TV library
 inside Plex yourself.
 
-### New Plex Library
+#### New Plex Library
 
 1. Open the Plex Web App.
 2. Click `+ Add Library`.
@@ -197,12 +299,13 @@ inside Plex yourself.
 7. Select the managed `library` folder created by SportScanner.
 8. Click `Advanced`.
 9. Set `Agent` to `SportScanner 2` or the custom provider group name you saved earlier.
-10. Click `Add Library`.
-11. Open the library's `...` menu.
-12. Click `Manage Library`.
-13. Click `Refresh All Metadata`.
+10. Leave `Use season titles when available` checked.
+11. Click `Add Library`.
+12. Open the library's `...` menu.
+13. Click `Manage Library`.
+14. Click `Refresh All Metadata`.
 
-### Existing Plex Library
+#### Existing Plex Library
 
 1. Open the existing TV library.
 2. Click the library `...` menu.
@@ -210,13 +313,18 @@ inside Plex yourself.
 4. Click `Edit`.
 5. Click `Advanced`.
 6. Change `Agent` to `SportScanner 2` or your custom provider group name.
-7. Click `Save Changes`.
-8. Open the library `...` menu again.
-9. Click `Manage Library`.
-10. Click `Refresh All Metadata`.
+7. Turn on `Use season titles when available`.
+8. Click `Save Changes`.
+9. Open the library `...` menu again.
+10. Click `Manage Library`.
+11. Click `Refresh All Metadata`.
 
 If you do not see `SportScanner 2` in the `Agent` list, the provider registration step did not
 finish correctly.
+
+`Use season titles when available` should be enabled for SportScanner. The provider returns sports
+season labels such as `2025` or `2024-2025`, and this setting tells Plex to display those labels
+instead of generic season names.
 
 ## Add Your First File
 
@@ -254,76 +362,31 @@ If the file did not match cleanly:
 Use `Publish As Season 0 Special` only when the file really is a special. Do not use it as a
 general fallback for ordinary matches or races.
 
-## Unraid Docker Setup
+## Workflow Validation Script
 
-With the published image, you do not need to copy the source tree onto Unraid just to create the
-container.
+If you want a repeatable end-to-end check without depending on a live upstream schedule or a live Plex
+server, run:
 
-### 1. Create The Container In The Unraid Web UI
-
-1. Open the Unraid web interface.
-2. Click `Docker`.
-3. Click `Add Container`.
-4. Set `Name` to `sportscanner2`.
-5. Set `Repository` to `ghcr.io/mmmmmtasty/sportscanner2:latest`.
-6. Set `Network Type` to `Bridge`.
-7. Add a port mapping:
-   - host port `32699`
-   - container port `32699`
-8. Add a path mapping for `data`:
-   - host path `/mnt/user/appdata/sportscanner2`
-   - container path `/data`
-9. Add a path mapping for `incoming`:
-   - host path `/mnt/user/media/incoming`
-   - container path `/incoming`
-10. Add a path mapping for `library`:
-    - host path `/mnt/user/media/plex/sportscanner2`
-    - container path `/library`
-11. Add a variable:
-    - name `TSDB_API_KEY`
-    - value `123` for testing, or your own key
-12. Click `Apply`.
-
-After the container starts, open its WebUI and follow the `First-Time Setup In SportScanner`
-section above.
-
-### Recommended Unraid Folder Choices
-
-- Put `data` under `/mnt/user/appdata/sportscanner2`
-- Put `incoming` and `library` on the same share or pool if you want hardlinks
-- If `incoming` and `library` land on different underlying devices, SportScanner will copy files
-  instead of hardlinking them
-
-### Optional: Use The Included Unraid Template
-
-This repository includes `unraid-template.xml`.
-
-If you want to use it:
-
-1. Copy `unraid-template.xml` to:
-
-```text
-/boot/config/plugins/dockerMan/templates-user/sportscanner2.xml
+```bash
+cd sportscanner2
+.venv/bin/python scripts/test_sport_test_workflow.py
 ```
 
-2. Open the file and confirm the `Repository` value points at the image you want, for example:
+The script exercises the real SportScanner organizer, admin routes, provider routes, library output,
+and `.plexmatch` generation against a deterministic fake Plex library named `Sport_Test`.
 
-```text
-ghcr.io/mmmmmtasty/sportscanner2:latest
-```
+It verifies:
 
-3. Go back to `Docker` in the Unraid web UI.
-4. Click `Add Container`.
-5. Select the SportScanner template if it appears in the template list.
-6. Adjust the host paths before clicking `Apply`.
+- files move from `incoming` to the managed `library`
+- Plex-facing metadata is available through the provider
+- review conflicts can be resolved and then published
+- incomplete seasons stay staged until the event list is complete
+- replayed fixtures stay separate episodes
+- rescheduled fixtures update Plex ordering and `originallyAvailableAt`
+- log messages confirm each transition
 
-### If You Want To Publish Your Own Image
-
-If you are maintaining your own GitHub fork:
-
-1. Push the repo to GitHub.
-2. Let the `Publish SportScanner 2 Image` workflow run.
-3. Use `ghcr.io/YOUR-GITHUB-OWNER/sportscanner2:latest` as the Unraid `Repository` value.
+The harness expects log messages such as `rescan_started`, `review_task_open`, `segment_published`,
+`season_publish_reconciled`, and `review_task_resolved`.
 
 ## Filename Tips
 
@@ -366,29 +429,6 @@ season_split_month: 7
 season_split_day: 1
 ```
 
-## Local Python Run
-
-If you want to run directly from a checkout instead of Docker:
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
-mkdir -p data/cache incoming library
-export PYTHONPATH="$PWD/src"
-export SPORTSCANNER_DB_PATH="$PWD/data/sportscanner.db"
-export SPORTSCANNER_INCOMING_DIR="$PWD/incoming"
-export SPORTSCANNER_LIBRARY_DIR="$PWD/library"
-export SPORTSCANNER_ASSET_CACHE_DIR="$PWD/data/cache"
-export TSDB_API_KEY="123"
-.venv/bin/uvicorn sportscanner.main:create_app --factory --host 0.0.0.0 --port 32699
-```
-
-If you are upgrading an existing database, run this first:
-
-```bash
-PYTHONPATH=src .venv/bin/alembic upgrade head
-```
-
 ## Common Problems
 
 ### `Register Provider And Group` Fails
@@ -417,6 +457,22 @@ Usually one of these is true:
 - the competition name does not match a real competition well enough
 - the upstream season data is incomplete
 - the file needs a `.sportscanner.yml` sidecar
+
+## Schedule Changes And Uncertain Calendars
+
+SportScanner intentionally treats unstable schedules conservatively.
+
+- If the upstream season is incomplete, matching does not guess. The segment stays `staged`, an open
+  review task is created, and Plex does not see the file yet.
+- When the season later becomes complete, rescanning the same file publishes it normally.
+- If multiple same-day events are plausible, SportScanner opens a review task instead of auto-picking
+  the wrong event.
+- If a replayed fixture is represented upstream as a distinct event, SportScanner publishes it as a
+  separate episode with its own event id and episode number.
+- If upstream dates change after publication, SportScanner recomputes season ordering and refreshes the
+  Plex-facing episode numbers and `originallyAvailableAt` value on the next rescan.
+- Managed filenames stay tied to the source file naming. The Plex-facing ordering and air-date metadata
+  follow the latest canonical event data.
 
 ### Files Are Copied Instead Of Hardlinked
 

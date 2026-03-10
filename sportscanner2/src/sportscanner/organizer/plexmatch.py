@@ -9,11 +9,11 @@ from sportscanner.db.models import Competition, CompetitionSeason, Segment
 from sportscanner.provider.rating_keys import make_season_guid, make_show_guid
 
 
-def render_show_plexmatch(competition: Competition) -> str:
+def render_show_plexmatch(competition: Competition, guid_prefix: str) -> str:
     return "\n".join(
         [
             f"title: {competition.name}",
-            f"guid: {make_show_guid(competition.id)}",
+            f"guid: {make_show_guid(competition.id, guid_prefix)}",
             "",
         ]
     )
@@ -23,11 +23,12 @@ def render_season_plexmatch(
     competition: Competition,
     season: CompetitionSeason,
     segments: Iterable[Segment],
+    guid_prefix: str,
 ) -> str:
     lines = [
         f"title: {competition.name}",
         f"season: {season.season_number}",
-        f"guid: {make_season_guid(competition.id, season.season_number)}",
+        f"guid: {make_season_guid(competition.id, season.season_number, guid_prefix)}",
     ]
     for segment in sorted(segments, key=lambda item: (item.episode_number or 0, item.title, item.source_path)):
         if segment.episode_number is None:
@@ -47,4 +48,3 @@ def write_atomic_if_changed(target: Path, content: str) -> bool:
         temp_name = handle.name
     os.replace(temp_name, target)
     return True
-

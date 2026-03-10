@@ -35,6 +35,11 @@ def _settings_values(request: Request) -> dict[str, str | None]:
             "pms_url": _setting(session, "pms_url", services.settings.pms_url),
             "pms_token": _setting(session, "pms_token", services.settings.pms_token),
             "provider_public_url": _setting(session, "provider_public_url", services.settings.provider_public_url),
+            "plex_provider_identifier": _setting(
+                session,
+                "plex_provider_identifier",
+                services.settings.plex_provider_identifier,
+            ),
             "plex_provider_group_name": _setting(
                 session,
                 "plex_provider_group_name",
@@ -177,6 +182,7 @@ def save_settings(
     pms_url: str = Form(...),
     pms_token: str = Form(...),
     provider_public_url: str = Form(...),
+    plex_provider_identifier: str = Form(...),
     plex_provider_group_name: str = Form(...),
 ) -> RedirectResponse:
     with _session_factory(request)() as session:
@@ -184,6 +190,7 @@ def save_settings(
             "pms_url": pms_url,
             "pms_token": pms_token,
             "provider_public_url": provider_public_url,
+            "plex_provider_identifier": plex_provider_identifier,
             "plex_provider_group_name": plex_provider_group_name,
         }.items():
             existing = session.get(AppSetting, key)
@@ -202,6 +209,11 @@ def register_with_plex(request: Request) -> RedirectResponse:
         pms_url = _setting(session, "pms_url", services.settings.pms_url)
         pms_token = _setting(session, "pms_token", services.settings.pms_token)
         public_url = _setting(session, "provider_public_url", services.settings.provider_public_url)
+        provider_identifier = _setting(
+            session,
+            "plex_provider_identifier",
+            services.settings.plex_provider_identifier,
+        )
         group_name = _setting(
             session,
             "plex_provider_group_name",
@@ -215,7 +227,7 @@ def register_with_plex(request: Request) -> RedirectResponse:
     try:
         result = plex.register_provider_and_group(
             provider_uri=f"{public_url.rstrip('/')}/provider/tv",
-            provider_identifier="tv.plex.agents.custom.sportscanner.metadata",
+            provider_identifier=provider_identifier or services.settings.plex_provider_identifier,
             provider_group_name=group_name or services.settings.plex_provider_group_name,
         )
     except ValueError as exc:

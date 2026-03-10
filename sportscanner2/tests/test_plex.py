@@ -82,6 +82,39 @@ def test_register_provider_and_group_reuses_existing_group() -> None:
     assert result.provider_group_id == 99
 
 
+@respx.mock
+def test_register_provider_and_group_accepts_existing_provider_conflict() -> None:
+    client = PlexPmsClient(base_url="http://plex:32400", token="abc123")
+
+    respx.post("http://plex:32400/media/providers/metadata").mock(
+        return_value=httpx.Response(409, text="A provider with the same identifier already exists.")
+    )
+    respx.get("http://plex:32400/media/providers/metadata/group").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "MediaContainer": {
+                    "MetadataAgentProviderGroup": [
+                        {
+                            "id": 8,
+                            "title": "SportScanner 2 Local",
+                            "primaryIdentifier": "tv.plex.agents.custom.sportscanner.metadata.local",
+                        }
+                    ]
+                }
+            },
+        )
+    )
+
+    result = client.register_provider_and_group(
+        provider_uri="http://sportscanner:32699/provider/tv",
+        provider_identifier="tv.plex.agents.custom.sportscanner.metadata.local",
+        provider_group_name="SportScanner 2 Local",
+    )
+
+    assert result.provider_group_id == 8
+
+
 def test_extract_group_id_accepts_object_or_list() -> None:
     assert PlexPmsClient._extract_group_id({"MediaContainer": {"MetadataAgentProviderGroup": {"id": 7}}}) == 7
     assert PlexPmsClient._extract_group_id({"MediaContainer": {"MetadataAgentProviderGroup": [{"id": 8}]}}) == 8

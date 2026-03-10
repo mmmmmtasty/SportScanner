@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,8 @@ try:
     import yaml
 except ImportError:  # pragma: no cover - optional fallback for minimal environments
     yaml = None
+
+logger = logging.getLogger("sportscanner.organizer.service")
 
 
 @dataclass(slots=True)
@@ -98,14 +101,18 @@ class OrganizerService:
         processed: list[str] = []
         incoming = self.settings.incoming_dir
         if not incoming.exists():
+            logger.info("rescan_skipped incoming_dir_missing=%s", incoming)
             return processed
+        logger.info("rescan_started incoming_dir=%s", incoming)
         for path in sorted(incoming.rglob("*")):
             if path.is_file() and is_media_file(path):
                 self.ingest_path(path)
                 processed.append(str(path))
+        logger.info("rescan_completed processed_count=%s", len(processed))
         return processed
 
     def ingest_path(self, source_path: str | Path) -> Segment:
+        logger.info("ingest_started source_path=%s", source_path)
         parsed = parse_filename(source_path)
         sidecar = read_sidecar(parsed.source_path)
         with self.session_factory() as session:
@@ -115,6 +122,14 @@ class OrganizerService:
         with self.session_factory() as session:
             result = session.get(Segment, segment_id)
             assert result is not None
+            logger.info(
+                "ingest_completed source_path=%s status=%s match_method=%s event_id=%s episode_number=%s",
+                source_path,
+                result.status,
+                result.match_method,
+                result.event_id,
+                result.episode_number,
+            )
             return result
 
     def resolve_review_task(
@@ -157,6 +172,13 @@ class OrganizerService:
             session.commit()
             refreshed = session.get(Segment, segment.id)
             assert refreshed is not None
+            logger.info(
+                "review_task_resolved task_id=%s resolution_type=%s segment_id=%s event_id=%s",
+                task_id,
+                task.resolution.get("type"),
+                segment.id,
+                segment.event_id,
+            )
             return refreshed
 
     def _upsert_segment_from_path(self, session: Session, parsed: ParsedFile, sidecar: SidecarMetadata) -> Segment:
@@ -210,12 +232,19 @@ class OrganizerService:
             self._ensure_review_task(session, segment, [])
             segment.status = SegmentStatus.REVIEW.value
             segment.match_method = "special_requires_review"
+            logger.info("segment_requires_special_review segment_id=%s source_path=%s", segment.id, segment.source_path)
             return segment
 
         if not season.is_complete:
             self._ensure_review_task(session, segment, [])
             segment.status = SegmentStatus.STAGED.value
             segment.match_method = "season_incomplete"
+            logger.info(
+                "segment_staged_for_incomplete_season segment_id=%s season_id=%s source_path=%s",
+                segment.id,
+                season.id,
+                segment.source_path,
+            )
             return segment
 
         season_events = list(session.scalars(select(Event).where(Event.competition_season_id == season.id)))
@@ -237,12 +266,24 @@ class OrganizerService:
             else:
                 segment.status = SegmentStatus.REVIEW.value
                 self._ensure_review_task(session, segment, event_match.candidates)
+                logger.info(
+                    "segment_sent_to_review segment_id=%s method=%s confidence=%s",
+                    segment.id,
+                    event_match.method,
+                    event_match.confidence,
+                )
             return segment
 
         segment.match_confidence = event_match.confidence
         segment.match_method = event_match.method
         segment.status = SegmentStatus.REVIEW.value
         self._ensure_review_task(session, segment, event_match.candidates)
+        logger.info(
+            "segment_sent_to_review segment_id=%s method=%s confidence=%s",
+            segment.id,
+            event_match.method,
+            event_match.confidence,
+        )
         return segment
 
     def _resolve_competition(self, session: Session, show_name: str) -> Competition:
@@ -313,6 +354,7 @@ class OrganizerService:
         )
         events, is_complete = self.metadata_source.season_events(upstream_competition, season_label)
         if not is_complete:
+            logger.info("season_events_incomplete competition=%s season_label=%s", competition.name, season_label)
             return False
         season_number = int(season_label.split("-")[0]) if "-" in season_label else int(season_label)
         season = get_or_create_competition_season(
@@ -326,6 +368,13 @@ class OrganizerService:
         for event in events:
             self._upsert_event(session, season.id, event)
         self._recompute_sequences_for_season(session, season.id)
+        self._refresh_published_segments_for_season(session, season.id)
+        logger.info(
+            "season_events_synced competition=%s season_id=%s event_count=%s",
+            competition.name,
+            season.id,
+            len(events),
+        )
         return True
 
     def _upsert_event(self, session: Session, competition_season_id: str, upstream: UpstreamEvent) -> Event:
@@ -433,6 +482,29 @@ class OrganizerService:
             session.add(task)
         task.candidates = candidates
         task.status = ReviewTaskStatus.OPEN.value
+        logger.info("review_task_open segment_id=%s candidate_count=%s", segment.id, len(candidates))
+
+    def _refresh_published_segments_for_season(self, session: Session, competition_season_id: str) -> None:
+        published_segments = list(
+            session.scalars(
+                select(Segment).where(
+                    Segment.competition_season_id == competition_season_id,
+                    Segment.status == SegmentStatus.PUBLISHED.value,
+                )
+            )
+        )
+        if not published_segments:
+            return
+        event_ids = sorted({segment.event_id for segment in published_segments if segment.event_id})
+        for event_id in event_ids:
+            self._recompute_segments_for_event(session, event_id)
+        for segment in published_segments:
+            self._publish_segment(session, segment)
+        logger.info(
+            "season_publish_reconciled season_id=%s published_segment_count=%s",
+            competition_season_id,
+            len(published_segments),
+        )
 
     def _publish_segment(self, session: Session, segment: Segment) -> None:
         if segment.event_id is None:
@@ -462,10 +534,19 @@ class OrganizerService:
                 )
             )
         )
-        write_atomic_if_changed(show_dir / ".plexmatch", render_show_plexmatch(competition))
+        guid_prefix = self.settings.plex_provider_identifier
+        write_atomic_if_changed(show_dir / ".plexmatch", render_show_plexmatch(competition, guid_prefix))
         write_atomic_if_changed(
             season_dir / ".plexmatch",
-            render_season_plexmatch(competition, season, published_segments),
+            render_season_plexmatch(competition, season, published_segments, guid_prefix),
+        )
+        logger.info(
+            "segment_published segment_id=%s season_id=%s event_id=%s managed_path=%s episode_number=%s",
+            segment.id,
+            season.id,
+            event.id,
+            segment.managed_path,
+            segment.episode_number,
         )
 
     def _publish_as_special(self, session: Session, segment: Segment) -> Segment:

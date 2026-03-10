@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 sportscanner2/.venv/
 sportscanner2/.pytest_cache/
+sportscanner2/.env
 sportscanner2/data/
 sportscanner2/incoming/
 sportscanner2/library/
@@ -12,3 +13,7 @@ sportscanner2/library/
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Claude Code and Beads config
+.claude/
+.beads/
