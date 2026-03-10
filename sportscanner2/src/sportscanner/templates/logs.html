@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Logs{% endblock %}
+{% block content %}
+<style>
+  .log-filter-bar { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1rem; }
+  .log-filter-bar label { margin-bottom: 0; flex: 1; min-width: 140px; }
+  .log-filter-bar select, .log-filter-bar input { margin-bottom: 0; }
+  .log-filter-bar button { margin-bottom: 0; }
+  #log-table-wrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; }
+  #log-table { width: 100%; font-size: 0.8rem; border-collapse: collapse; }
+  #log-table th, #log-table td { padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--pico-table-border-color); vertical-align: top; white-space: nowrap; }
+  #log-table td.log-msg { white-space: pre-wrap; word-break: break-all; min-width: 300px; }
+  tr.log-error td { color: var(--pico-del-color, #c0392b); }
+  tr.log-warning td { color: #e67e22; }
+  tr.log-debug td { color: var(--pico-muted-color); }
+  .log-ts { min-width: 160px; }
+  .log-level { min-width: 60px; font-weight: bold; }
+  .log-name { min-width: 180px; color: var(--pico-muted-color); }
+</style>
+
+<header>
+  <h1>Logs</h1>
+</header>
+
+<form id="log-filter-form" class="log-filter-bar"
+      hx-get="{{ request.url_for('logs_entries') }}"
+      hx-target="#log-tbody"
+      hx-swap="innerHTML"
+      hx-trigger="submit, change delay:300ms">
+  <label>
+    Level
+    <select name="level">
+      <option value="" {% if not request.query_params.get('level') %}selected{% endif %}>All</option>
+      <option value="DEBUG" {% if request.query_params.get('level') == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+      <option value="INFO" {% if request.query_params.get('level') == 'INFO' %}selected{% endif %}>INFO</option>
+      <option value="WARNING" {% if request.query_params.get('level') == 'WARNING' %}selected{% endif %}>WARNING</option>
+      <option value="ERROR" {% if request.query_params.get('level') == 'ERROR' %}selected{% endif %}>ERROR</option>
+    </select>
+  </label>
+  <label>
+    Component
+    <input
+      name="component"
+      placeholder="e.g. sportscanner.organizer"
+      value="{{ request.query_params.get('component', '') }}"
+    />
+  </label>
+  <label>
+    Keyword
+    <input name="keyword" placeholder="Search message…" value="{{ request.query_params.get('keyword', '') }}" />
+  </label>
+  <button type="submit" class="secondary">Apply</button>
+</form>
+
+<div id="log-table-wrap">
+  <table id="log-table">
+    <thead>
+      <tr>
+        <th class="log-ts">Time (UTC)</th>
+        <th class="log-level">Level</th>
+        <th class="log-name">Logger</th>
+        <th class="log-msg">Message</th>
+      </tr>
+    </thead>
+    <tbody id="log-tbody"
+           hx-get="{{ request.url_for('logs_entries') }}"
+           hx-trigger="every 3s"
+           hx-target="#log-tbody"
+           hx-swap="innerHTML"
+           hx-include="#log-filter-form">
+      {% include "logs_entries.html" %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% for entry in entries %}
+<tr class="log-{{ entry.level | lower }}" data-log-id="{{ entry.id }}">
+  <td class="log-ts">{{ entry.timestamp }}</td>
+  <td class="log-level">{{ entry.level }}</td>
+  <td class="log-name">{{ entry.logger_name }}</td>
+  <td class="log-msg">{{ entry.message }}</td>
+</tr>
+{% else %}
+<tr><td colspan="4" style="text-align:center;color:var(--pico-muted-color)">No log entries match the current filters.</td></tr>
+{% endfor %}

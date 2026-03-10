@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from sportscanner.db.models import Competition, ReviewTask, Segment, SegmentStatus
 from sportscanner.organizer.service import OrganizerService
@@ -41,6 +43,12 @@ class MutableMetadataSource:
 
     def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
         return next((event for event in self.events if event.tsdb_id == tsdb_event_id), None)
+
+
+class SlowMetadataSource(MutableMetadataSource):
+    def all_competitions(self) -> list[UpstreamCompetition]:
+        time.sleep(0.05)
+        return super().all_competitions()
 
 
 def test_ingest_publishes_matched_file(settings, organizer, session_factory) -> None:
@@ -184,3 +192,43 @@ def test_replayed_event_is_published_as_distinct_episode(settings, session_facto
     assert replay_segment.status == SegmentStatus.PUBLISHED.value
     assert first_segment.event_id != replay_segment.event_id
     assert first_segment.episode_number != replay_segment.episode_number
+
+
+def test_concurrent_ingest_of_same_path_is_serialized(settings, session_factory) -> None:
+    source = SlowMetadataSource(
+        complete=True,
+        events=[
+            UpstreamEvent(
+                id="tsdb_1001",
+                tsdb_id=1001,
+                name="Austrian Grand Prix",
+                competition_name="Formula 1",
+                date=date(2025, 6, 29),
+            )
+        ],
+    )
+    organizer = OrganizerService(settings, session_factory, metadata_source=source)
+    path = settings.incoming_dir / "Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv"
+    path.write_text("video", encoding="utf-8")
+
+    errors: list[Exception] = []
+    result_ids: list[str] = []
+
+    def worker() -> None:
+        try:
+            result_ids.append(organizer.ingest_path(path).id)
+        except Exception as exc:  # pragma: no cover - test should fail on any exception
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker), threading.Thread(target=worker)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    assert len(result_ids) == 2
+    assert result_ids[0] == result_ids[1]
+    with session_factory() as session:
+        assert session.scalar(select(func.count(Segment.id)).where(Segment.source_path == str(path))) == 1
+        assert session.scalar(select(func.count(Competition.id)).where(Competition.name == "Formula 1")) == 1

@@ -16,7 +16,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 def _render(request: Request, template_name: str, context: dict) -> HTMLResponse:
     templates = request.app.state.templates
     merged = {"request": request, **context}
-    return templates.TemplateResponse(template_name, merged)
+    return templates.TemplateResponse(request, template_name, merged)
 
 
 def _session_factory(request: Request):
@@ -266,15 +266,111 @@ def plex_registration_page(
     provider_identifier: str | None = None,
     provider_uri: str | None = None,
     provider_group_id: int | None = None,
+    library_name: str | None = None,
+    library_section_id: int | None = None,
 ) -> HTMLResponse:
-    if not provider_identifier or not provider_uri:
-        return RedirectResponse(url=f"{request.url_for('settings_page')}", status_code=303)
-    result = PlexRegistrationResult(
-        provider_identifier=provider_identifier,
-        provider_uri=provider_uri,
-        provider_group_id=provider_group_id,
+    result = None
+    if provider_identifier and provider_uri:
+        result = PlexRegistrationResult(
+            provider_identifier=provider_identifier,
+            provider_uri=provider_uri,
+            provider_group_id=provider_group_id,
+        )
+    return _render(
+        request,
+        "plex_registration.html",
+        {
+            "result": result,
+            "library_name": library_name,
+            "library_section_id": library_section_id,
+        },
     )
-    return _render(request, "plex_registration.html", {"result": result})
+
+
+@router.get("/logs", response_class=HTMLResponse)
+def logs_page(request: Request) -> HTMLResponse:
+    entries = request.app.state.log_buffer.entries()
+    return _render(request, "logs.html", {"entries": entries})
+
+
+@router.get("/logs/entries", response_class=HTMLResponse)
+def logs_entries(
+    request: Request,
+    level: str | None = None,
+    component: str | None = None,
+    keyword: str | None = None,
+) -> HTMLResponse:
+    buf = request.app.state.log_buffer
+    entries = buf.entries(min_level=level or None, component=component or None, keyword=keyword or None)
+    return _render(request, "logs_entries.html", {"entries": entries})
+
+
+@router.get("/stats.json")
+def stats_json(request: Request) -> dict:
+    with _session_factory(request)() as session:
+        return {
+            "competitions": session.scalar(select(func.count(Competition.id))) or 0,
+            "seasons": session.scalar(select(func.count(CompetitionSeason.id))) or 0,
+            "segments": session.scalar(select(func.count(Segment.id))) or 0,
+            "published_segments": session.scalar(
+                select(func.count(Segment.id)).where(Segment.status == SegmentStatus.PUBLISHED.value)
+            ) or 0,
+            "open_review_tasks": session.scalar(
+                select(func.count(ReviewTask.id)).where(ReviewTask.status == "open")
+            ) or 0,
+        }
+
+
+@router.post("/create-plex-library", response_class=HTMLResponse)
+def create_plex_library(
+    request: Request,
+    library_name: str = Form(...),
+    library_location: str = Form(...),
+) -> RedirectResponse:
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        pms_url = _setting(session, "pms_url", services.settings.pms_url)
+        pms_token = _setting(session, "pms_token", services.settings.pms_token)
+        provider_identifier = _setting(
+            session,
+            "plex_provider_identifier",
+            services.settings.plex_provider_identifier,
+        )
+
+    plex = services.plex.with_credentials(pms_url, pms_token)
+    try:
+        section_id = plex.create_tv_shows_library(
+            name=library_name,
+            location=library_location,
+            provider_identifier=provider_identifier or services.settings.plex_provider_identifier,
+        )
+    except ValueError as exc:
+        return _render(
+            request,
+            "plex_registration.html",
+            {"error": str(exc), "result": None},
+        )
+    except httpx.HTTPStatusError as exc:
+        detail = f"Plex returned {exc.response.status_code} {exc.response.reason_phrase}."
+        body = exc.response.text.strip()
+        if body:
+            detail = f"{detail} {body[:300]}"
+        return _render(
+            request,
+            "plex_registration.html",
+            {"error": detail, "result": None},
+        )
+    except httpx.HTTPError as exc:
+        return _render(
+            request,
+            "plex_registration.html",
+            {"error": f"Could not reach Plex: {exc}", "result": None},
+        )
+    destination = request.url_for("plex_registration_page").include_query_params(
+        library_name=library_name,
+        library_section_id=section_id,
+    )
+    return RedirectResponse(url=str(destination), status_code=303)
 
 
 @router.post("/rescan")

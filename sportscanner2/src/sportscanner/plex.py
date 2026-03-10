@@ -27,6 +27,13 @@ class PlexPmsClient:
     def with_credentials(self, base_url: str | None, token: str | None) -> "PlexPmsClient":
         return PlexPmsClient(base_url=base_url or self.base_url, token=token or self.token)
 
+    def _auth_params(self) -> dict[str, str]:
+        if not self.token:
+            raise ValueError("Plex PMS token is required")
+        # Plex accepts the token header for many endpoints, but some metadata-provider
+        # routes reliably authorize only when the token is also present as a query param.
+        return {"X-Plex-Token": self.token}
+
     @staticmethod
     def _extract_group_id(payload: dict) -> int | None:
         container = payload.get("MediaContainer", {}) if isinstance(payload, dict) else {}
@@ -57,14 +64,17 @@ class PlexPmsClient:
             headers={"X-Plex-Token": self.token, "Accept": "application/json"},
             timeout=20.0,
         ) as client:
-            response = client.post("/media/providers/metadata", params={"uri": provider_uri})
+            response = client.post(
+                "/media/providers/metadata",
+                params={**self._auth_params(), "uri": provider_uri},
+            )
             if response.status_code != 409:
                 response.raise_for_status()
                 logger.info("plex_provider_registered provider_identifier=%s provider_uri=%s", provider_identifier, provider_uri)
             else:
                 logger.info("plex_provider_conflict_reused provider_identifier=%s provider_uri=%s", provider_identifier, provider_uri)
 
-            groups_response = client.get("/media/providers/metadata/group")
+            groups_response = client.get("/media/providers/metadata/group", params=self._auth_params())
             groups_response.raise_for_status()
             container = groups_response.json().get("MediaContainer", {})
             groups = container.get("MetadataAgentProviderGroup", []) or []
@@ -82,7 +92,11 @@ class PlexPmsClient:
             else:
                 create_response = client.post(
                     "/media/providers/metadata/group",
-                    params={"title": provider_group_name, "primaryIdentifier": provider_identifier},
+                    params={
+                        **self._auth_params(),
+                        "title": provider_group_name,
+                        "primaryIdentifier": provider_identifier,
+                    },
                 )
                 create_response.raise_for_status()
                 group_id = self._extract_group_id(create_response.json())
@@ -96,11 +110,53 @@ class PlexPmsClient:
             provider_group_id=group_id,
         )
 
+    def create_tv_shows_library(
+        self,
+        *,
+        name: str,
+        location: str,
+        provider_identifier: str,
+    ) -> int:
+        """Create a TV Shows library in Plex and return the new section id."""
+        if not self.configured():
+            raise ValueError("Plex PMS URL and token are required")
+        with httpx.Client(
+            base_url=self.base_url,
+            headers={"X-Plex-Token": self.token, "Accept": "application/json"},
+            timeout=20.0,
+        ) as client:
+            response = client.post(
+                "/library/sections",
+                params={
+                    "name": name,
+                    "type": "show",
+                    "agent": provider_identifier,
+                    "scanner": "Plex Series Scanner",
+                    "language": "en-US",
+                    "location": location,
+                    "X-Plex-Token": self.token,
+                },
+            )
+            response.raise_for_status()
+            directories = response.json().get("MediaContainer", {}).get("Directory", [])
+            if isinstance(directories, dict):
+                directories = [directories]
+            if not directories:
+                raise ValueError("Plex did not return a library section after creation")
+            section_id = int(directories[0]["key"])
+            logger.info(
+                "plex_library_created name=%s location=%s section_id=%s",
+                name,
+                location,
+                section_id,
+            )
+            return section_id
+
     def library_uses_group(self, section_id: int, group_id: int) -> bool:
         if not self.configured():
             raise ValueError("Plex PMS URL and token are required")
         with httpx.Client(base_url=self.base_url, headers={"X-Plex-Token": self.token}, timeout=20.0) as client:
-            response = client.get(f"/library/sections/{section_id}")
+            response = client.get(f"/library/sections/{section_id}", params=self._auth_params())
             response.raise_for_status()
             directory = response.json().get("MediaContainer", {}).get("Directory", [])
             if not directory:

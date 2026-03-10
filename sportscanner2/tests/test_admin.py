@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 import httpx
 from fastapi.testclient import TestClient
 
+from sportscanner.log_buffer import LogBuffer
 from sportscanner.plex import PlexRegistrationResult
 
 
@@ -71,13 +74,13 @@ def test_register_plex_redirects_to_get_result_page(provider_app) -> None:
     assert response.headers["location"].startswith("http://testserver/admin/register-plex?")
 
 
-def test_register_plex_result_page_requires_query_values(provider_app) -> None:
+def test_register_plex_page_renders_create_library_form(provider_app) -> None:
     client = TestClient(provider_app)
 
     response = client.get("/admin/register-plex", follow_redirects=False)
 
-    assert response.status_code == 303
-    assert response.headers["location"].endswith("/admin/settings")
+    assert response.status_code == 200
+    assert "Create Plex Test Library" in response.text
 
 
 def test_register_plex_failure_renders_html_error(provider_app) -> None:
@@ -108,5 +111,66 @@ def test_register_plex_failure_renders_html_error(provider_app) -> None:
     response = client.post("/admin/register-plex", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Registration failed" in response.text
+    assert "Action failed" in response.text
     assert "Plex returned 400 Bad Request." in response.text
+
+
+def test_stats_json_returns_counts(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/stats.json")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "competitions" in data
+    assert "published_segments" in data
+    assert "open_review_tasks" in data
+
+
+def test_logs_page_renders(provider_app) -> None:
+    buf = LogBuffer(session_factory=provider_app.state.services.session_factory)
+    buf.setFormatter(logging.Formatter("%(message)s"))
+    logger = logging.getLogger("sportscanner.test_logs_page")
+    logger.setLevel(logging.INFO)
+    logger.addHandler(buf)
+    provider_app.state.log_buffer = buf
+    try:
+        logger.info("persisted log entry")
+        client = TestClient(provider_app)
+
+        response = client.get("/admin/logs")
+
+        assert response.status_code == 200
+        assert "Logs" in response.text
+        assert "persisted log entry" in response.text
+    finally:
+        logger.removeHandler(buf)
+
+
+def test_logs_entries_returns_filtered_rows(provider_app) -> None:
+    buf = LogBuffer(session_factory=provider_app.state.services.session_factory)
+    buf.setFormatter(logging.Formatter("%(message)s"))
+    logger = logging.getLogger("sportscanner.test_logs")
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(buf)
+    provider_app.state.log_buffer = buf
+    try:
+        logger.info("hello from info")
+        logger.debug("hello from debug")
+        logger.error("something went wrong")
+
+        client = TestClient(provider_app)
+
+        response = client.get("/admin/logs/entries")
+        assert response.status_code == 200
+        assert "hello from info" in response.text
+
+        response = client.get("/admin/logs/entries?level=ERROR")
+        assert "something went wrong" in response.text
+        assert "hello from info" not in response.text
+
+        response = client.get("/admin/logs/entries?keyword=wrong")
+        assert "something went wrong" in response.text
+        assert "hello from info" not in response.text
+    finally:
+        logger.removeHandler(buf)

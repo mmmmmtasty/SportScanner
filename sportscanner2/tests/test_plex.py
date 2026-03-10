@@ -35,8 +35,11 @@ def test_register_provider_and_group_uses_current_plex_group_endpoints() -> None
 
     assert register_route.called
     assert register_route.calls[0].request.url.params["uri"] == provider_uri
+    assert register_route.calls[0].request.url.params["X-Plex-Token"] == "abc123"
     assert list_groups_route.called
+    assert list_groups_route.calls[0].request.url.params["X-Plex-Token"] == "abc123"
     assert create_group_route.called
+    assert create_group_route.calls[0].request.url.params["X-Plex-Token"] == "abc123"
     assert create_group_route.calls[0].request.url.params["title"] == "SportScanner 2"
     assert (
         create_group_route.calls[0].request.url.params["primaryIdentifier"]

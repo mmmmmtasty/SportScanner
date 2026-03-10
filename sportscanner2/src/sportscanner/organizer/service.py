@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -96,41 +97,44 @@ class OrganizerService:
         self.settings = settings
         self.session_factory = session_factory
         self.metadata_source = metadata_source
+        self._ingest_lock = threading.RLock()
 
     def rescan_incoming(self) -> list[str]:
-        processed: list[str] = []
-        incoming = self.settings.incoming_dir
-        if not incoming.exists():
-            logger.info("rescan_skipped incoming_dir_missing=%s", incoming)
+        with self._ingest_lock:
+            processed: list[str] = []
+            incoming = self.settings.incoming_dir
+            if not incoming.exists():
+                logger.info("rescan_skipped incoming_dir_missing=%s", incoming)
+                return processed
+            logger.info("rescan_started incoming_dir=%s", incoming)
+            for path in sorted(incoming.rglob("*")):
+                if path.is_file() and is_media_file(path):
+                    self.ingest_path(path)
+                    processed.append(str(path))
+            logger.info("rescan_completed processed_count=%s", len(processed))
             return processed
-        logger.info("rescan_started incoming_dir=%s", incoming)
-        for path in sorted(incoming.rglob("*")):
-            if path.is_file() and is_media_file(path):
-                self.ingest_path(path)
-                processed.append(str(path))
-        logger.info("rescan_completed processed_count=%s", len(processed))
-        return processed
 
     def ingest_path(self, source_path: str | Path) -> Segment:
-        logger.info("ingest_started source_path=%s", source_path)
-        parsed = parse_filename(source_path)
-        sidecar = read_sidecar(parsed.source_path)
-        with self.session_factory() as session:
-            segment = self._upsert_segment_from_path(session, parsed, sidecar)
-            session.commit()
-            segment_id = segment.id
-        with self.session_factory() as session:
-            result = session.get(Segment, segment_id)
-            assert result is not None
-            logger.info(
-                "ingest_completed source_path=%s status=%s match_method=%s event_id=%s episode_number=%s",
-                source_path,
-                result.status,
-                result.match_method,
-                result.event_id,
-                result.episode_number,
-            )
-            return result
+        with self._ingest_lock:
+            logger.info("ingest_started source_path=%s", source_path)
+            parsed = parse_filename(source_path)
+            sidecar = read_sidecar(parsed.source_path)
+            with self.session_factory() as session:
+                segment = self._upsert_segment_from_path(session, parsed, sidecar)
+                session.commit()
+                segment_id = segment.id
+            with self.session_factory() as session:
+                result = session.get(Segment, segment_id)
+                assert result is not None
+                logger.info(
+                    "ingest_completed source_path=%s status=%s match_method=%s event_id=%s episode_number=%s",
+                    source_path,
+                    result.status,
+                    result.match_method,
+                    result.event_id,
+                    result.episode_number,
+                )
+                return result
 
     def resolve_review_task(
         self,

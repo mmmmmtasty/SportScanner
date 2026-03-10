@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from sportscanner.admin.router import router as admin_router
 from sportscanner.config import Settings
 from sportscanner.db.models import Base, Competition, CompetitionSeason, Event, Segment, SegmentStatus
+from sportscanner.log_buffer import LogBuffer
 from sportscanner.organizer.service import OrganizerService
 from sportscanner.plex import PlexPmsClient
 from sportscanner.provider.router import router as provider_router
@@ -136,7 +137,8 @@ def session_factory(settings: Settings):
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     factory.engine = engine  # type: ignore[attr-defined]
-    return factory
+    yield factory
+    engine.dispose()
 
 
 @pytest.fixture()
@@ -199,6 +201,7 @@ def provider_app(settings: Settings, seeded_db, metadata_source: FakeMetadataSou
         watcher=None,
     )
     app.state.services = services
+    app.state.log_buffer = LogBuffer(session_factory=seeded_db)
     templates_dir = Path(__file__).resolve().parents[1] / "src" / "sportscanner" / "templates"
     static_dir = Path(__file__).resolve().parents[1] / "src" / "sportscanner" / "static"
     app.state.templates = Jinja2Templates(directory=str(templates_dir))

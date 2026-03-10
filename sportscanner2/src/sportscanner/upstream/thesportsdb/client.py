@@ -94,7 +94,8 @@ class TheSportsDbClient(MetadataSource):
         if cache:
             with self.session_factory() as session:
                 cached = session.get(ApiCache, cache_key)
-                if cached is not None and cached.expires_at >= now:
+                expires_at = self._as_utc(cached.expires_at) if cached is not None else None
+                if cached is not None and expires_at is not None and expires_at >= now:
                     return json.loads(cached.response_body)
 
         base_url = self.base_v2_url if version == "v2" else self.base_v1_url
@@ -121,3 +122,11 @@ class TheSportsDbClient(MetadataSource):
                     existing.expires_at = cached.expires_at
                 session.commit()
         return payload
+
+    @staticmethod
+    def _as_utc(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)

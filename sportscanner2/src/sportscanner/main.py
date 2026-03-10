@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from sportscanner.admin.router import router as admin_router
 from sportscanner.config import get_settings
+from sportscanner.log_buffer import LogBuffer
 from sportscanner.db.engine import create_session_factory, create_sqlite_engine, init_db
 from sportscanner.organizer.service import OrganizerService
 from sportscanner.organizer.watcher import OrganizerWatcher
@@ -23,10 +24,18 @@ from sportscanner.upstream.thesportsdb.client import TheSportsDbClient
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    logging.getLogger("sportscanner").setLevel(settings.log_level.upper())
     engine = create_sqlite_engine(settings)
     init_db(engine)
     session_factory = create_session_factory(engine)
+    sport_logger = logging.getLogger("sportscanner")
+    sport_logger.setLevel(settings.log_level.upper())
+    for handler in list(sport_logger.handlers):
+        if isinstance(handler, LogBuffer):
+            sport_logger.removeHandler(handler)
+            handler.close()
+    log_buffer = LogBuffer(session_factory=session_factory)
+    log_buffer.setFormatter(logging.Formatter("%(message)s"))
+    sport_logger.addHandler(log_buffer)
     metadata_source = TheSportsDbClient(settings, session_factory)
     organizer = OrganizerService(settings, session_factory, metadata_source=metadata_source)
     watcher = OrganizerWatcher(organizer, settings.incoming_dir, settings.watcher_debounce_seconds)
@@ -44,6 +53,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.services = services
+        app.state.log_buffer = log_buffer
         templates_dir = Path(__file__).resolve().parent / "templates"
         app.state.templates = Jinja2Templates(directory=str(templates_dir))
         settings.asset_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -52,6 +62,9 @@ def create_app() -> FastAPI:
             watcher.start()
         yield
         watcher.stop()
+        sport_logger.removeHandler(log_buffer)
+        log_buffer.close()
+        engine.dispose()
 
     app = FastAPI(title="SportScanner 2", version="0.1.0", lifespan=lifespan)
     static_dir = Path(__file__).resolve().parent / "static"

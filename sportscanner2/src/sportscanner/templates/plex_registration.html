@@ -4,15 +4,46 @@
 <h1>Plex Registration</h1>
 {% if error %}
 <article>
-  <header>Registration failed</header>
+  <header>Action failed</header>
   <p>{{ error }}</p>
   <p><a href="{{ request.url_for('settings_page') }}">Back to Settings</a></p>
 </article>
-{% elif result %}
+{% endif %}
+
+{% if result %}
 <article>
+  <header>Provider registered</header>
   <p><strong>Provider Identifier:</strong> {{ result.provider_identifier }}</p>
   <p><strong>Provider URI:</strong> {{ result.provider_uri }}</p>
   <p><strong>Provider Group ID:</strong> {{ result.provider_group_id }}</p>
 </article>
 {% endif %}
+
+{% if library_name and library_section_id %}
+<article>
+  <header>Library created</header>
+  <p><strong>Library Name:</strong> {{ library_name }}</p>
+  <p><strong>Section ID:</strong> {{ library_section_id }}</p>
+</article>
+{% endif %}
+
+<section>
+  <h2>Create Plex Test Library</h2>
+  <p>Create a TV Shows library in Plex pointing at your SportScanner managed library path.</p>
+  <form method="post" action="{{ request.url_for('create_plex_library') }}">
+    <label>
+      Library Name
+      <input name="library_name" value="Sport_Test" placeholder="Sport_Test" required />
+      <small>The name shown in Plex for this library.</small>
+    </label>
+    <label>
+      Media Location (on Plex host)
+      <input name="library_location" value="/sport/sportscanner2-dev" placeholder="/sport/sportscanner2-dev" required />
+      <small>Absolute path on the machine running Plex Media Server.</small>
+    </label>
+    <button type="submit">Create Library in Plex</button>
+  </form>
+</section>
+
+<p><a href="{{ request.url_for('settings_page') }}">Back to Settings</a></p>
 {% endblock %}

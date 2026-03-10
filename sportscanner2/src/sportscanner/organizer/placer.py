@@ -36,12 +36,15 @@ def place_file(source_path: str | Path, destination_path: str | Path) -> str:
         return str(destination)
 
     if source.stat().st_dev == destination.parent.stat().st_dev:
-        os.link(source, destination)
-        return str(destination)
+        try:
+            os.link(source, destination)
+            return str(destination)
+        except OSError:
+            # Network filesystems can report the same device while still rejecting hard links.
+            pass
 
     fd, temp_name = tempfile.mkstemp(prefix=".sportscanner-copy-", dir=destination.parent)
     os.close(fd)
     shutil.copy2(source, temp_name)
     os.replace(temp_name, destination)
     return str(destination)
-
