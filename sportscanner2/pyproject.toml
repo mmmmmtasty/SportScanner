@@ -41,8 +41,12 @@ packages = ["src/sportscanner"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+  "unit: isolated tests using local fixtures, mocks, or stubs",
+  "deterministic_integration: end-to-end workflow tests against the fake Plex harness",
+  "plex_integration: live Plex integration tests against the local runtime and Plex server",
+]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-

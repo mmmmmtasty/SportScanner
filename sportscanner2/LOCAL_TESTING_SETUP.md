@@ -64,6 +64,19 @@ It runs a self-contained SportScanner + fake Plex flow and asserts:
 - rescheduled fixtures updating Plex-facing ordering and dates
 - log messages such as `rescan_started`, `review_task_open`, `segment_published`, `season_publish_reconciled`, and `review_task_resolved`
 
+## Pytest Modes
+
+From `sportscanner2/`:
+
+```bash
+.venv/bin/pytest
+.venv/bin/pytest --test-mode=deterministic -q
+SPORTSCANNER_PMS_TOKEN=your-token .venv/bin/pytest --test-mode=plex -q
+```
+
+The default `pytest` run only executes isolated unit tests. The `deterministic` mode runs the fake
+Plex harness, and the `plex` mode hits the live local SportScanner runtime plus Plex.
+
 ## Notes
 
 - The app has no separate login layer; `/admin` is open on the local runtime.

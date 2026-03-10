@@ -362,6 +362,40 @@ If the file did not match cleanly:
 Use `Publish As Season 0 Special` only when the file really is a special. Do not use it as a
 general fallback for ordinary matches or races.
 
+## Test Modes
+
+The pytest suite is split into explicit modes so the default run stays local and deterministic.
+
+Run the isolated unit suite:
+
+```bash
+cd sportscanner2
+.venv/bin/pytest
+```
+
+Run the deterministic fake-Plex workflow harness under pytest:
+
+```bash
+cd sportscanner2
+.venv/bin/pytest --test-mode=deterministic -q
+```
+
+Run the live Plex integration checks after you complete the local setup:
+
+```bash
+cd sportscanner2
+export SPORTSCANNER_PMS_TOKEN="YOUR_PLEX_TOKEN"
+.venv/bin/pytest --test-mode=plex -q
+```
+
+Optional live-test overrides:
+
+- `SPORTSCANNER_PROVIDER_URL` defaults to `http://127.0.0.1:32699`
+- `SPORTSCANNER_PMS_URL` defaults to `http://192.168.0.127:32400`
+- `SPORTSCANNER_PROVIDER_IDENTIFIER` defaults to `tv.plex.agents.custom.sportscanner.metadata.local`
+- `SPORTSCANNER_PROVIDER_GROUP_NAME` defaults to `SportScanner 2 Local`
+- `SPORTSCANNER_PLEX_LIBRARY_NAME` defaults to `Sport_Test`
+
 ## Workflow Validation Script
 
 If you want a repeatable end-to-end check without depending on a live upstream schedule or a live Plex

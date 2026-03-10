@@ -21,6 +21,12 @@ from sportscanner.services import SportScannerServices
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
 
 
+TEST_MODE_BY_MARKER = {
+    "deterministic_integration": "deterministic",
+    "plex_integration": "plex",
+}
+
+
 class FakeMetadataSource:
     name = "fake"
 
@@ -59,6 +65,49 @@ class FakeMetadataSource:
         if tsdb_event_id == 1001:
             return self._event
         return None
+
+
+def pytest_addoption(parser) -> None:
+    parser.addoption(
+        "--test-mode",
+        action="store",
+        default="unit",
+        choices=("unit", "deterministic", "plex", "all"),
+        help="Select which test slice to run.",
+    )
+
+
+def pytest_configure(config) -> None:
+    config.addinivalue_line("markers", "unit: isolated tests using local fixtures, mocks, or stubs")
+    config.addinivalue_line(
+        "markers",
+        "deterministic_integration: end-to-end workflow tests against the fake Plex harness",
+    )
+    config.addinivalue_line(
+        "markers",
+        "plex_integration: live Plex integration tests against the local runtime and Plex server",
+    )
+
+
+def pytest_collection_modifyitems(config, items) -> None:
+    selected_mode = config.getoption("--test-mode")
+    selected = []
+    deselected = []
+    for item in items:
+        item_mode = "unit"
+        for marker_name, mode_name in TEST_MODE_BY_MARKER.items():
+            if item.get_closest_marker(marker_name):
+                item_mode = mode_name
+                break
+        if item_mode == "unit":
+            item.add_marker(pytest.mark.unit)
+        if selected_mode == "all" or item_mode == selected_mode:
+            selected.append(item)
+        else:
+            deselected.append(item)
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = selected
 
 
 @pytest.fixture()
