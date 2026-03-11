@@ -4,9 +4,11 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, select
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import joinedload
 
+from sportscanner.config import validate_plex_provider_identifier
 from sportscanner.db.models import AppSetting, Competition, CompetitionSeason, Event, ReviewTask, Segment, SegmentStatus
 from sportscanner.plex import PlexRegistrationResult
 
@@ -71,6 +73,8 @@ def review_queue(request: Request) -> HTMLResponse:
         tasks = list(
             session.scalars(
                 select(ReviewTask)
+                .options(joinedload(ReviewTask.segment))
+                .where(ReviewTask.status == "open")
                 .order_by(ReviewTask.created_at.asc())
             )
         )
@@ -107,6 +111,41 @@ def resolve_review_task(
         publish_as_special=bool(publish_as_special),
     )
     return RedirectResponse(url=f"{request.url_for('review_queue')}", status_code=303)
+
+
+@router.get("/review/{task_id}/search", response_class=HTMLResponse)
+def search_events_for_review(request: Request, task_id: int, q: str = "") -> HTMLResponse:
+    with _session_factory(request)() as session:
+        task = session.get(ReviewTask, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Unknown review task")
+        results = []
+        if q.strip():
+            rows = list(
+                session.scalars(
+                    select(Event)
+                    .join(CompetitionSeason, CompetitionSeason.id == Event.competition_season_id)
+                    .join(Competition, Competition.id == CompetitionSeason.competition_id)
+                    .where(or_(Event.name.ilike(f"%{q}%"), Competition.name.ilike(f"%{q}%")))
+                    .order_by(Event.date.desc())
+                    .limit(25)
+                )
+            )
+            for ev in rows:
+                season = session.get(CompetitionSeason, ev.competition_season_id)
+                comp = session.get(Competition, season.competition_id) if season else None
+                results.append({
+                    "event_id": ev.id,
+                    "name": ev.name,
+                    "date": ev.date,
+                    "competition": comp.name if comp else "Unknown",
+                    "season": season.label if season else "Unknown",
+                })
+    return _render(
+        request,
+        "review_event_search.html",
+        {"task_id": task_id, "results": results},
+    )
 
 
 @router.get("/competitions", response_class=HTMLResponse)
@@ -173,7 +212,7 @@ def update_segment(
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request) -> HTMLResponse:
     values = _settings_values(request)
-    return _render(request, "settings.html", {"values": values})
+    return _render(request, "settings.html", {"values": values, "error": None})
 
 
 @router.post("/settings")
@@ -184,15 +223,23 @@ def save_settings(
     provider_public_url: str = Form(...),
     plex_provider_identifier: str = Form(...),
     plex_provider_group_name: str = Form(...),
-) -> RedirectResponse:
+) -> Response:
+    values = {
+        "pms_url": pms_url,
+        "pms_token": pms_token,
+        "provider_public_url": provider_public_url,
+        "plex_provider_identifier": plex_provider_identifier,
+        "plex_provider_group_name": plex_provider_group_name,
+    }
+    try:
+        values["plex_provider_identifier"] = validate_plex_provider_identifier(plex_provider_identifier)
+    except ValueError as exc:
+        response = _render(request, "settings.html", {"values": values, "error": str(exc)})
+        response.status_code = 400
+        return response
+
     with _session_factory(request)() as session:
-        for key, value in {
-            "pms_url": pms_url,
-            "pms_token": pms_token,
-            "provider_public_url": provider_public_url,
-            "plex_provider_identifier": plex_provider_identifier,
-            "plex_provider_group_name": plex_provider_group_name,
-        }.items():
+        for key, value in values.items():
             existing = session.get(AppSetting, key)
             if existing is None:
                 session.add(AppSetting(key=key, value=value))
@@ -377,3 +424,44 @@ def create_plex_library(
 def rescan(request: Request) -> RedirectResponse:
     request.app.state.services.organizer.rescan_incoming()
     return RedirectResponse(url=f"{request.url_for('dashboard')}", status_code=303)
+
+
+@router.get("/plex-libraries", response_class=HTMLResponse)
+def plex_libraries_page(request: Request) -> HTMLResponse:
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        pms_url = _setting(session, "pms_url", services.settings.pms_url)
+        pms_token = _setting(session, "pms_token", services.settings.pms_token)
+        provider_identifier = _setting(
+            session, "plex_provider_identifier", services.settings.plex_provider_identifier
+        )
+    plex = services.plex.with_credentials(pms_url, pms_token)
+    sections = []
+    error = None
+    try:
+        sections = plex.list_library_sections()
+    except ValueError as exc:
+        error = str(exc)
+    except httpx.HTTPStatusError as exc:
+        error = f"Plex returned {exc.response.status_code}: {exc.response.text[:200]}"
+    except httpx.HTTPError as exc:
+        error = f"Could not reach Plex: {exc}"
+    return _render(
+        request,
+        "plex_libraries.html",
+        {"sections": sections, "error": error, "provider_identifier": provider_identifier},
+    )
+
+
+@router.post("/plex-libraries/{section_id}/refresh")
+def plex_refresh_section(request: Request, section_id: int) -> RedirectResponse:
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        pms_url = _setting(session, "pms_url", services.settings.pms_url)
+        pms_token = _setting(session, "pms_token", services.settings.pms_token)
+    plex = services.plex.with_credentials(pms_url, pms_token)
+    try:
+        plex.refresh_library_section(section_id)
+    except (ValueError, httpx.HTTPError):
+        pass
+    return RedirectResponse(url=str(request.url_for("plex_libraries_page")), status_code=303)

@@ -147,7 +147,7 @@ class LogBuffer(logging.Handler):
             if keyword and keyword.lower() not in entry.message.lower():
                 continue
             out.append(entry)
-        return out[-limit:]
+        return list(reversed(out[-limit:]))
 
     def _persistent_entries(
         self,
@@ -189,5 +189,4 @@ class LogBuffer(logging.Handler):
             )
             if len(out) >= limit:
                 break
-        out.reverse()
         return out

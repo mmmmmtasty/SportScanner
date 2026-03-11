@@ -3,6 +3,12 @@
 {% block content %}
 <h1>Settings</h1>
 <p>Enter these when you are ready to connect SportScanner to Plex.</p>
+{% if error %}
+<article>
+  <header>Action failed</header>
+  <p>{{ error }}</p>
+</article>
+{% endif %}
 <form method="post" action="{{ request.url_for('save_settings') }}">
   <label>
     Plex Server URL
@@ -30,7 +36,7 @@
       value="{{ values.plex_provider_identifier or '' }}"
       placeholder="tv.plex.agents.custom.sportscanner.metadata"
     />
-    <small>This must be unique per SportScanner runtime. Use a distinct suffix for your local test server.</small>
+    <small>This must start with <code>tv.plex.agents.</code> and use only letters, numbers, and periods.</small>
   </label>
   <label>
     Provider Group Name In Plex

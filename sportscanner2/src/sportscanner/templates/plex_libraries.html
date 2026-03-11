@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Plex Libraries{% endblock %}
+{% block content %}
+<h1>Plex Libraries</h1>
+
+{% if error %}
+<article>
+  <header>Error</header>
+  <p>{{ error }}</p>
+</article>
+{% endif %}
+
+<p>
+  Libraries configured in Plex. Use <strong>Force Refresh</strong> to ask Plex to re-scan and re-apply metadata
+  from the SportScanner provider — this is the recommended step when episodes remain on <code>local://</code> metadata
+  after a clean scan.
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Agent</th>
+      <th>Scanner</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for section in sections %}
+    <tr>
+      <td>{{ section.key }}</td>
+      <td>{{ section.title }}</td>
+      <td>{{ section.type }}</td>
+      <td style="font-size:0.8em;color:var(--pico-muted-color)">{{ section.agent }}</td>
+      <td style="font-size:0.8em;color:var(--pico-muted-color)">{{ section.scanner }}</td>
+      <td>
+        {% if section.type == "show" %}
+        <form method="post" action="{{ request.url_for('plex_refresh_section', section_id=section.key) }}">
+          <button type="submit" class="secondary" style="padding:0.25rem 0.75rem;font-size:0.85em">Force Refresh</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6">No library sections found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p>
+  <a href="{{ request.url_for('plex_registration_page') }}">Back to Plex Registration</a> &nbsp;|&nbsp;
+  <a href="{{ request.url_for('settings_page') }}">Settings</a>
+</p>
+{% endblock %}

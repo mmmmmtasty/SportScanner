@@ -1,3 +1,9 @@
+:root {
+  --pico-font-size: 93.75%;
+  --pico-color: #111827;
+  --pico-muted-color: #4b5563;
+}
+
 body {
   background:
     radial-gradient(circle at top left, rgba(255, 214, 102, 0.18), transparent 30%),
@@ -20,4 +26,12 @@ main.container {
 
 .actions {
   margin-top: 2rem;
+}
+
+table {
+  font-size: 0.875em;
+}
+
+table th, table td {
+  padding: 0.35rem 0.5rem;
 }

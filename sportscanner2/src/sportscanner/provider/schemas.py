@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date as date_cls
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -20,34 +20,36 @@ class MediaProviderModel(BaseModel):
     features: list[ProviderFeature]
 
 
-class SearchResultModel(BaseModel):
-    id: str
-    guid: str
-    name: str
-    score: int
-    type: Literal["show", "season", "episode"] = "show"
-    year: int | None = None
-
-
 class MetadataItemModel(BaseModel):
     ratingKey: str
     guid: str
     key: str
     type: Literal["show", "season", "episode"]
     title: str
+    score: int | None = None
     summary: str | None = None
+    year: int | None = None
     index: int | None = None
     leafCount: int | None = None
+    parentKey: str | None = None
     parentGuid: str | None = None
     parentIndex: int | None = None
     parentRatingKey: str | None = None
     parentTitle: str | None = None
+    parentType: Literal["show", "season"] | None = None
+    grandparentKey: str | None = None
     grandparentGuid: str | None = None
     grandparentRatingKey: str | None = None
     grandparentTitle: str | None = None
-    originallyAvailableAt: date | None = None
+    originallyAvailableAt: date_cls | None = None
     thumb: str | None = None
     art: str | None = None
+    Children: ChildrenModel | None = None
+
+
+class ChildrenModel(BaseModel):
+    size: int
+    Metadata: list[MetadataItemModel]
 
 
 class ImageModel(BaseModel):
@@ -58,21 +60,28 @@ class ImageModel(BaseModel):
 
 
 class MediaContainerModel(BaseModel):
+    identifier: str
     size: int
     totalSize: int | None = None
     offset: int = 0
-    SearchResult: list[SearchResultModel] | None = None
     Metadata: list[MetadataItemModel] | None = None
     Image: list[ImageModel] | None = None
 
 
 class MatchRequestModel(BaseModel):
-    type: str | None = None
+    type: Literal[2, 3, 4] | None = None
     title: str | None = None
     guid: str | None = None
     parentIndex: int | None = None
     index: int | None = None
     grandparentTitle: str | None = None
     parentTitle: str | None = None
+    year: int | None = None
+    date: date_cls | None = None
+    manual: bool = False
+    includeChildren: bool = False
+    filename: str | None = None
     metadata: dict[str, Any] | None = None
 
+
+MetadataItemModel.model_rebuild()

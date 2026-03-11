@@ -45,5 +45,8 @@
   </form>
 </section>
 
-<p><a href="{{ request.url_for('settings_page') }}">Back to Settings</a></p>
+<p>
+  <a href="{{ request.url_for('plex_libraries_page') }}">View &amp; Refresh Plex Libraries</a> &nbsp;|&nbsp;
+  <a href="{{ request.url_for('settings_page') }}">Back to Settings</a>
+</p>
 {% endblock %}

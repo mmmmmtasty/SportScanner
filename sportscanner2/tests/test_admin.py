@@ -41,6 +41,25 @@ def test_save_settings_redirects_back_to_settings(provider_app) -> None:
     assert response.headers["location"].endswith("/admin/settings")
 
 
+def test_save_settings_rejects_invalid_provider_identifier(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.post(
+        "/admin/settings",
+        data={
+            "pms_url": "http://plex:32400",
+            "pms_token": "abc123",
+            "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_identifier": "sportscanner.metadata",
+            "plex_provider_group_name": "SportScanner 2",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Action failed" in response.text
+    assert "must start with tv.plex.agents." in response.text
+
+
 def test_register_plex_redirects_to_get_result_page(provider_app) -> None:
     class FakePlex:
         def with_credentials(self, base_url, token):

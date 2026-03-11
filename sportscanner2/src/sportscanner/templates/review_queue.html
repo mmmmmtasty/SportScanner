@@ -6,8 +6,11 @@
   <thead>
     <tr>
       <th>ID</th>
-      <th>Segment</th>
-      <th>Status</th>
+      <th>Title</th>
+      <th>Kind</th>
+      <th>Air Date</th>
+      <th>Source File</th>
+      <th>Type</th>
       <th></th>
     </tr>
   </thead>
@@ -15,16 +18,18 @@
     {% for task in tasks %}
     <tr>
       <td>{{ task.id }}</td>
-      <td>{{ task.segment_id }}</td>
-      <td>{{ task.status }}</td>
+      <td>{{ task.segment.title if task.segment else task.segment_id }}</td>
+      <td>{{ task.segment.kind if task.segment else "" }}</td>
+      <td>{{ task.segment.air_date if task.segment else "" }}</td>
+      <td style="font-size:0.8em;color:var(--pico-muted-color)">{{ task.segment.source_path.split("/")[-1] if task.segment else "" }}</td>
+      <td>{{ task.task_type }}</td>
       <td><a href="{{ request.url_for('review_task_detail', task_id=task.id) }}">Open</a></td>
     </tr>
     {% else %}
     <tr>
-      <td colspan="4">No review tasks.</td>
+      <td colspan="7">No review tasks.</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 {% endblock %}
-

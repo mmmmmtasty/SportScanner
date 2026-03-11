@@ -419,19 +419,22 @@ def test_live_ingest_and_metadata_resolution() -> None:
             assert expected_plexmatch.exists(), f"expected .plexmatch at {expected_plexmatch}"
             assert expected_managed_path.name in expected_plexmatch.read_text(encoding="utf-8")
 
-            refresh_response = plex_client.get(
+            # Trigger a targeted scan of just the Formula 1 show directory so Plex
+            # picks up the new episode quickly without scanning the whole library.
+            plex_show_dir = str(plex_library_root / "Formula 1")
+            scan_response = plex_client.get(
                 f"{plex_base_url}/library/sections/{section_id}/refresh",
                 params={
-                    "force": 1,
+                    "path": plex_show_dir,
                     "X-Plex-Token": plex_token,
                 },
             )
-            assert refresh_response.status_code == 200, (
-                f"Plex refresh failed with {refresh_response.status_code}: {refresh_response.text}"
+            assert scan_response.status_code == 200, (
+                f"Plex path scan failed with {scan_response.status_code}: {scan_response.text}"
             )
 
             show = _poll_until(
-                time.monotonic() + 90,
+                time.monotonic() + 180,
                 lambda: next(
                     (
                         directory
@@ -443,7 +446,7 @@ def test_live_ingest_and_metadata_resolution() -> None:
                 "Plex never scanned the Formula 1 show into Sport_Test",
             )
             season = _poll_until(
-                time.monotonic() + 90,
+                time.monotonic() + 60,
                 lambda: next(
                     (
                         directory
@@ -460,7 +463,7 @@ def test_live_ingest_and_metadata_resolution() -> None:
                 "Plex never exposed the 2025 season under the Formula 1 show",
             )
             episode = _poll_until(
-                time.monotonic() + 90,
+                time.monotonic() + 60,
                 lambda: next(
                     (
                         video
@@ -491,7 +494,7 @@ def test_live_ingest_and_metadata_resolution() -> None:
             assert provider_metadata["guid"].startswith(f"{provider_identifier}://episode/")
 
             plex_metadata = _poll_until(
-                time.monotonic() + 90,
+                time.monotonic() + 120,
                 lambda: (
                     item
                     if (
@@ -502,6 +505,8 @@ def test_live_ingest_and_metadata_resolution() -> None:
                             episode.attrib["ratingKey"],
                         )).attrib.get("guid", "").startswith(f"{provider_identifier}://episode/")
                         and item.attrib.get("title") == expected_title
+                        and item.attrib.get("grandparentTitle") == "Formula 1"
+                        and item.attrib.get("originallyAvailableAt") == "2025-06-29"
                     )
                     else None
                 ),
@@ -512,11 +517,21 @@ def test_live_ingest_and_metadata_resolution() -> None:
             assert plex_metadata.attrib.get("grandparentTitle") == provider_metadata["grandparentTitle"]
             assert plex_metadata.attrib.get("originallyAvailableAt") == provider_metadata["originallyAvailableAt"]
 
+            settle_seconds = int(os.getenv("SPORTSCANNER_PLEX_SETTLE_SECONDS", "30"))
+            if settle_seconds > 0:
+                time.sleep(settle_seconds)
+
         finally:
+            # Remove incoming fixture first so SportScanner won't re-process during cleanup.
             if fixture_sidecar.exists():
                 fixture_sidecar.unlink()
             if fixture_path.exists():
                 fixture_path.unlink()
             if fixture_dir.exists():
                 fixture_dir.rmdir()
+            # Give Plex a moment to finish any in-flight metadata writes before
+            # we delete the managed library files.
+            cleanup_delay = int(os.getenv("SPORTSCANNER_PLEX_CLEANUP_DELAY_SECONDS", "15"))
+            if cleanup_delay > 0:
+                time.sleep(cleanup_delay)
             _cleanup_live_test_state(db_path, incoming_dir, library_dir)

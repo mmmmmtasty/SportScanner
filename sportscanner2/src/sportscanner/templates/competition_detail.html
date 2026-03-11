@@ -18,8 +18,10 @@
   <table>
     <thead>
       <tr>
-        <th>Episode</th>
+        <th>Ep</th>
         <th>Title</th>
+        <th>Kind</th>
+        <th>Air Date</th>
         <th>Status</th>
       </tr>
     </thead>
@@ -28,15 +30,16 @@
       <tr>
         <td>{{ segment.episode_number or "" }}</td>
         <td><a href="{{ request.url_for('segment_detail', segment_id=segment.id) }}">{{ segment.title }}</a></td>
+        <td>{{ segment.kind }}</td>
+        <td>{{ segment.air_date or "" }}</td>
         <td>{{ segment.status }}</td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="3">No segments.</td>
+        <td colspan="5">No segments.</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </section>
 {% endblock %}
-

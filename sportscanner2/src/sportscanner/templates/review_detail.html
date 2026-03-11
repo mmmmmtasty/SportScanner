@@ -4,11 +4,19 @@
 <h1>Review Task {{ task.id }}</h1>
 {% if segment %}
 <article>
-  <header>{{ segment.title }}</header>
-  <p><strong>Competition:</strong> {{ competition.name if competition else "Unknown" }}</p>
-  <p><strong>Season:</strong> {{ season.label if season else "Unknown" }}</p>
-  <p><strong>Source:</strong> {{ segment.source_path }}</p>
+  <header><strong>{{ segment.title }}</strong></header>
+  <p>
+    <strong>Competition:</strong> {{ competition.name if competition else "Unknown" }} &nbsp;|&nbsp;
+    <strong>Season:</strong> {{ season.label if season else "Unknown" }} &nbsp;|&nbsp;
+    <strong>Kind:</strong> {{ segment.kind }}
+    {% if segment.episode_number %}&nbsp;|&nbsp;<strong>Episode:</strong> {{ segment.episode_number }}{% endif %}
+    {% if segment.air_date %}&nbsp;|&nbsp;<strong>Air Date:</strong> {{ segment.air_date }}{% endif %}
+  </p>
   <p><strong>Status:</strong> {{ segment.status }}</p>
+  <p style="font-size:0.85em;color:var(--pico-muted-color)">
+    <strong>File:</strong> {{ segment.source_path.split("/")[-1] }}<br/>
+    <strong>Full path:</strong> {{ segment.source_path }}
+  </p>
 </article>
 {% endif %}
 <section>
@@ -41,9 +49,26 @@
     </tbody>
   </table>
 </section>
+
+<section>
+  <h2>Search for Event Manually</h2>
+  <form hx-get="{{ request.url_for('search_events_for_review', task_id=task.id) }}"
+        hx-target="#event-search-results"
+        hx-swap="innerHTML"
+        hx-trigger="submit">
+    <div style="display:flex;gap:0.5rem;align-items:flex-end">
+      <label style="flex:1;margin-bottom:0">
+        Competition or event name
+        <input name="q" placeholder="e.g. Formula 1, Monaco Grand Prix…" />
+      </label>
+      <button type="submit" class="secondary" style="margin-bottom:0">Search</button>
+    </div>
+  </form>
+  <div id="event-search-results" style="margin-top:1rem"></div>
+</section>
+
 <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task.id) }}">
   <input type="hidden" name="publish_as_special" value="1" />
   <button type="submit" class="secondary">Publish As Season 0 Special</button>
 </form>
 {% endblock %}
-

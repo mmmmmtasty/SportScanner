@@ -1,0 +1,31 @@
+{% if results %}
+<table>
+  <thead>
+    <tr>
+      <th>Event</th>
+      <th>Competition</th>
+      <th>Season</th>
+      <th>Date</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in results %}
+    <tr>
+      <td>{{ r.name }}</td>
+      <td>{{ r.competition }}</td>
+      <td>{{ r.season }}</td>
+      <td>{{ r.date or "" }}</td>
+      <td>
+        <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task_id) }}">
+          <input type="hidden" name="event_id" value="{{ r.event_id }}" />
+          <button type="submit">Use This Event</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:var(--pico-muted-color)">No events found. Try a different search term.</p>
+{% endif %}

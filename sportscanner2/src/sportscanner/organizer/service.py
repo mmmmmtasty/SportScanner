@@ -186,6 +186,14 @@ class OrganizerService:
             return refreshed
 
     def _upsert_segment_from_path(self, session: Session, parsed: ParsedFile, sidecar: SidecarMetadata) -> Segment:
+        # Pre-fetch upstream search results before any session.flush() to avoid a
+        # write-lock deadlock: _get_json opens its own session to write api_cache,
+        # but that session would be blocked by the write lock held by this one.
+        prefetched_search_results = (
+            self.metadata_source.search_filename(parsed.search_query())
+            if self.metadata_source is not None
+            else []
+        )
         competition = self._resolve_competition(session, sidecar.competition or parsed.show)
         self._apply_competition_config(competition, parsed.source_path)
         season_number, season_label = self._resolve_season(parsed, competition, sidecar)
@@ -253,8 +261,7 @@ class OrganizerService:
 
         season_events = list(session.scalars(select(Event).where(Event.competition_season_id == season.id)))
         upstream_events = [self._event_to_upstream(event, competition.name) for event in season_events]
-        search_results = self.metadata_source.search_filename(parsed.search_query()) if self.metadata_source else []
-        event_match = match_event(parsed, search_results=search_results, season_events=upstream_events)
+        event_match = match_event(parsed, search_results=prefetched_search_results, season_events=upstream_events)
 
         if event_match.event is not None:
             matched_event = self._upsert_event(session, season.id, event_match.event)

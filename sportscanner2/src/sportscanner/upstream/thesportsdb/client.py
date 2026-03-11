@@ -54,7 +54,7 @@ class TheSportsDbClient(MetadataSource):
 
     def search_filename(self, query: str) -> list[UpstreamEvent]:
         payload = self._get_json("searchfilename.php", params={"e": query})
-        return [adapt_event(item) for item in payload.get("event", [])]
+        return [adapt_event(item) for item in payload.get("event") or []]
 
     def events_on_day(self, competition_name: str, event_date: date) -> list[UpstreamEvent]:
         payload = self._get_json(

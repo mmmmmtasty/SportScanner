@@ -152,6 +152,36 @@ class PlexPmsClient:
             )
             return section_id
 
+    def list_library_sections(self) -> list[dict]:
+        """Return all library sections from Plex as a list of dicts."""
+        if not self.configured():
+            raise ValueError("Plex PMS URL and token are required")
+        with httpx.Client(base_url=self.base_url, headers={"X-Plex-Token": self.token, "Accept": "application/json"}, timeout=20.0) as client:
+            response = client.get("/library/sections", params=self._auth_params())
+            response.raise_for_status()
+        directories = response.json().get("MediaContainer", {}).get("Directory", [])
+        if isinstance(directories, dict):
+            directories = [directories]
+        return [
+            {
+                "key": int(d["key"]),
+                "title": d.get("title", ""),
+                "type": d.get("type", ""),
+                "agent": d.get("agent", ""),
+                "scanner": d.get("scanner", ""),
+            }
+            for d in directories
+        ]
+
+    def refresh_library_section(self, section_id: int) -> None:
+        """Trigger a forced metadata refresh on a Plex library section."""
+        if not self.configured():
+            raise ValueError("Plex PMS URL and token are required")
+        with httpx.Client(base_url=self.base_url, headers={"X-Plex-Token": self.token}, timeout=20.0) as client:
+            response = client.get(f"/library/sections/{section_id}/refresh", params={**self._auth_params(), "force": "1"})
+            response.raise_for_status()
+        logger.info("plex_library_refresh_triggered section_id=%s", section_id)
+
     def library_uses_group(self, section_id: int, group_id: int) -> bool:
         if not self.configured():
             raise ValueError("Plex PMS URL and token are required")
