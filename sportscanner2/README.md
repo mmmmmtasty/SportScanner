@@ -16,6 +16,22 @@ web `Review` queue instead.
 This app lives in `sportscanner2/`. The older Plex scanner and metadata agent elsewhere in this repo
 are legacy code.
 
+## Provider Contract
+
+The Plex metadata provider in `sportscanner2` is intentionally built against the same provider
+contract demonstrated in Plex's `tmdb-example-provider`:
+
+- `GET /provider/tv`
+- `POST /provider/tv/library/metadata/matches`
+- `GET /provider/tv/library/metadata/{ratingKey}`
+- `GET /provider/tv/library/metadata/{ratingKey}/children`
+- `GET /provider/tv/library/metadata/{ratingKey}/grandchildren`
+- `GET /provider/tv/library/metadata/{ratingKey}/images`
+
+The data source is different. The example provider reads TMDB. SportScanner reads TheSportsDB plus
+its own local ingest state, but the Plex-facing JSON structure and routing need to stay compatible
+with the example contract.
+
 ### Important Rules
 
 - Plex must point at the managed `library` folder, not `incoming`.
@@ -463,6 +479,26 @@ season_split_month: 7
 season_split_day: 1
 ```
 
+Cross-year labels must stay in full `YYYY-YYYY` form, for example `2024-2025`. That is the label
+SportScanner uses when it asks TheSportsDB for league and cup schedules.
+
+## How Sports Map To Plex
+
+- A competition becomes a Plex `show`. This includes leagues, cups, and motorsport series.
+- A competition season becomes a Plex `season`. Single-year competitions use `2025`. Cross-year
+  competitions use full labels like `2024-2025`.
+- A TheSportsDB event becomes the canonical Plex `episode` anchor. This is what drives
+  `originallyAvailableAt`, ordering, and the primary episode title.
+- Multi-session weekends such as Formula 1 are not collapsed into one episode. Practice,
+  qualifying, sprint, and race sessions stay as distinct upstream events and distinct Plex episodes,
+  even when they happen on the same day.
+- Multiple local media parts for the same upstream event can still exist. Pregame, postgame,
+  highlights, condensed cuts, and alternate feeds stay separate episodes attached to the same event.
+  The primary event title comes from TheSportsDB; local-only variants keep their extra local label.
+- Plain team-vs-team filenames such as `Arsenal vs Bournemouth` are treated as `match` segments even
+  when no explicit `- Match` suffix exists. This keeps league and cup fixtures on the primary event
+  metadata path instead of falling back to generic `other` handling.
+
 ## Common Problems
 
 ### `Register Provider And Group` Fails
@@ -482,6 +518,16 @@ Check:
 - Plex points at the managed `library` folder, not `incoming`
 - the library `Agent` is set to `SportScanner 2`
 - you ran `Refresh All Metadata` after changing the agent
+- you remember that Plex `Scan` and Plex `Refresh Metadata` are different operations
+
+SportScanner expects a two-step Plex workflow:
+
+1. `Scan` discovers new files in the managed library.
+2. `Refresh Metadata` calls the custom provider and replaces local placeholder metadata with the
+   TheSportsDB-backed show, season, and episode data.
+
+If Plex has the file but the item is still showing `local://` metadata or generic episode titles,
+run a metadata refresh on the library or show.
 
 ### Files Stay In Review
 

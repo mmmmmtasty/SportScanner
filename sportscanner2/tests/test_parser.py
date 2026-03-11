@@ -26,5 +26,4 @@ def test_parse_dot_separated_filename() -> None:
 
     assert parsed.show == "English Premier League"
     assert parsed.title == "Arsenal vs Bournemouth"
-    assert parsed.segment_kind == "other"
-
+    assert parsed.segment_kind == "match"

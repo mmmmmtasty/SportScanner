@@ -72,7 +72,7 @@ class ProviderMetadataService:
             return episode_metadata(
                 competition,
                 season,
-                event.date if event is not None else None,
+                event,
                 segment,
                 self.provider_identifier,
             )

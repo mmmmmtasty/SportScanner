@@ -74,7 +74,7 @@ def season_for_date(event_date: date, competition: Competition) -> tuple[int, st
             start_year = event_date.year - 1
         else:
             start_year = event_date.year
-        return (start_year, f"{start_year}-{str(start_year + 1)[-2:]}")
+        return (start_year, f"{start_year}-{start_year + 1}")
     return (event_date.year, str(event_date.year))
 
 
@@ -134,4 +134,3 @@ def match_event(
         method="unmatched",
         candidates=[{"event_id": item.id, "name": item.name, "confidence": similarity(parsed.title, item.name)} for item in top],
     )
-

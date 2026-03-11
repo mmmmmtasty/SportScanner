@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import time
 import xml.etree.ElementTree as ET
 from datetime import date
@@ -9,14 +11,17 @@ from pathlib import PurePosixPath
 
 import httpx
 import pytest
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from sportscanner.db.models import Competition, CompetitionSeason, Event
 from sportscanner.organizer.placer import build_managed_filename, season_directory_name
 
 
 pytestmark = pytest.mark.plex_integration
+
+LIVE_COMPETITION_NAME = "English Premier League"
+LIVE_TSDB_EVENT_ID = 2069558
+LIVE_FIXTURE_FILENAME = "English Premier League 2024.08.17 Arsenal vs Wolverhampton Wanderers.mkv"
 
 
 def _required_env(name: str) -> str:
@@ -34,57 +39,6 @@ def _db_path() -> Path:
     if local_default.exists():
         return local_default
     pytest.skip("SPORTSCANNER_DB_PATH is required for the live ingest integration test")
-
-
-def _seed_live_event(db_path: Path) -> None:
-    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
-    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
-    try:
-        with factory() as session:
-            competition = session.scalar(select(Competition).where(Competition.name == "Formula 1"))
-            if competition is None:
-                competition = Competition(id="tsdb_4370", tsdb_id=4370, name="Formula 1")
-                session.add(competition)
-                session.flush()
-            elif competition.tsdb_id is None:
-                competition.tsdb_id = 4370
-
-            season = session.scalar(
-                select(CompetitionSeason).where(
-                    CompetitionSeason.competition_id == competition.id,
-                    CompetitionSeason.season_number == 2025,
-                )
-            )
-            if season is None:
-                season = CompetitionSeason(
-                    id=f"season_{competition.id}_2025",
-                    competition_id=competition.id,
-                    season_number=2025,
-                    label="2025",
-                    is_complete=True,
-                )
-                session.add(season)
-                session.flush()
-            else:
-                season.is_complete = True
-
-            event = session.scalar(select(Event).where(Event.tsdb_id == 1001))
-            if event is None:
-                event = Event(
-                    id="tsdb_1001",
-                    tsdb_id=1001,
-                    competition_season_id=season.id,
-                    name="Austrian Grand Prix",
-                    date=date(2025, 6, 29),
-                )
-                session.add(event)
-            else:
-                event.competition_season_id = season.id
-                event.name = "Austrian Grand Prix"
-                event.date = date(2025, 6, 29)
-            session.commit()
-    finally:
-        engine.dispose()
 
 
 def _segment_id_for_source_path(db_path: Path, source_path: Path) -> str:
@@ -106,7 +60,7 @@ def _cleanup_live_test_state(db_path: Path, incoming_dir: Path, library_dir: Pat
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     source_pattern = f"{incoming_dir}/live-plex-%/%"
-    managed_pattern = "%Austrian Grand Prix Live Test %.mkv"
+    managed_pattern = "%Arsenal vs Wolverhampton Wanderers Live Test %.mkv"
     try:
         with factory() as session:
             rows = session.execute(
@@ -141,10 +95,56 @@ def _cleanup_live_test_state(db_path: Path, incoming_dir: Path, library_dir: Pat
         if fixture_dir.exists():
             fixture_dir.rmdir()
 
-    season_dir = library_dir / "Formula 1" / season_directory_name(2025)
-    for path in season_dir.glob("Formula 1 - 2025-06-29 - Austrian Grand Prix Live Test *.mkv"):
+    season_dir = library_dir / LIVE_COMPETITION_NAME / season_directory_name(2024)
+    for path in season_dir.glob(
+        "English Premier League - 2024-08-17 - Arsenal vs Wolverhampton Wanderers Live Test *.mkv"
+    ):
         if path.is_file():
             path.unlink()
+
+
+def _live_tsdb_event(tsdb_event_id: int) -> dict[str, str]:
+    response = httpx.get(
+        "https://www.thesportsdb.com/api/v1/json/123/lookupevent.php",
+        params={"id": tsdb_event_id},
+        timeout=20.0,
+    )
+    response.raise_for_status()
+    events = response.json().get("events") or []
+    assert events, f"TheSportsDB did not return event {tsdb_event_id}"
+    return events[0]
+
+
+def _write_valid_video(path: Path) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg is required for the live Plex integration test")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=640x360:d=1:r=1",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=48000:cl=stereo",
+            "-shortest",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            str(path),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def _plex_sections(client: httpx.Client, plex_base_url: str, plex_token: str) -> list[ET.Element]:
@@ -181,16 +181,6 @@ def _poll_until(deadline: float, callback, message: str):
             return last_value
         time.sleep(1)
     pytest.fail(message if last_value is None else f"{message}: {last_value}")
-
-
-def _episode_videos(client: httpx.Client, plex_base_url: str, plex_token: str, section_id: int) -> list[ET.Element]:
-    response = client.get(
-        f"{plex_base_url}/library/sections/{section_id}/all",
-        params={"type": 4, "X-Plex-Token": plex_token},
-        headers={"X-Plex-Container-Size": "200"},
-    )
-    assert response.status_code == 200, f"Plex episode listing failed: {response.text}"
-    return ET.fromstring(response.text).findall(".//Video")
 
 
 def _show_directories(client: httpx.Client, plex_base_url: str, plex_token: str, section_id: int) -> list[ET.Element]:
@@ -236,12 +226,14 @@ def _delete_stale_live_test_show(
     plex_base_url: str,
     plex_token: str,
     section_id: int,
+    show_title: str,
+    live_marker: str,
 ) -> None:
     show = next(
         (
             directory
             for directory in _show_directories(client, plex_base_url, plex_token, section_id)
-            if directory.attrib.get("title") == "Formula 1"
+            if directory.attrib.get("title") == show_title
         ),
         None,
     )
@@ -256,8 +248,8 @@ def _delete_stale_live_test_show(
             if part is not None and part.attrib.get("file"):
                 media_paths.append(part.attrib["file"])
 
-    if any("Austrian Grand Prix Live Test" not in path for path in media_paths):
-        pytest.skip("Sport_Test contains non-live-test Formula 1 media; refusing to delete it during the live test")
+    if any(live_marker not in path for path in media_paths):
+        pytest.skip(f"Sport_Test contains non-live-test {show_title} media; refusing to delete it during the live test")
 
     _delete_metadata(client, plex_base_url, plex_token, show.attrib["ratingKey"])
 
@@ -364,14 +356,18 @@ def test_live_ingest_and_metadata_resolution() -> None:
 
     run_id = str(int(time.time()))
     fixture_dir = incoming_dir / f"live-plex-{run_id}"
-    fixture_filename = "Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv"
+    upstream_event = _live_tsdb_event(LIVE_TSDB_EVENT_ID)
+    expected_upstream_title = upstream_event["strEvent"]
+    expected_date = upstream_event["dateEvent"]
+    expected_season_guid = f"{provider_identifier}://season/season_tsdb_4328_2024"
+    expected_season_title = "2024-2025"
+    fixture_filename = LIVE_FIXTURE_FILENAME
     fixture_path = fixture_dir / fixture_filename
     fixture_sidecar = fixture_path.with_suffix(".sportscanner.yml")
-    expected_title = f"Austrian Grand Prix Live Test {run_id}"
+    expected_local_title = f"{expected_upstream_title} Live Test {run_id}"
     db_path = _db_path()
-    _seed_live_event(db_path)
 
-    with httpx.Client(base_url=provider_base_url, timeout=30.0) as client, httpx.Client(timeout=30.0) as plex_client:
+    with httpx.Client(base_url=provider_base_url, timeout=90.0) as client, httpx.Client(timeout=30.0) as plex_client:
         health = client.get("/health")
         assert health.status_code == 200, f"SportScanner health check failed: {health.text}"
         health_payload = health.json()
@@ -389,28 +385,30 @@ def test_live_ingest_and_metadata_resolution() -> None:
             plex_base_url=plex_base_url,
             plex_token=plex_token,
             section_id=section_id,
+            show_title=LIVE_COMPETITION_NAME,
+            live_marker="Live Test",
         )
         _poll_until(
             time.monotonic() + 30,
             lambda: None
             if any(
-                directory.attrib.get("title") == "Formula 1"
+                directory.attrib.get("title") == LIVE_COMPETITION_NAME
                 for directory in _show_directories(plex_client, plex_base_url, plex_token, section_id)
             )
             else True,
-            "Plex did not remove the stale Formula 1 live-test show before the clean scan",
+            f"Plex did not remove the stale {LIVE_COMPETITION_NAME} live-test show before the clean scan",
         )
         location = section.find("./Location")
         assert location is not None and location.attrib.get("path"), "Plex library is missing a Location path"
         plex_library_root = PurePosixPath(location.attrib["path"])
         expected_managed_path = (
             library_dir
-            / "Formula 1"
-            / season_directory_name(2025)
+            / LIVE_COMPETITION_NAME
+            / season_directory_name(2024)
             / build_managed_filename(
-                competition_name="Formula 1",
-                air_date=date(2025, 6, 29),
-                title=expected_title,
+                competition_name=LIVE_COMPETITION_NAME,
+                air_date=date.fromisoformat(expected_date),
+                title=expected_local_title,
                 source_path=fixture_path,
             )
         )
@@ -418,17 +416,28 @@ def test_live_ingest_and_metadata_resolution() -> None:
         relative_managed_path = expected_managed_path.relative_to(library_dir)
         plex_managed_path = str(plex_library_root.joinpath(*relative_managed_path.parts))
         fixture_dir.mkdir(parents=True, exist_ok=True)
-        fixture_path.write_text("live plex integration", encoding="utf-8")
+        (fixture_dir / "competition.sportscanner.yml").write_text(
+            "\n".join(
+                [
+                    "season_pattern: cross_year",
+                    "season_split_month: 7",
+                    "season_split_day: 1",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
         fixture_sidecar.write_text(
             "\n".join(
                 [
-                    "tsdb_event_id: 1001",
+                    f"tsdb_event_id: {LIVE_TSDB_EVENT_ID}",
                     f'title_suffix: "Live Test {run_id}"',
                     "",
                 ]
             ),
             encoding="utf-8",
         )
+        _write_valid_video(fixture_path)
 
         stats_before = client.get("/admin/stats.json").raise_for_status().json()
         published_before = stats_before["published_segments"]
@@ -459,9 +468,9 @@ def test_live_ingest_and_metadata_resolution() -> None:
             assert expected_plexmatch.exists(), f"expected .plexmatch at {expected_plexmatch}"
             assert expected_managed_path.name in expected_plexmatch.read_text(encoding="utf-8")
 
-            # Trigger a targeted scan of just the Formula 1 show directory so Plex
+            # Trigger a targeted scan of just the competition show directory so Plex
             # picks up the new episode quickly without scanning the whole library.
-            plex_show_dir = str(plex_library_root / "Formula 1")
+            plex_show_dir = str(plex_library_root / LIVE_COMPETITION_NAME)
             scan_response = plex_client.get(
                 f"{plex_base_url}/library/sections/{section_id}/refresh",
                 params={
@@ -479,11 +488,11 @@ def test_live_ingest_and_metadata_resolution() -> None:
                     (
                         directory
                         for directory in _show_directories(plex_client, plex_base_url, plex_token, section_id)
-                        if directory.attrib.get("title") == "Formula 1"
+                        if directory.attrib.get("title") == LIVE_COMPETITION_NAME
                     ),
                     None,
                 ),
-                "Plex never scanned the Formula 1 show into Sport_Test",
+                f"Plex never scanned the {LIVE_COMPETITION_NAME} show into Sport_Test",
             )
             season = _poll_until(
                 time.monotonic() + 60,
@@ -496,12 +505,13 @@ def test_live_ingest_and_metadata_resolution() -> None:
                             plex_token,
                             show.attrib["key"],
                         ).findall(".//Directory")
-                        if directory.attrib.get("title") == "Season 2025"
+                        if directory.attrib.get("guid") == expected_season_guid
                     ),
                     None,
                 ),
-                "Plex never exposed the 2025 season under the Formula 1 show",
+                f"Plex never exposed the {expected_season_title} season under the {LIVE_COMPETITION_NAME} show",
             )
+            assert season.attrib.get("title") == expected_season_title
             episode = _poll_until(
                 time.monotonic() + 60,
                 lambda: next(
@@ -518,9 +528,8 @@ def test_live_ingest_and_metadata_resolution() -> None:
                     ),
                     None,
                 ),
-                f"Plex never scanned the episode file for {expected_title}",
+                f"Plex never scanned the episode file for {expected_local_title}",
             )
-            assert episode.attrib.get("grandparentTitle") == "Formula 1"
             assert episode.find(".//Part") is not None
             assert episode.find(".//Part").attrib.get("file") == plex_managed_path
 
@@ -528,29 +537,56 @@ def test_live_ingest_and_metadata_resolution() -> None:
             provider_response = client.get(f"/provider/tv/library/metadata/episode_{segment_id}")
             assert provider_response.status_code == 200, provider_response.text
             provider_metadata = provider_response.json()["MediaContainer"]["Metadata"][0]
-            assert provider_metadata["title"] == expected_title
-            assert provider_metadata["grandparentTitle"] == "Formula 1"
-            assert provider_metadata["originallyAvailableAt"] == "2025-06-29"
+            assert provider_metadata["title"] == expected_upstream_title
+            assert provider_metadata["grandparentTitle"] == LIVE_COMPETITION_NAME
+            assert provider_metadata["originallyAvailableAt"] == expected_date
+            assert provider_metadata["summary"] == upstream_event["strDescriptionEN"]
+            assert provider_metadata["thumb"] == upstream_event["strThumb"]
             assert provider_metadata["guid"].startswith(f"{provider_identifier}://episode/")
+            assert "Live Test" not in provider_metadata["title"]
+
+            refresh_response = plex_client.get(
+                f"{plex_base_url}/library/sections/{section_id}/refresh",
+                params={"force": 1, "X-Plex-Token": plex_token},
+            )
+            assert refresh_response.status_code == 200, (
+                f"Plex forced refresh failed with {refresh_response.status_code}: {refresh_response.text}"
+            )
+
+            _poll_until(
+                time.monotonic() + 120,
+                lambda: next(
+                    (
+                        directory
+                        for directory in _show_directories(plex_client, plex_base_url, plex_token, section_id)
+                        if directory.attrib.get("title") == LIVE_COMPETITION_NAME
+                    ),
+                    None,
+                ),
+                f"Plex never refreshed the show title to the provider-backed {LIVE_COMPETITION_NAME} metadata",
+            )
 
             plex_metadata = _poll_until(
                 time.monotonic() + 120,
-                lambda: (
-                    item
-                    if (
-                        (item := _metadata_details(
+                lambda: next(
+                    (
+                        item
+                        for item in _metadata_children(
                             plex_client,
                             plex_base_url,
                             plex_token,
-                            episode.attrib["ratingKey"],
-                        )).attrib.get("guid", "").startswith(f"{provider_identifier}://episode/")
-                        and item.attrib.get("title") == expected_title
-                        and item.attrib.get("grandparentTitle") == "Formula 1"
-                        and item.attrib.get("originallyAvailableAt") == "2025-06-29"
-                    )
-                    else None
+                            season.attrib["key"],
+                        ).findall(".//Video")
+                        if item.find(".//Part") is not None
+                        and item.find(".//Part").attrib.get("file") == plex_managed_path
+                        and item.attrib.get("guid", "").startswith(f"{provider_identifier}://episode/")
+                        and item.attrib.get("title") == expected_upstream_title
+                        and item.attrib.get("grandparentTitle") == LIVE_COMPETITION_NAME
+                        and item.attrib.get("originallyAvailableAt") == expected_date
+                    ),
+                    None,
                 ),
-                f"Plex never applied provider-backed metadata to {expected_title}",
+                f"Plex never applied provider-backed metadata to {expected_upstream_title}",
             )
             assert plex_metadata.attrib.get("guid") == provider_metadata["guid"]
             assert plex_metadata.attrib.get("title") == provider_metadata["title"]
@@ -565,6 +601,9 @@ def test_live_ingest_and_metadata_resolution() -> None:
             # Remove incoming fixture first so SportScanner won't re-process during cleanup.
             if fixture_sidecar.exists():
                 fixture_sidecar.unlink()
+            competition_config = fixture_dir / "competition.sportscanner.yml"
+            if competition_config.exists():
+                competition_config.unlink()
             if fixture_path.exists():
                 fixture_path.unlink()
             if fixture_dir.exists():

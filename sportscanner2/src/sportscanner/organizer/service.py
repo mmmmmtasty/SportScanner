@@ -57,7 +57,10 @@ def read_sidecar(path: Path) -> SidecarMetadata:
     sidecar_path = path.with_suffix(".sportscanner.yml")
     if not sidecar_path.exists():
         return SidecarMetadata()
-    text = sidecar_path.read_text(encoding="utf-8")
+    try:
+        text = sidecar_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return SidecarMetadata()
     data = yaml.safe_load(text) if yaml is not None else parse_simple_yaml(text)
     if not isinstance(data, dict):
         return SidecarMetadata()

@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from sportscanner.config import Settings
@@ -92,11 +93,15 @@ class TheSportsDbClient(MetadataSource):
         cache_key = f"{version}:{endpoint}?{urlencode(sorted(params.items()))}"
         now = datetime.now(UTC)
         if cache:
-            with self.session_factory() as session:
-                cached = session.get(ApiCache, cache_key)
-                expires_at = self._as_utc(cached.expires_at) if cached is not None else None
-                if cached is not None and expires_at is not None and expires_at >= now:
-                    return json.loads(cached.response_body)
+            try:
+                with self.session_factory() as session:
+                    cached = session.get(ApiCache, cache_key)
+                    expires_at = self._as_utc(cached.expires_at) if cached is not None else None
+                    if cached is not None and expires_at is not None and expires_at >= now:
+                        return json.loads(cached.response_body)
+            except OperationalError:
+                # SQLite write contention should not break live metadata fetches.
+                pass
 
         base_url = self.base_v2_url if version == "v2" else self.base_v1_url
         url = f"{base_url}/{endpoint.lstrip('/')}"
@@ -106,21 +111,25 @@ class TheSportsDbClient(MetadataSource):
 
         if cache:
             ttl = CACHE_TTLS.get(endpoint, timedelta(hours=1))
-            with self.session_factory() as session:
-                cached = ApiCache(
-                    cache_key=cache_key,
-                    response_body=json.dumps(payload),
-                    fetched_at=now,
-                    expires_at=now + ttl,
-                )
-                existing = session.get(ApiCache, cache_key)
-                if existing is None:
-                    session.add(cached)
-                else:
-                    existing.response_body = cached.response_body
-                    existing.fetched_at = cached.fetched_at
-                    existing.expires_at = cached.expires_at
-                session.commit()
+            try:
+                with self.session_factory() as session:
+                    cached = ApiCache(
+                        cache_key=cache_key,
+                        response_body=json.dumps(payload),
+                        fetched_at=now,
+                        expires_at=now + ttl,
+                    )
+                    existing = session.get(ApiCache, cache_key)
+                    if existing is None:
+                        session.add(cached)
+                    else:
+                        existing.response_body = cached.response_body
+                        existing.fetched_at = cached.fetched_at
+                        existing.expires_at = cached.expires_at
+                    session.commit()
+            except OperationalError:
+                # Cache misses are acceptable when ingest already owns the SQLite write lock.
+                pass
         return payload
 
     @staticmethod

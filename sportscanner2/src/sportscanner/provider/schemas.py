@@ -49,10 +49,13 @@ class MetadataItemModel(BaseModel):
     parentRatingKey: str | None = None
     parentTitle: str | None = None
     parentType: Literal["show", "season"] | None = None
+    parentThumb: str | None = None
     grandparentKey: str | None = None
     grandparentGuid: str | None = None
     grandparentRatingKey: str | None = None
     grandparentTitle: str | None = None
+    grandparentType: Literal["show"] | None = None
+    grandparentThumb: str | None = None
     originallyAvailableAt: date_cls | None = None
     thumb: str | None = None
     art: str | None = None

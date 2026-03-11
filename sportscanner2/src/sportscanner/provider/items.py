@@ -40,23 +40,62 @@ def segment_event_dates(session, segments: list[Segment]) -> dict[str, date | No
     return {str(event_id): event_date for event_id, event_date in rows}
 
 
+PRIMARY_EVENT_KINDS = {
+    "match",
+    "race",
+    "practice",
+    "qualifying",
+    "sprint",
+    "sprint_qualifying",
+}
+
+
+def normalize_title(value: str) -> str:
+    return "".join(char.lower() if char.isalnum() else " " for char in value).split()
+
+
+def episode_display_title(segment: Segment, event: Event | None) -> str:
+    if event is None or not event.name:
+        return segment.title
+    if segment.kind in PRIMARY_EVENT_KINDS:
+        return event.name
+    event_tokens = normalize_title(event.name)
+    segment_tokens = normalize_title(segment.title)
+    if segment_tokens[: len(event_tokens)] == event_tokens:
+        return segment.title
+    return f"{event.name} {segment.title}".strip()
+
+
+def first_event_date(session, competition_id: str, season_number: int | None = None) -> date | None:
+    query = (
+        select(func.min(Event.date))
+        .join(CompetitionSeason, CompetitionSeason.id == Event.competition_season_id)
+        .where(CompetitionSeason.competition_id == competition_id)
+    )
+    if season_number is not None:
+        query = query.where(CompetitionSeason.season_number == season_number)
+    return session.scalar(query)
+
+
 def episode_metadata(
     competition: Competition,
     season: CompetitionSeason,
-    event_date: date | None,
+    event: Event | None,
     segment: Segment,
     provider_identifier: str,
 ) -> MetadataItemModel:
     rating_key = make_episode_rating_key(segment.id)
     season_rating_key = make_season_rating_key(competition.id, season.season_number)
     show_rating_key = make_show_rating_key(competition.id)
+    aired_at = event.date if event is not None else segment.air_date
     return MetadataItemModel(
         ratingKey=rating_key,
         guid=make_episode_guid(segment.id, provider_identifier),
         key=f"/library/metadata/{rating_key}",
         type="episode",
-        title=segment.title,
-        summary=segment.summary,
+        title=episode_display_title(segment, event),
+        summary=segment.summary or (event.description if event is not None else None),
+        year=aired_at.year if aired_at is not None else None,
         index=segment.episode_number,
         parentKey=f"/library/metadata/{season_rating_key}",
         parentGuid=make_season_guid(competition.id, season.season_number, provider_identifier),
@@ -64,12 +103,15 @@ def episode_metadata(
         parentRatingKey=season_rating_key,
         parentTitle=season.label,
         parentType="season",
+        parentThumb=competition.poster_url,
         grandparentKey=f"/library/metadata/{show_rating_key}",
         grandparentGuid=make_show_guid(competition.id, provider_identifier),
         grandparentRatingKey=show_rating_key,
         grandparentTitle=competition.name,
-        originallyAvailableAt=event_date or segment.air_date,
-        thumb=segment.thumb_url,
+        grandparentType="show",
+        grandparentThumb=competition.poster_url,
+        originallyAvailableAt=aired_at,
+        thumb=segment.thumb_url or (event.thumb_url if event is not None else None),
     )
 
 
@@ -89,12 +131,11 @@ def season_episode_items(
             .order_by(Segment.episode_number.asc(), Segment.id.asc())
         )
     )
-    event_dates = segment_event_dates(session, segments)
     return [
         episode_metadata(
             competition,
             season,
-            event_dates.get(segment.event_id or ""),
+            session.get(Event, segment.event_id) if segment.event_id else None,
             segment,
             provider_identifier,
         )
@@ -112,6 +153,7 @@ def season_metadata(
 ) -> MetadataItemModel:
     rating_key = make_season_rating_key(competition.id, season.season_number)
     show_rating_key = make_show_rating_key(competition.id)
+    season_aired_at = first_event_date(session, competition.id, season.season_number)
     children = None
     if include_children:
         episode_items = season_episode_items(session, competition, season, provider_identifier)
@@ -122,12 +164,16 @@ def season_metadata(
         key=f"/library/metadata/{rating_key}/children",
         type="season",
         title=season.label,
+        year=season_aired_at.year if season_aired_at is not None else season.season_number,
         index=season.season_number,
         parentKey=f"/library/metadata/{show_rating_key}",
         parentGuid=make_show_guid(competition.id, provider_identifier),
         parentRatingKey=show_rating_key,
         parentTitle=competition.name,
         parentType="show",
+        parentThumb=competition.poster_url,
+        originallyAvailableAt=season_aired_at,
+        thumb=competition.poster_url,
         Children=children,
     )
 
@@ -163,12 +209,11 @@ def show_episode_items(session, competition: Competition, provider_identifier: s
             .order_by(CompetitionSeason.season_number.asc(), Segment.episode_number.asc(), Segment.id.asc())
         )
     )
-    event_dates = segment_event_dates(session, segments)
     return [
         episode_metadata(
             competition,
             seasons[segment.competition_season_id],
-            event_dates.get(segment.event_id or ""),
+            session.get(Event, segment.event_id) if segment.event_id else None,
             segment,
             provider_identifier,
         )
@@ -184,6 +229,11 @@ def show_metadata(
     include_children: bool = False,
 ) -> MetadataItemModel:
     rating_key = make_show_rating_key(competition.id)
+    show_aired_at = None
+    if competition.formed_year is not None:
+        show_aired_at = date(competition.formed_year, 1, 1)
+    if show_aired_at is None:
+        show_aired_at = first_event_date(session, competition.id)
     children = None
     if include_children:
         season_items = show_season_items(session, competition, provider_identifier)
@@ -197,6 +247,7 @@ def show_metadata(
         summary=competition.description,
         year=competition.formed_year,
         leafCount=show_leaf_count(session, competition.id),
+        originallyAvailableAt=show_aired_at,
         thumb=competition.poster_url,
         art=competition.fanart_url,
         Children=children,

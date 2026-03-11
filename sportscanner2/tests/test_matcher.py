@@ -19,7 +19,7 @@ def test_cross_year_season_resolution() -> None:
     season_number, label = season_for_date(date(2025, 5, 31), competition)
 
     assert season_number == 2024
-    assert label == "2024-25"
+    assert label == "2024-2025"
 
 
 def test_match_event_prefers_filename_search_exactness() -> None:
@@ -39,4 +39,3 @@ def test_match_event_prefers_filename_search_exactness() -> None:
     assert match.event is not None
     assert match.method == "searchfilename"
     assert match.confidence == 0.95
-

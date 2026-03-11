@@ -108,6 +108,8 @@ def infer_segment_kind(label: str | None, title: str) -> str:
         for key, value in SEGMENT_KIND_MAP.items():
             if key in lowered:
                 return value
+    if re.search(r"\b(?:vs|v)\b", title, flags=re.IGNORECASE):
+        return "match"
     return "other"
 
 
@@ -147,4 +149,3 @@ def parse_filename(path: str | Path) -> ParsedFile:
             season_hint=int(groups["season"]) if groups.get("season") else None,
         )
     raise ValueError(f"Could not parse filename: {source_path.name}")
-

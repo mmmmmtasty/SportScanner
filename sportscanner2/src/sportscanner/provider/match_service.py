@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import select
 
 from sportscanner.db.models import Competition, CompetitionSeason, Event, Segment, SegmentStatus
@@ -29,22 +31,88 @@ class ProviderMatchService:
                 return self._match_season_items(session, payload)
             return self._match_episode_items(session, payload)
 
+    def _competition_for_segment(self, session, segment_id: str) -> Competition | None:
+        segment = session.get(Segment, segment_id)
+        if segment is None:
+            return None
+        season = session.get(CompetitionSeason, segment.competition_season_id)
+        if season is None:
+            return None
+        return session.get(Competition, season.competition_id)
+
+    def _season_for_segment(self, session, segment_id: str) -> CompetitionSeason | None:
+        segment = session.get(Segment, segment_id)
+        if segment is None:
+            return None
+        return session.get(CompetitionSeason, segment.competition_season_id)
+
+    def _competition_from_guid(self, session, guid: str | None) -> Competition | None:
+        if not guid:
+            return None
+        try:
+            entity_type, values = parse_guid(guid, self.provider_identifier)
+        except ValueError:
+            return None
+        if entity_type in {"show", "season"}:
+            return session.get(Competition, values[0])
+        return self._competition_for_segment(session, values[0])
+
+    def _season_from_guid(self, session, guid: str | None) -> CompetitionSeason | None:
+        if not guid:
+            return None
+        try:
+            entity_type, values = parse_guid(guid, self.provider_identifier)
+        except ValueError:
+            return None
+        if entity_type == "season":
+            return session.scalar(
+                select(CompetitionSeason).where(
+                    CompetitionSeason.competition_id == values[0],
+                    CompetitionSeason.season_number == int(values[1]),
+                )
+            )
+        if entity_type == "episode":
+            return self._season_for_segment(session, values[0])
+        return None
+
+    def _segment_from_filename(self, session, filename: str | None) -> Segment | None:
+        if not filename:
+            return None
+        basename = Path(filename).name
+        if not basename:
+            return None
+        matches = list(
+            session.scalars(
+                select(Segment)
+                .where(
+                    Segment.status == SegmentStatus.PUBLISHED.value,
+                    (Segment.managed_path.like(f"%/{basename}")) | (Segment.source_path.like(f"%/{basename}")),
+                )
+                .order_by(Segment.id.asc())
+            )
+        )
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
     def _competition_candidates(
         self,
         session,
         *,
         title: str | None,
         guid: str | None,
+        filename: str | None = None,
         year: int | None = None,
     ) -> list[tuple[int, Competition]]:
-        if guid:
-            try:
-                _, values = parse_guid(guid, self.provider_identifier)
-                competition = session.get(Competition, values[0])
-                if competition is not None:
-                    return [(100, competition)]
-            except ValueError:
-                pass
+        competition = self._competition_from_guid(session, guid)
+        if competition is not None:
+            return [(100, competition)]
+
+        segment = self._segment_from_filename(session, filename)
+        if segment is not None:
+            competition = self._competition_for_segment(session, segment.id)
+            if competition is not None:
+                return [(95, competition)]
 
         if not title:
             return []
@@ -66,6 +134,7 @@ class ProviderMatchService:
             session,
             title=title,
             guid=payload.guid,
+            filename=payload.filename,
             year=payload.year,
         )
         if not payload.manual:
@@ -86,25 +155,23 @@ class ProviderMatchService:
         )
 
     def _match_season_items(self, session, payload: MatchRequestModel) -> list[MetadataItemModel]:
-        direct_competition_id: str | None = None
-        direct_season_number: int | None = None
-        if payload.guid:
-            try:
-                entity_type, values = parse_guid(payload.guid, self.provider_identifier)
-                direct_competition_id = values[0]
-                if entity_type == "season":
-                    direct_season_number = int(values[1])
-            except ValueError:
-                pass
+        direct_competition = self._competition_from_guid(session, payload.guid)
+        direct_season = self._season_from_guid(session, payload.guid)
+        filename_segment = self._segment_from_filename(session, payload.filename)
+        if direct_season is None and filename_segment is not None:
+            direct_season = session.get(CompetitionSeason, filename_segment.competition_season_id)
+        if direct_competition is None and direct_season is not None:
+            direct_competition = session.get(Competition, direct_season.competition_id)
+        direct_season_number = direct_season.season_number if direct_season is not None else None
 
-        if direct_competition_id is not None:
-            competition = session.get(Competition, direct_competition_id)
-            competition_candidates = [(100, competition)] if competition is not None else []
+        if direct_competition is not None:
+            competition_candidates = [(100, direct_competition)]
         else:
             competition_candidates = self._competition_candidates(
                 session,
                 title=payload.parentTitle or payload.title or payload.grandparentTitle,
                 guid=None,
+                filename=payload.filename,
                 year=payload.year,
             )
 
@@ -173,6 +240,11 @@ class ProviderMatchService:
             except ValueError:
                 pass
 
+        if direct_segment_id is None:
+            filename_segment = self._segment_from_filename(session, payload.filename)
+            if filename_segment is not None:
+                direct_segment_id = filename_segment.id
+
         if direct_segment_id is not None:
             segment = session.get(Segment, direct_segment_id)
             if segment is None or segment.status != SegmentStatus.PUBLISHED.value:
@@ -189,7 +261,7 @@ class ProviderMatchService:
                     episode_metadata(
                         competition,
                         season,
-                        event.date if event is not None else None,
+                        event,
                         segment,
                         self.provider_identifier,
                     ),
@@ -208,6 +280,7 @@ class ProviderMatchService:
                 session,
                 title=payload.grandparentTitle or payload.parentTitle or payload.title,
                 guid=None,
+                filename=payload.filename,
                 year=payload.year,
             )
 
@@ -276,7 +349,7 @@ class ProviderMatchService:
                     episode_metadata(
                         competition,
                         season,
-                        event.date if event is not None else None,
+                        event,
                         segment,
                         self.provider_identifier,
                     ),
