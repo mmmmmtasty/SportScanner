@@ -3,21 +3,33 @@ from __future__ import annotations
 from datetime import date as date_cls
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
-class ProviderFeature(BaseModel):
+class ProviderSchemeModel(BaseModel):
+    scheme: str
+
+
+class ProviderTypeModel(BaseModel):
+    type: int
+    Scheme: list[ProviderSchemeModel]
+
+
+class ProviderFeatureModel(BaseModel):
     key: str
     type: str
-    method: str | None = None
-    mediaTypes: list[int] | None = None
 
 
 class MediaProviderModel(BaseModel):
     identifier: str
     title: str
     version: str
-    features: list[ProviderFeature]
+    Types: list[ProviderTypeModel]
+    Feature: list[ProviderFeatureModel]
+
+
+class MediaProviderResponseModel(BaseModel):
+    MediaProvider: MediaProviderModel
 
 
 class MetadataItemModel(BaseModel):
@@ -53,7 +65,7 @@ class ChildrenModel(BaseModel):
 
 
 class ImageModel(BaseModel):
-    type: str
+    type: Literal["background", "backgroundSquare", "clearLogo", "coverPoster", "snapshot"]
     url: str
     provider: str = "sportscanner2"
     alt: str | None = None
@@ -85,3 +97,7 @@ class MatchRequestModel(BaseModel):
 
 
 MetadataItemModel.model_rebuild()
+
+
+class MediaContainerResponseModel(BaseModel):
+    MediaContainer: MediaContainerModel

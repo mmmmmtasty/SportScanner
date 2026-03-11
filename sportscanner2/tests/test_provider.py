@@ -31,10 +31,10 @@ def test_provider_root(provider_app) -> None:
     assert provider["identifier"] == "tv.plex.agents.custom.sportscanner.metadata"
     assert provider["title"] == "SportScanner 2"
     assert any(item["type"] == 4 for item in provider["Types"])
+    assert all(item["Scheme"][0]["scheme"] == provider["identifier"] for item in provider["Types"])
     assert any(item["type"] == "metadata" for item in provider["Feature"])
     match_feature = next(item for item in provider["Feature"] if item["type"] == "match")
-    assert match_feature["method"] == "POST"
-    assert match_feature["mediaTypes"] == [2]
+    assert match_feature == {"type": "match", "key": "/library/metadata/matches"}
 
 
 def test_provider_root_uses_configured_identifier(provider_app) -> None:
@@ -128,6 +128,33 @@ def test_provider_show_children(provider_app) -> None:
     assert seasons[0]["type"] == "season"
 
 
+def test_provider_show_children_supports_plex_paging_headers(provider_app) -> None:
+    client = TestClient(provider_app)
+    response = client.get(
+        "/provider/tv/library/metadata/show_tsdb_4370/children",
+        headers={"X-Plex-Container-Start": "0", "X-Plex-Container-Size": "1"},
+    )
+
+    assert response.status_code == 200
+    container = response.json()["MediaContainer"]
+    assert container["offset"] == 0
+    assert container["size"] == 1
+    assert container["totalSize"] == 1
+
+
+def test_provider_show_children_supports_plex_paging_query_params(provider_app) -> None:
+    client = TestClient(provider_app)
+    response = client.get(
+        "/provider/tv/library/metadata/show_tsdb_4370/children?X-Plex-Container-Start=0&X-Plex-Container-Size=1"
+    )
+
+    assert response.status_code == 200
+    container = response.json()["MediaContainer"]
+    assert container["offset"] == 0
+    assert container["size"] == 1
+    assert container["totalSize"] == 1
+
+
 def test_provider_show_metadata_uses_children_key_and_include_children(provider_app) -> None:
     client = TestClient(provider_app)
     response = client.get("/provider/tv/library/metadata/show_tsdb_4370?includeChildren=1")
@@ -169,3 +196,19 @@ def test_provider_episode_metadata_prefers_event_date(provider_app) -> None:
     assert response.status_code == 200
     metadata = response.json()["MediaContainer"]["Metadata"][0]
     assert metadata["originallyAvailableAt"] == "2025-06-30"
+
+
+def test_provider_episode_images_use_snapshot_type(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
+        assert event is not None
+        segment = event.segments[0]
+        segment.thumb_url = "https://example.com/episode.jpg"
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.get("/provider/tv/library/metadata/episode_seg_primary/images")
+
+    assert response.status_code == 200
+    image = response.json()["MediaContainer"]["Image"][0]
+    assert image["type"] == "snapshot"

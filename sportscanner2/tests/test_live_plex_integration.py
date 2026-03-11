@@ -282,6 +282,12 @@ def test_live_plex_registration_and_library() -> None:
         provider_payload = provider_root.json()["MediaProvider"]
         assert provider_payload["identifier"] == provider_identifier
         assert provider_payload["title"] == provider_group_name
+        assert {item["type"] for item in provider_payload["Types"]} == {2, 3, 4}
+        assert all(item["Scheme"][0]["scheme"] == provider_identifier for item in provider_payload["Types"])
+        assert provider_payload["Feature"] == [
+            {"type": "metadata", "key": "/library/metadata"},
+            {"type": "match", "key": "/library/metadata/matches"},
+        ]
 
         groups_response = client.get(
             f"{plex_base_url}/media/providers/metadata/group",
@@ -302,6 +308,40 @@ def test_live_plex_registration_and_library() -> None:
             directory.attrib.get("title") == library_name and directory.attrib.get("type") == "show"
             for directory in directories
         )
+
+
+def test_live_provider_match_contract() -> None:
+    provider_base_url = os.getenv("SPORTSCANNER_PROVIDER_URL", "http://127.0.0.1:32699").rstrip("/")
+    provider_identifier = os.getenv(
+        "SPORTSCANNER_PROVIDER_IDENTIFIER",
+        "tv.plex.agents.custom.sportscanner.metadata.local",
+    )
+
+    with httpx.Client(timeout=20.0) as client:
+        try:
+            health = client.get(f"{provider_base_url}/health")
+        except httpx.ConnectError:
+            pytest.skip("SPORTSCANNER_PROVIDER_URL is not reachable for the live match-contract test")
+        assert health.status_code == 200, health.text
+
+        response = client.post(
+            f"{provider_base_url}/provider/tv/library/metadata/matches",
+            params={
+                "type": "2",
+                "title": "Formula 1",
+                "includeChildren": "1",
+            },
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()["MediaContainer"]
+        assert payload["identifier"] == provider_identifier
+        assert payload["size"] >= 1
+        first = payload["Metadata"][0]
+        assert first["type"] == "show"
+        assert first["title"] == "Formula 1"
+        assert first["guid"].startswith(f"{provider_identifier}://show/")
+        assert first["Children"]["size"] >= 1
+        assert first["Children"]["Metadata"][0]["type"] == "season"
 
 
 def test_live_ingest_and_metadata_resolution() -> None:
