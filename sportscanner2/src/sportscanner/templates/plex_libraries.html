@@ -1,53 +1,90 @@
 {% extends "base.html" %}
 {% block title %}Plex Libraries{% endblock %}
 {% block content %}
-<h1>Plex Libraries</h1>
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Plex Metadata</p>
+    <h1>Plex Libraries</h1>
+    <p class="hero-copy">
+      Use this page when Plex already sees the files but is still showing old titles, dates, or
+      <code>local://</code> metadata.
+    </p>
+  </div>
+</section>
 
 {% if error %}
-<article>
+<article class="panel">
   <header>Error</header>
   <p>{{ error }}</p>
 </article>
 {% endif %}
 
-<p>
-  Libraries configured in Plex. Use <strong>Force Refresh</strong> to ask Plex to re-scan and re-apply metadata
-  from the SportScanner provider — this is the recommended step when episodes remain on <code>local://</code> metadata
-  after a clean scan.
-</p>
+<section class="guide-grid">
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>When To Use Force Refresh</h2>
+      <span
+        class="tooltip-chip"
+        tabindex="0"
+        title="Use Force Refresh after review changes, schedule changes, or provider registration fixes. It asks Plex to pull the current metadata payload from SportScanner."
+      >Refresh tip</span>
+    </div>
+    <p>
+      Force Refresh is the recommended step when episodes remain on <code>local://</code> metadata or
+      still show stale titles and dates after SportScanner itself looks correct.
+    </p>
+  </article>
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>Scan Versus Refresh</h2>
+    </div>
+    <p>
+      Scan discovers new files in the managed library. Force Refresh does not discover files; it
+      updates metadata for files Plex already knows about.
+    </p>
+  </article>
+</section>
 
-<table>
-  <thead>
-    <tr>
-      <th>ID</th>
-      <th>Name</th>
-      <th>Type</th>
-      <th>Agent</th>
-      <th>Scanner</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for section in sections %}
-    <tr>
-      <td>{{ section.key }}</td>
-      <td>{{ section.title }}</td>
-      <td>{{ section.type }}</td>
-      <td style="font-size:0.8em;color:var(--pico-muted-color)">{{ section.agent }}</td>
-      <td style="font-size:0.8em;color:var(--pico-muted-color)">{{ section.scanner }}</td>
-      <td>
-        {% if section.type == "show" %}
-        <form method="post" action="{{ request.url_for('plex_refresh_section', section_id=section.key) }}">
-          <button type="submit" class="secondary" style="padding:0.25rem 0.75rem;font-size:0.85em">Force Refresh</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="6">No library sections found.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+<section class="panel">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Agent</th>
+          <th>Scanner</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for section in sections %}
+        <tr>
+          <td>{{ section.key }}</td>
+          <td>{{ section.title }}</td>
+          <td>{{ section.type }}</td>
+          <td class="muted-cell">{{ section.agent }}</td>
+          <td class="muted-cell">{{ section.scanner }}</td>
+          <td>
+            {% if section.type == "show" %}
+            <form method="post" action="{{ request.url_for('plex_refresh_section', section_id=section.key) }}">
+              <button
+                type="submit"
+                class="secondary compact-button"
+                title="Ask Plex to pull current SportScanner metadata for this library"
+              >Force Refresh</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No library sections found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 
 <p>
   <a href="{{ request.url_for('plex_registration_page') }}">Back to Plex Registration</a> &nbsp;|&nbsp;

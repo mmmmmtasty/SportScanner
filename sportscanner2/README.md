@@ -355,6 +355,55 @@ finish correctly.
 season labels such as `2025` or `2024-2025`, and this setting tells Plex to display those labels
 instead of generic season names.
 
+## Expected User Workflow
+
+### The Normal Operator Loop
+
+1. Save the Plex connection values on `Settings`.
+2. Register the provider and provider group with Plex.
+3. Create or update a Plex `TV Shows` library that points at SportScanner's managed `library` path.
+4. Drop files into `incoming`, plus optional `.sportscanner.yml` sidecars when filenames need help.
+5. Click `Rescan Incoming` in the SportScanner UI.
+6. Resolve anything in `Review` before expecting Plex metadata to look correct.
+7. In Plex, use `Scan` when files were added, removed, or renamed. Use `Refresh Metadata` when the
+   files are already there but the titles, dates, summaries, artwork, or GUID-backed metadata need
+   to be pulled from SportScanner again.
+
+### What `Rescan Incoming` Actually Does
+
+- Reads the `incoming` tree and reparses any supported media filenames.
+- Pulls the current competition and season schedule from TheSportsDB.
+- Reconciles upstream event ordering for the affected season.
+- Publishes clean matches into the managed `library` tree and writes `.plexmatch` files.
+- Leaves uncertain files out of Plex and opens or refreshes `Review` tasks instead of guessing.
+
+### What Changes In Plex Versus On Disk
+
+- Managed filenames and paths stay based on the local source filename plus any local sidecar or edit
+  information.
+- Plex-facing show, season, and episode metadata comes from the matched competition and event stored
+  in SportScanner.
+- This means a schedule or metadata correction can change Plex titles, dates, summaries, artwork,
+  and episode ordering without renaming the actual media file on disk.
+
+### When Schedules Or Metadata Change
+
+If TheSportsDB changes an event title, date, summary, artwork, or round ordering:
+
+1. Click `Rescan Incoming` in SportScanner.
+2. SportScanner refreshes that season's cached event list, recomputes event sequence and episode
+   numbers, and republishes affected segments in place.
+3. Managed filenames usually stay the same because they follow the local parsed file metadata, not
+   the upstream event title.
+4. Plex-facing metadata such as the episode title, `originallyAvailableAt`, summary, and artwork now
+   comes from the refreshed event data.
+5. Run `Refresh Metadata` in Plex so Plex re-reads the updated SportScanner metadata for items it
+   already knows about.
+
+If the upstream season becomes incomplete or ambiguous, SportScanner errs on the side of caution:
+new files may stay staged or move into `Review` instead of being auto-published against the wrong
+event.
+
 ## Add Your First File
 
 ### 1. Put A Test File In `incoming`
@@ -381,17 +430,23 @@ If the file matched cleanly:
 - the competition appears under `Competitions`
 - the managed file appears under `library`
 - `.plexmatch` files are written at the show and season levels
+- Plex can discover the file on its next library scan
+- Plex will show the SportScanner/TheSportsDB title, date, summary, and artwork after a metadata
+  refresh
 
 If the file did not match cleanly:
 
 1. Click `Review`.
-2. In `Review Queue`, click `Open`.
+2. In `Review Queue`, click `Review`.
 3. On the review page, click one of:
    - `Use This Event`
+   - `Load From TheSportsDB`
    - `Publish As Season 0 Special`
+   - `Ignore File`
 
 Use `Publish As Season 0 Special` only when the file really is a special. Do not use it as a
-general fallback for ordinary matches or races.
+general fallback for ordinary matches or races. Use `Ignore File` for duplicates, broken captures,
+or source files you do not want SportScanner to manage.
 
 ## Test Modes
 
@@ -578,6 +633,8 @@ SportScanner intentionally treats unstable schedules conservatively.
   separate episode with its own event id and episode number.
 - If upstream dates change after publication, SportScanner recomputes season ordering and refreshes the
   Plex-facing episode numbers and `originallyAvailableAt` value on the next rescan.
+- Plex will not show those refreshed titles or dates until you run `Refresh Metadata` on the affected
+  library, show, or season.
 - Managed filenames stay tied to the source file naming. The Plex-facing ordering and air-date metadata
   follow the latest canonical event data.
 

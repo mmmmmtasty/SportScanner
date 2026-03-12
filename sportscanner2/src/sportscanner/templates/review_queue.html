@@ -30,6 +30,32 @@
   <article class="metric-card"><h2>{{ summary.staged_segments }}</h2><p>Staged Segments</p></article>
 </section>
 
+<section class="guide-grid">
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>How To Work The Queue</h2>
+      <span
+        class="tooltip-chip"
+        tabindex="0"
+        title="Resolve the oldest open tasks first so event numbering and Plex refreshes settle in a predictable order."
+      >Order matters</span>
+    </div>
+    <p>
+      Review items exist because SportScanner could not safely pick one event. Resolve the oldest
+      tasks first, then refresh Plex metadata after the queue is back under control.
+    </p>
+  </article>
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>Choose The Right Outcome</h2>
+    </div>
+    <p>
+      Use a cached or live TheSportsDB event for normal matches and races. Use Season 0 only for
+      true extras. Ignore duplicates, junk captures, or files you do not want published.
+    </p>
+  </article>
+</section>
+
 <section class="panel">
   <div class="panel-header">
     <h2>Queue</h2>
@@ -38,13 +64,13 @@
     <table>
       <thead>
         <tr>
-          <th>ID</th>
-          <th>Competition</th>
-          <th>Title</th>
-          <th>Kind</th>
-          <th>Air Date</th>
-          <th>Source File</th>
-          <th>Candidates</th>
+          <th title="Open review task id">ID</th>
+          <th title="Competition SportScanner thinks this file belongs to">Competition</th>
+          <th title="Local title parsed from the file name or sidecar">Title</th>
+          <th title="Segment type used for numbering and display rules">Kind</th>
+          <th title="Local air date parsed from the file name or sidecar">Air Date</th>
+          <th title="Original source file name from the incoming folder">Source File</th>
+          <th title="How many automatic match suggestions were recorded for this file">Candidates</th>
           <th></th>
         </tr>
       </thead>
@@ -58,7 +84,12 @@
           <td>{{ row.segment.air_date if row.segment else "" }}</td>
           <td class="muted-cell">{{ row.segment.source_path.split("/")[-1] if row.segment else "" }}</td>
           <td>{{ row.task.candidates|length }}</td>
-          <td><a href="{{ request.url_for('review_task_detail', task_id=row.task.id) }}">Review</a></td>
+          <td>
+            <a
+              href="{{ request.url_for('review_task_detail', task_id=row.task.id) }}"
+              title="Open this task and choose the correct event or fallback action"
+            >Review</a>
+          </td>
         </tr>
         {% else %}
         <tr>

@@ -1,45 +1,109 @@
 {% extends "base.html" %}
 {% block title %}Competition{% endblock %}
 {% block content %}
-<h1>{{ competition.name }}</h1>
-<p>{{ competition.description or "" }}</p>
-<section>
-  <h2>Seasons</h2>
-  <ul>
-    {% for season in seasons %}
-    <li>{{ season.label }}{% if not season.is_complete %} (incomplete){% endif %}</li>
-    {% else %}
-    <li>No seasons.</li>
-    {% endfor %}
-  </ul>
+<section class="page-header">
+  <div>
+    <p class="eyebrow">{{ competition.sport or "Competition" }}</p>
+    <h1>{{ competition.name }}</h1>
+    <p class="hero-copy">
+      {{ competition.description or "Inspect seasons, published segments, and the current episode ordering for this competition." }}
+    </p>
+  </div>
 </section>
-<section>
-  <h2>Segments</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Ep</th>
-        <th>Title</th>
-        <th>Kind</th>
-        <th>Air Date</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for segment in segments %}
-      <tr>
-        <td>{{ segment.episode_number or "" }}</td>
-        <td><a href="{{ request.url_for('segment_detail', segment_id=segment.id) }}">{{ segment.title }}</a></td>
-        <td>{{ segment.kind }}</td>
-        <td>{{ segment.air_date or "" }}</td>
-        <td>{{ segment.status }}</td>
-      </tr>
+
+{% if competition.poster_url or competition.fanart_url %}
+<section class="guide-grid">
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>Upstream Artwork</h2>
+      {% if competition.tsdb_id %}
+      <form method="post" action="{{ request.url_for('competition_refresh_images', competition_id=competition.id) }}">
+        <button type="submit" class="secondary compact-button">Refresh Images from TheSportsDB</button>
+      </form>
+      {% endif %}
+    </div>
+    <p>
+      {% if competition.poster_url %}<img src="{{ competition.poster_url }}" alt="poster" style="height:80px;margin-right:8px;">{% endif %}
+      {% if competition.fanart_url %}<img src="{{ competition.fanart_url }}" alt="fanart" style="height:80px;">{% endif %}
+    </p>
+  </article>
+</section>
+{% elif competition.tsdb_id %}
+<section class="actions">
+  <form method="post" action="{{ request.url_for('competition_refresh_images', competition_id=competition.id) }}">
+    <button type="submit" class="secondary">Refresh Images from TheSportsDB</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="guide-grid">
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>How To Read This Page</h2>
+      <span
+        class="tooltip-chip"
+        tabindex="0"
+        title="Episode numbers reflect SportScanner's current event ordering. Titles and dates shown in Plex come from the matched event after metadata refresh."
+      >Metadata tip</span>
+    </div>
+    <p>
+      Use this page to verify the current local organization. If upstream schedules change, rescan
+      first so episode numbers update here, then refresh Plex metadata so the Plex UI catches up.
+    </p>
+  </article>
+</section>
+
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Seasons</h2>
+    </div>
+    <ul class="record-list">
+      {% for season in seasons %}
+      <li>
+        <div>
+          <strong>{{ season.label }}</strong>
+          <p>{% if not season.is_complete %}Schedule still incomplete upstream{% else %}Schedule imported and ready{% endif %}</p>
+        </div>
+      </li>
       {% else %}
-      <tr>
-        <td colspan="5">No segments.</td>
-      </tr>
+      <li class="empty-state">No seasons.</li>
       {% endfor %}
-    </tbody>
-  </table>
+    </ul>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Segments</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Ep</th>
+            <th>Title</th>
+            <th>Kind</th>
+            <th>Air Date</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for segment in segments %}
+          <tr>
+            <td>{{ segment.episode_number or "" }}</td>
+            <td><a href="{{ request.url_for('segment_detail', segment_id=segment.id) }}">{{ segment.title }}</a></td>
+            <td>{{ segment.kind }}</td>
+            <td>{{ segment.air_date or "" }}</td>
+            <td>{{ segment.status }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5">No segments.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
 </section>
 {% endblock %}

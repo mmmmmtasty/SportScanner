@@ -18,6 +18,7 @@ def test_settings_page_explains_plex_fields(provider_app) -> None:
     response = client.get("/admin/settings")
 
     assert response.status_code == 200
+    assert "Normal Setup Order" in response.text
     assert "Plex Server URL" in response.text
     assert "Plex Token (X-Plex-Token)" in response.text
     assert "Provider Identifier In Plex" in response.text
@@ -165,8 +166,22 @@ def test_dashboard_shows_connected_plex_state(provider_app) -> None:
     response = client.get("/admin/")
 
     assert response.status_code == 200
+    assert "Expected flow" in response.text
     assert "Plex Show Libraries" in response.text
     assert "Connected" in response.text
+
+
+def test_review_queue_explains_resolution_flow(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        session.add(ReviewTask(segment_id="seg_primary", task_type="match_review"))
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.get("/admin/review")
+
+    assert response.status_code == 200
+    assert "How To Work The Queue" in response.text
+    assert "Choose The Right Outcome" in response.text
 
 
 def test_create_plex_library_registers_provider_group_before_creation(provider_app) -> None:
@@ -232,6 +247,7 @@ def test_review_task_detail_shows_queue_position_and_ignore_action(provider_app)
     assert response.status_code == 200
     assert "Queue item 1 of 2" in response.text
     assert "Ignore File" in response.text
+    assert "Plex-facing title, date, summary," in response.text
 
 
 def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
@@ -249,8 +265,8 @@ def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
                 return []
             return [
                 UpstreamEvent(
-                    id="tsdb_2001",
-                    tsdb_id=2001,
+                    id="tsdb_9901",
+                    tsdb_id=9901,
                     name="Australian Grand Prix Qualifying",
                     competition_name="Formula 1",
                     date=date(2025, 6, 28),
@@ -277,6 +293,49 @@ def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
     assert response.status_code == 200
     assert "Load From TheSportsDB" in response.text
     assert "TheSportsDB" in response.text
+
+
+def test_plex_libraries_page_explains_refresh_vs_scan(provider_app) -> None:
+    class FakePlex:
+        def with_credentials(self, base_url, token):
+            return self
+
+        def list_library_sections(self):
+            return [
+                {"key": 1, "title": "Sport_Test", "type": "show", "agent": "tv.plex.agents.series", "scanner": "Plex TV Series"},
+            ]
+
+    provider_app.state.services.plex = FakePlex()
+    client = TestClient(provider_app)
+    client.post(
+        "/admin/settings",
+        data={
+            "pms_url": "http://plex:32400",
+            "pms_token": "abc123",
+            "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_identifier": "tv.plex.agents.custom.sportscanner.metadata.local",
+            "plex_provider_group_name": "SportScanner 2",
+        },
+        follow_redirects=False,
+    )
+
+    response = client.get("/admin/plex-libraries")
+
+    assert response.status_code == 200
+    assert "When To Use Force Refresh" in response.text
+    assert "Scan discovers new files in the managed library." in response.text
+    assert "Force Refresh" in response.text
+
+
+def test_segment_detail_shows_matched_event_context(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/segments/seg_primary")
+
+    assert response.status_code == 200
+    assert "Current Mapping" in response.text
+    assert "Matched Event" in response.text
+    assert "Austrian Grand Prix Race" in response.text
 
 
 def test_stats_json_returns_counts(provider_app) -> None:

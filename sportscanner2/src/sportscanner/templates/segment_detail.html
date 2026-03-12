@@ -1,20 +1,63 @@
 {% extends "base.html" %}
 {% block title %}Segment{% endblock %}
 {% block content %}
-<h1>Segment {{ segment.id }}</h1>
-<form method="post" action="{{ request.url_for('update_segment', segment_id=segment.id) }}">
-  <label>
-    Title
-    <input name="title" value="{{ segment.title }}" />
-  </label>
-  <label>
-    Kind
-    <input name="kind" value="{{ segment.kind }}" />
-  </label>
-  <button type="submit">Save</button>
-</form>
-<p><strong>Source:</strong> {{ segment.source_path }}</p>
-<p><strong>Managed:</strong> {{ segment.managed_path or "" }}</p>
-<p><strong>Status:</strong> {{ segment.status }}</p>
-{% endblock %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Segment {{ segment.id }}</p>
+    <h1>{{ segment.title }}</h1>
+    <p class="hero-copy">
+      Edit the local segment fields used for managed filenames and local organization. Plex-facing
+      title, date, summary, and artwork come from the matched event when one is attached.
+    </p>
+  </div>
+</section>
 
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Current Mapping</h2>
+    </div>
+    <div class="status-stack">
+      <div class="status-line"><span>Competition</span><strong>{{ competition.name if competition else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Status</span><strong>{{ segment.status }}</strong></div>
+      <div class="status-line"><span>Matched Event</span><strong>{{ event.name if event else "Unmatched" }}</strong></div>
+      <div class="status-line"><span>Event Date</span><strong>{{ event.date if event and event.date else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Episode</span><strong>{{ segment.episode_number or "Unassigned" }}</strong></div>
+    </div>
+    <p class="helper-text"><strong>Source:</strong> {{ segment.source_path }}</p>
+    <p class="helper-text"><strong>Managed:</strong> {{ segment.managed_path or "Not published yet" }}</p>
+    <p class="helper-text">
+      If TheSportsDB changes the event title or date, rescan first. That updates SportScanner's
+      ordering and provider metadata. Plex still needs a metadata refresh to display the new values.
+    </p>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Edit Local Segment Fields</h2>
+    </div>
+    <form method="post" action="{{ request.url_for('update_segment', segment_id=segment.id) }}">
+      <label>
+        Title
+        <input
+          name="title"
+          value="{{ segment.title }}"
+          title="Controls the local managed filename and local display context; primary Plex title still comes from the matched event"
+        />
+        <small>Use this for local naming or suffix adjustments. It does not replace the upstream event title in Plex.</small>
+      </label>
+      <label>
+        Kind
+        <input
+          name="kind"
+          value="{{ segment.kind }}"
+          title="Affects numbering and whether the event title is treated as the primary Plex title"
+        />
+        <small>Kind affects numbering and how SportScanner builds the final episode display title.</small>
+      </label>
+      <button type="submit">Save</button>
+    </form>
+  </article>
+</section>
+{% endblock %}

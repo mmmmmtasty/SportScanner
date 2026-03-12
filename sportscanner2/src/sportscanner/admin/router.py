@@ -413,6 +413,31 @@ def competitions(request: Request) -> HTMLResponse:
     return _render(request, "competitions.html", {"competitions": rows})
 
 
+@router.post("/competitions/{competition_id}/refresh-images")
+def competition_refresh_images(request: Request, competition_id: str) -> RedirectResponse:
+    services = request.app.state.services
+    metadata_source = getattr(services, "metadata_source", None)
+    if metadata_source is not None:
+        with _session_factory(request)() as session:
+            competition = session.get(Competition, competition_id)
+            if competition is not None and competition.tsdb_id is not None:
+                try:
+                    rich = metadata_source.lookup_competition(competition.tsdb_id)
+                except Exception:
+                    rich = None
+                if rich is not None:
+                    competition.poster_url = rich.poster_url or competition.poster_url
+                    competition.banner_url = rich.banner_url or competition.banner_url
+                    competition.fanart_url = rich.fanart_url or competition.fanart_url
+                    if rich.description and not competition.description:
+                        competition.description = rich.description
+                    session.commit()
+    return RedirectResponse(
+        url=str(request.url_for("competition_detail", competition_id=competition_id)),
+        status_code=303,
+    )
+
+
 @router.get("/competitions/{competition_id}", response_class=HTMLResponse)
 def competition_detail(request: Request, competition_id: str) -> HTMLResponse:
     with _session_factory(request)() as session:
@@ -447,7 +472,19 @@ def segment_detail(request: Request, segment_id: str) -> HTMLResponse:
         segment = session.get(Segment, segment_id)
         if segment is None:
             raise HTTPException(status_code=404, detail="Unknown segment")
-    return _render(request, "segment_detail.html", {"segment": segment})
+        event = session.get(Event, segment.event_id) if segment.event_id else None
+        season = session.get(CompetitionSeason, segment.competition_season_id)
+        competition = session.get(Competition, season.competition_id) if season is not None else None
+    return _render(
+        request,
+        "segment_detail.html",
+        {
+            "segment": segment,
+            "event": event,
+            "season": season,
+            "competition": competition,
+        },
+    )
 
 
 @router.post("/segments/{segment_id}")

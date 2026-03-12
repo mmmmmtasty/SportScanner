@@ -1,28 +1,58 @@
 {% extends "base.html" %}
 {% block title %}Competitions{% endblock %}
 {% block content %}
-<h1>Competitions</h1>
-<table>
-  <thead>
-    <tr>
-      <th>Name</th>
-      <th>Sport</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for competition in competitions %}
-    <tr>
-      <td>{{ competition.name }}</td>
-      <td>{{ competition.sport or "" }}</td>
-      <td><a href="{{ request.url_for('competition_detail', competition_id=competition.id) }}">Open</a></td>
-    </tr>
-    {% else %}
-    <tr>
-      <td colspan="3">No competitions.</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% endblock %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Published Library</p>
+    <h1>Competitions</h1>
+    <p class="hero-copy">
+      Browse SportScanner's current published structure. Episode numbers here reflect the latest
+      local ordering, while Plex titles and dates come from the matched event metadata.
+    </p>
+  </div>
+</section>
 
+<section class="guide-grid">
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>When Schedules Move</h2>
+      <span
+        class="tooltip-chip"
+        tabindex="0"
+        title="Rescan updates SportScanner's season ordering. Plex still needs a metadata refresh to display new titles or dates."
+      >Schedule tip</span>
+    </div>
+    <p>
+      If TheSportsDB changes event dates or order, rescan first so these tables recompute. Then
+      refresh Plex metadata so the Plex UI shows the same updated titles and dates.
+    </p>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Sport</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for competition in competitions %}
+        <tr>
+          <td>{{ competition.name }}</td>
+          <td>{{ competition.sport or "" }}</td>
+          <td><a href="{{ request.url_for('competition_detail', competition_id=competition.id) }}">Open</a></td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="3">No competitions.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

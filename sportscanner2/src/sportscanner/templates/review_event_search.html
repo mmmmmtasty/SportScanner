@@ -5,7 +5,10 @@
     <div>
       <div class="result-heading">
         <strong>{{ r.name }}</strong>
-        <span class="pill">{{ r.source }}</span>
+        <span
+          class="pill"
+          title="{% if r.source == 'Cached event' %}Already stored locally in SportScanner; choosing it reuses the current cached event record.{% else %}Live TheSportsDB result; choosing it imports the event into SportScanner before linking the file.{% endif %}"
+        >{{ r.source }}</span>
       </div>
       <p>{{ r.competition }}{% if r.season %} · {{ r.season }}{% endif %}{% if r.date %} · {{ r.date }}{% endif %}</p>
     </div>
@@ -15,7 +18,10 @@
       {% elif r.tsdb_event_id %}
       <input type="hidden" name="tsdb_event_id" value="{{ r.tsdb_event_id }}" />
       {% endif %}
-      <button type="submit">{{ r.action_label }}</button>
+      <button
+        type="submit"
+        title="{% if r.event_id %}Attach the file to this existing local event{% else %}Import this TheSportsDB event and attach the file to it{% endif %}"
+      >{{ r.action_label }}</button>
     </form>
   </article>
   {% endfor %}

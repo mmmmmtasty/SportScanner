@@ -1,22 +1,81 @@
 :root {
   --pico-font-size: 93.75%;
   --pico-font-family: "Avenir Next", "Segoe UI", sans-serif;
-  --pico-color: #172033;
-  --pico-muted-color: #546179;
-  --surface: rgba(255, 255, 255, 0.74);
-  --surface-strong: rgba(255, 255, 255, 0.9);
-  --line: rgba(23, 32, 51, 0.12);
-  --accent: #0058c9;
-  --accent-soft: #e7f0ff;
-  --warm: #f5a524;
-  --success: #1b7f5a;
+  --ink: #102032;
+  --ink-strong: #091522;
+  --muted: #465972;
+  --muted-soft: #667a92;
+  --surface: rgba(255, 255, 255, 0.92);
+  --surface-strong: rgba(255, 255, 255, 0.98);
+  --surface-soft: rgba(243, 247, 252, 0.96);
+  --line: rgba(16, 32, 50, 0.12);
+  --line-strong: rgba(16, 32, 50, 0.22);
+  --accent: #0a63c9;
+  --accent-strong: #094d99;
+  --accent-soft: #deebfb;
+  --warm: #a96900;
+  --success: #17694b;
+  --shadow: 0 20px 55px rgba(14, 26, 44, 0.1);
+
+  --pico-color: var(--ink);
+  --pico-muted-color: var(--muted);
+  --pico-background-color: transparent;
+  --pico-card-background-color: var(--surface-strong);
+  --pico-form-element-background-color: #fffdf9;
+  --pico-form-element-selected-background-color: var(--accent-soft);
+  --pico-form-element-border-color: var(--line-strong);
+  --pico-form-element-color: var(--ink);
+  --pico-form-element-placeholder-color: var(--muted-soft);
+  --pico-primary: var(--accent);
+  --pico-primary-hover: var(--accent-strong);
+  --pico-primary-focus: rgba(10, 99, 201, 0.22);
+  --pico-primary-inverse: #fff;
+  --pico-secondary: #edf3f9;
+  --pico-secondary-hover: #dfe9f4;
+  --pico-secondary-focus: rgba(16, 32, 50, 0.12);
+  --pico-secondary-inverse: var(--ink);
+  --pico-border-radius: 1rem;
 }
 
 body {
+  min-height: 100vh;
+  color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(245, 165, 36, 0.16), transparent 30%),
-    radial-gradient(circle at top right, rgba(0, 88, 201, 0.14), transparent 28%),
-    linear-gradient(180deg, #f7f4ea 0%, #edf2fb 100%);
+    radial-gradient(circle at top left, rgba(210, 142, 24, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(10, 99, 201, 0.16), transparent 26%),
+    linear-gradient(180deg, #f7f0e1 0%, #e4edf8 100%);
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  color: var(--ink);
+}
+
+a {
+  color: var(--accent-strong);
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+small {
+  color: var(--muted);
+}
+
+code {
+  background: rgba(16, 32, 50, 0.08);
+  border-radius: 0.4rem;
+  color: var(--ink-strong);
+  padding: 0.12rem 0.35rem;
+}
+
+img {
+  max-width: 100%;
+  border-radius: 0.8rem;
 }
 
 main.container {
@@ -25,13 +84,34 @@ main.container {
   gap: 1.5rem;
 }
 
+.topnav,
+.workflow-banner,
+.hero-card,
+.panel,
+.metric-card,
+.candidate-card,
+.guide-card {
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
 .topnav {
   backdrop-filter: blur(16px);
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.94);
   border-radius: 1.25rem;
   padding-inline: 1rem;
-  box-shadow: 0 18px 50px rgba(19, 31, 54, 0.08);
+}
+
+.topnav a {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.topnav a:hover {
+  background: rgba(10, 99, 201, 0.1);
+  border-radius: 999px;
+  padding-inline: 0.6rem;
 }
 
 .brand {
@@ -39,6 +119,57 @@ main.container {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-decoration: none;
+}
+
+.workflow-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  background: var(--surface);
+  border-radius: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+.workflow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.workflow-step {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(10, 99, 201, 0.09);
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.workflow-step:hover {
+  background: rgba(10, 99, 201, 0.16);
+  color: var(--ink-strong);
+}
+
+.tooltip-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--ink);
+  cursor: help;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.tooltip-chip:focus-visible {
+  outline: 2px solid rgba(10, 99, 201, 0.4);
+  outline-offset: 2px;
 }
 
 .hero,
@@ -61,23 +192,28 @@ main.container {
 .hero h1,
 .page-header h1 {
   margin-bottom: 0.5rem;
+  color: var(--ink-strong);
   font-size: clamp(2rem, 4vw, 3.2rem);
 }
 
 .hero-copy {
-  max-width: 54rem;
+  max-width: 56rem;
   margin-bottom: 0;
-  color: var(--pico-muted-color);
+  color: var(--muted);
 }
 
 .hero-card,
 .panel,
 .metric-card,
 .candidate-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--surface-strong), var(--surface-soft));
   border-radius: 1.25rem;
-  box-shadow: 0 18px 50px rgba(19, 31, 54, 0.08);
+}
+
+.guide-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(239, 245, 252, 0.95));
+  border-radius: 1.1rem;
+  padding: 1rem 1.1rem;
 }
 
 .hero-card,
@@ -90,11 +226,12 @@ main.container {
   min-width: 0;
 }
 
+.guide-grid,
 .stat-grid,
 .card-grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
 }
 
 .compact-grid {
@@ -108,12 +245,15 @@ main.container {
 
 .metric-card h2 {
   margin-bottom: 0.2rem;
+  color: var(--ink-strong);
   font-size: 2.2rem;
 }
 
-.metric-card p {
+.metric-card p,
+.guide-card p,
+.guide-card li {
   margin: 0;
-  color: var(--pico-muted-color);
+  color: var(--muted);
 }
 
 .split-grid {
@@ -132,6 +272,7 @@ main.container {
 
 .panel-header h2 {
   margin: 0;
+  color: var(--ink-strong);
   font-size: 1.1rem;
 }
 
@@ -161,6 +302,11 @@ main.container {
   justify-content: space-between;
 }
 
+.status-line strong,
+.record-list strong {
+  color: var(--ink-strong);
+}
+
 .record-list,
 .plain-list {
   margin: 0;
@@ -184,7 +330,7 @@ main.container {
 .empty-state,
 .plain-list li {
   margin: 0;
-  color: var(--pico-muted-color);
+  color: var(--muted);
 }
 
 .plain-list {
@@ -199,6 +345,12 @@ main.container {
 
 .actions {
   margin-top: 0.25rem;
+}
+
+.actions form,
+.inline-actions form,
+.panel-header form {
+  margin: 0;
 }
 
 .search-form {
@@ -229,7 +381,7 @@ main.container {
   padding: 0.18rem 0.65rem;
   border-radius: 999px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-strong);
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -244,19 +396,63 @@ main.container {
 }
 
 table {
+  width: 100%;
   margin: 0;
   font-size: 0.92rem;
+  background: transparent;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
 table th,
 table td {
-  padding: 0.5rem 0.6rem;
+  padding: 0.65rem 0.7rem;
   white-space: nowrap;
 }
 
+table th {
+  color: var(--ink-strong);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(16, 32, 50, 0.05);
+}
+
+table td {
+  color: var(--ink);
+  border-top: 1px solid var(--line);
+}
+
+table tbody tr:nth-child(even) td {
+  background: rgba(244, 248, 252, 0.72);
+}
+
 .muted-cell {
-  color: var(--pico-muted-color);
+  color: var(--muted);
   font-size: 0.85rem;
+}
+
+.compact-button {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+input,
+textarea,
+select {
+  color: var(--ink);
+  background: #fffdf9;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted-soft);
+}
+
+button.secondary,
+[role="button"].secondary {
+  color: var(--ink);
 }
 
 @media (max-width: 900px) {
@@ -266,6 +462,8 @@ table td {
     grid-template-columns: 1fr;
   }
 
+  .workflow-banner,
+  .panel-header,
   .search-form,
   .status-line,
   .record-list li,

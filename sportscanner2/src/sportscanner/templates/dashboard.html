@@ -42,6 +42,33 @@
   <article class="metric-card"><h2>{{ plex_status.show_library_count }}</h2><p>Plex Show Libraries</p></article>
 </section>
 
+<section class="guide-grid">
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>How To Use Dashboard</h2>
+      <span
+        class="tooltip-chip"
+        tabindex="0"
+        title="Rescan after adding files, editing sidecars, or when TheSportsDB has changed an event date, title, or ordering."
+      >Rescan tip</span>
+    </div>
+    <p>
+      Use this page as the control point for ingest. Rescan after new files arrive and again after
+      upstream schedule changes so SportScanner can recompute matches and episode numbering before Plex refreshes metadata.
+    </p>
+  </article>
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>When Plex Looks Stale</h2>
+    </div>
+    <p>
+      If SportScanner already shows the right competition or segment but Plex still shows
+      <code>local://</code> metadata, old dates, or generic titles, go to Plex Libraries and use
+      <strong>Force Refresh</strong>. Scan is only for new or renamed files.
+    </p>
+  </article>
+</section>
+
 <section class="split-grid">
   <article class="panel">
     <div class="panel-header">
@@ -134,7 +161,10 @@
 
 <section class="actions">
   <form method="post" action="{{ request.url_for('rescan') }}">
-    <button type="submit">Rescan Incoming</button>
+    <button
+      type="submit"
+      title="Parse the incoming folder again and reconcile schedule or metadata changes before refreshing Plex"
+    >Rescan Incoming</button>
   </form>
   <a href="{{ request.url_for('settings_page') }}" role="button" class="secondary">Review Settings</a>
 </section>

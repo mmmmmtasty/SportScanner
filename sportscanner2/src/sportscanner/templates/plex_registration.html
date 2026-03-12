@@ -44,6 +44,32 @@
 </article>
 {% endif %}
 
+<section class="guide-grid">
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>After Library Creation</h2>
+      <span
+        class="tooltip-chip"
+        tabindex="0"
+        title="Plex Scan is for new files in the managed library. Refresh Metadata is for title, date, summary, artwork, or match changes on files Plex already knows."
+      >Scan vs refresh</span>
+    </div>
+    <p>
+      After Plex knows about the files, use metadata refreshes whenever review decisions or upstream
+      schedule changes alter the titles, dates, or artwork that SportScanner exposes.
+    </p>
+  </article>
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>Which Path Goes In Plex</h2>
+    </div>
+    <p>
+      The Plex media location must be the managed SportScanner library path as Plex sees it on the
+      Plex host, not the <code>incoming</code> folder and not a container-only path that Plex cannot read.
+    </p>
+  </article>
+</section>
+
 <section class="split-grid">
   <article class="panel">
     <div class="panel-header">
@@ -64,7 +90,10 @@
         <input name="library_location" value="/sport/sportscanner2-dev" placeholder="/sport/sportscanner2-dev" required />
         <small>Absolute path on the machine running Plex Media Server.</small>
       </label>
-      <button type="submit">Create Library In Plex</button>
+      <button
+        type="submit"
+        title="Create a Plex TV library that points at the managed SportScanner output"
+      >Create Library In Plex</button>
     </form>
   </article>
 
@@ -83,7 +112,10 @@
 </section>
 
 <p>
-  <a href="{{ request.url_for('plex_libraries_page') }}">View &amp; Refresh Plex Libraries</a> &nbsp;|&nbsp;
+  <a
+    href="{{ request.url_for('plex_libraries_page') }}"
+    title="Open the Plex Libraries page to trigger metadata refreshes after review or schedule changes"
+  >View &amp; Refresh Plex Libraries</a> &nbsp;|&nbsp;
   <a href="{{ request.url_for('settings_page') }}">Back to Settings</a>
 </p>
 {% endblock %}

@@ -16,13 +16,43 @@
           <li><a href="{{ request.url_for('dashboard') }}" class="brand">SportScanner 2</a></li>
         </ul>
         <ul>
-          <li><a href="{{ request.url_for('dashboard') }}">Dashboard</a></li>
-          <li><a href="{{ request.url_for('review_queue') }}">Review</a></li>
-          <li><a href="{{ request.url_for('competitions') }}">Competitions</a></li>
-          <li><a href="{{ request.url_for('settings_page') }}">Settings</a></li>
-          <li><a href="{{ request.url_for('logs_page') }}">Logs</a></li>
+          <li><a href="{{ request.url_for('dashboard') }}" title="See ingest status, next steps, and trigger rescans">Dashboard</a></li>
+          <li><a href="{{ request.url_for('review_queue') }}" title="Resolve files that could not be matched safely">Review</a></li>
+          <li><a href="{{ request.url_for('competitions') }}" title="Inspect published competitions, seasons, and segments">Competitions</a></li>
+          <li><a href="{{ request.url_for('settings_page') }}" title="Save Plex settings and register the SportScanner provider">Settings</a></li>
+          <li><a href="{{ request.url_for('logs_page') }}" title="Inspect recent logs for ingest, review, and Plex activity">Logs</a></li>
         </ul>
       </nav>
+      <section class="workflow-banner" aria-label="Expected workflow">
+        <strong>Expected flow</strong>
+        <div class="workflow-steps">
+          <a
+            href="{{ request.url_for('settings_page') }}"
+            class="workflow-step"
+            title="Save Plex connection settings and register the provider"
+          >1. Settings</a>
+          <a
+            href="{{ request.url_for('dashboard') }}"
+            class="workflow-step"
+            title="Rescan after adding files, sidecars, or upstream schedule changes"
+          >2. Rescan</a>
+          <a
+            href="{{ request.url_for('review_queue') }}"
+            class="workflow-step"
+            title="Resolve ambiguous files before expecting Plex metadata to settle"
+          >3. Review</a>
+          <a
+            href="{{ request.url_for('plex_libraries_page') }}"
+            class="workflow-step"
+            title="Refresh Plex metadata after SportScanner has the right match and schedule data"
+          >4. Plex Refresh</a>
+        </div>
+        <span
+          class="tooltip-chip"
+          tabindex="0"
+          title="Plex Scan discovers files in the managed library. Plex Refresh Metadata asks Plex to pull the current SportScanner title, date, summary, and artwork for files it already knows about."
+        >Why refresh?</span>
+      </section>
       {% block content %}{% endblock %}
     </main>
   </body>

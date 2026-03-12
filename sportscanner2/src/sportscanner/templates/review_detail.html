@@ -39,6 +39,10 @@
     </div>
     <p class="helper-text"><strong>File:</strong> {{ segment.source_path.split("/")[-1] }}</p>
     <p class="helper-text"><strong>Path:</strong> {{ segment.source_path }}</p>
+    <p class="helper-text">
+      Local file naming stays tied to this parsed file metadata. Plex-facing title, date, summary,
+      and artwork come from the event you choose here after Plex refreshes metadata.
+    </p>
     {% endif %}
   </article>
 
@@ -49,15 +53,49 @@
     <div class="action-stack">
       <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task.id) }}">
         <input type="hidden" name="publish_as_special" value="1" />
-        <button type="submit" class="secondary">Publish As Season 0 Special</button>
+        <button
+          type="submit"
+          class="secondary"
+          title="Publish this file as a Season 0 extra when it belongs in the library but not on a normal event"
+        >Publish As Season 0 Special</button>
       </form>
       <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task.id) }}">
-        <button type="submit" class="secondary">Ignore File</button>
+        <button
+          type="submit"
+          class="secondary"
+          title="Mark this file as ignored so SportScanner stops trying to publish it"
+        >Ignore File</button>
       </form>
     </div>
     <p class="helper-text">
       Use <strong>Ignore File</strong> for bad captures or duplicates. Use <strong>Season 0 Special</strong> for content
       that belongs in the library but does not map to a standard event.
+    </p>
+  </article>
+</section>
+
+<section class="guide-grid">
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>What Happens When You Accept A Match</h2>
+      <span
+        class="tooltip-chip"
+        tabindex="0"
+        title="Accepting a match assigns the file to an event, recomputes episode numbering for that event or season, and republishes the managed file state."
+      >Why it matters</span>
+    </div>
+    <p>
+      Picking the correct event updates SportScanner's local mapping first. Plex only shows the new
+      title, date, and artwork after the library or show metadata is refreshed.
+    </p>
+  </article>
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>How Search Works</h2>
+    </div>
+    <p>
+      Search checks cached local events first and then live TheSportsDB results. Choosing a cached
+      event is fastest. Choosing a TheSportsDB result imports that event and then links the file to it.
     </p>
   </article>
 </section>
@@ -76,7 +114,10 @@
       </div>
       <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task.id) }}">
         <input type="hidden" name="event_id" value="{{ candidate.event_id or candidate['event_id'] }}" />
-        <button type="submit">Use This Event</button>
+        <button
+          type="submit"
+          title="Attach this file to the selected event and publish it with that event's Plex metadata"
+        >Use This Event</button>
       </form>
     </article>
     {% else %}
@@ -101,9 +142,14 @@
   >
     <label>
       Competition, event name, or date
-      <input name="q" value="{{ suggested_query }}" placeholder="e.g. Formula 1 Monaco Grand Prix 2025-05-25" />
+      <input
+        name="q"
+        value="{{ suggested_query }}"
+        placeholder="e.g. Formula 1 Monaco Grand Prix 2025-05-25"
+        title="Search cached local events first; SportScanner can also import a fresh TheSportsDB event from these results"
+      />
     </label>
-    <button type="submit" class="secondary">Search</button>
+    <button type="submit" class="secondary" title="Search cached events and live TheSportsDB results">Search</button>
   </form>
   <div id="event-search-results" class="search-results"></div>
 </section>
