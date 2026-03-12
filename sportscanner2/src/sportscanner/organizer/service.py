@@ -10,8 +10,19 @@ from uuid import uuid4
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from sportscanner.config import Settings
-from sportscanner.db.models import Competition, CompetitionSeason, Event, EventOrder, EventOrigin, Recording, RecordingStatus, ReviewTask, ReviewTaskStatus
+from sportscanner.config import Settings, validate_plex_provider_identifier
+from sportscanner.db.models import (
+    AppSetting,
+    Competition,
+    CompetitionSeason,
+    Event,
+    EventOrder,
+    EventOrigin,
+    Recording,
+    RecordingStatus,
+    ReviewTask,
+    ReviewTaskStatus,
+)
 from sportscanner.db.queries import get_or_create_competition_season, get_recording_by_source_path
 from sportscanner.metadata_snapshot import clear_recording_metadata_snapshot, sync_recording_metadata_snapshot
 from sportscanner.organizer.matcher import best_db_competition_match, best_upstream_competition_match, match_event, season_for_date
@@ -103,6 +114,14 @@ class OrganizerService:
         self.metadata_source = metadata_source
         self._ingest_lock = threading.RLock()
 
+    def _effective_plex_provider_identifier(self, session: Session) -> str:
+        configured = session.get(AppSetting, "plex_provider_identifier")
+        value = configured.value if configured is not None else self.settings.plex_provider_identifier
+        try:
+            return validate_plex_provider_identifier(value)
+        except ValueError:
+            return self.settings.plex_provider_identifier
+
     def rescan_incoming(self) -> list[str]:
         with self._ingest_lock:
             processed: list[str] = []
@@ -115,6 +134,28 @@ class OrganizerService:
                 if path.is_file() and is_media_file(path):
                     if self.ingest_path_if_parseable(path) is not None:
                         processed.append(str(path))
+            refreshed_missing_sources = 0
+            with self.session_factory() as session:
+                published = list(
+                    session.scalars(
+                        select(Recording)
+                        .where(Recording.status == RecordingStatus.PUBLISHED.value)
+                        .order_by(Recording.updated_at.asc(), Recording.id.asc())
+                    )
+                )
+                for recording in published:
+                    if Path(recording.source_path).exists():
+                        continue
+                    event = session.get(Event, recording.event_id) if recording.event_id else None
+                    if event is None or event.tsdb_id is None:
+                        continue
+                    self._refresh_recording_metadata(session, recording)
+                    refreshed_missing_sources += 1
+                session.commit()
+            logger.info(
+                "rescan_reconciled_missing_sources refreshed_count=%s",
+                refreshed_missing_sources,
+            )
             logger.info("rescan_completed processed_count=%s", len(processed))
             return processed
 
@@ -957,7 +998,7 @@ class OrganizerService:
                 )
             )
         )
-        guid_prefix = self.settings.plex_provider_identifier
+        guid_prefix = self._effective_plex_provider_identifier(session)
         write_atomic_if_changed(show_dir / ".plexmatch", render_show_plexmatch(competition, guid_prefix))
         write_atomic_if_changed(
             season_dir / ".plexmatch",

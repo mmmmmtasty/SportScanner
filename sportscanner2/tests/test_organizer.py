@@ -6,7 +6,7 @@ from datetime import date
 
 from sqlalchemy import func, select
 
-from sportscanner.db.models import Competition, Event, ReviewTask, Recording, RecordingStatus
+from sportscanner.db.models import AppSetting, Competition, Event, ReviewTask, Recording, RecordingStatus
 from sportscanner.organizer.service import OrganizerService
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
 
@@ -399,6 +399,46 @@ def test_sidecar_lookup_persists_derived_weekend_group(settings, session_factory
         event = session.scalar(select(Event).where(Event.tsdb_id == 1001))
         assert event is not None
         assert event.weekend_group == "formula 1 austrian grand prix"
+
+
+def test_publish_uses_saved_provider_identifier_without_restart(settings, session_factory) -> None:
+    organizer = OrganizerService(
+        settings,
+        session_factory,
+        metadata_source=MutableMetadataSource(
+            complete=True,
+            events=[
+                UpstreamEvent(
+                    id="tsdb_1001",
+                    tsdb_id=1001,
+                    name="Austrian Grand Prix",
+                    competition_name="Formula 1",
+                    date=date(2025, 6, 29),
+                )
+            ],
+        ),
+    )
+    with session_factory() as session:
+        session.add(
+            AppSetting(
+                key="plex_provider_identifier",
+                value="tv.plex.agents.custom.sportscanner.metadata.override",
+            )
+        )
+        session.commit()
+
+    source = settings.incoming_dir / "Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv"
+    source.write_text("video", encoding="utf-8")
+
+    organizer.ingest_path(source)
+
+    show_plexmatch = (settings.library_dir / "Formula 1" / ".plexmatch").read_text(encoding="utf-8")
+    season_plexmatch = (
+        settings.library_dir / "Formula 1" / "Season 2025" / ".plexmatch"
+    ).read_text(encoding="utf-8")
+
+    assert "tv.plex.agents.custom.sportscanner.metadata.override://show/show_tsdb_4370" in show_plexmatch
+    assert "tv.plex.agents.custom.sportscanner.metadata.override://season/season_tsdb_4370_2025" in season_plexmatch
 
 
 def test_resolve_review_task_accepts_upstream_lookup_event(settings, session_factory) -> None:

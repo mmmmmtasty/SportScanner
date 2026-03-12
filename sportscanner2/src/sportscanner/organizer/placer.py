@@ -39,6 +39,7 @@ def place_file(source_path: str | Path, destination_path: str | Path) -> str:
     if source.stat().st_dev == destination.parent.stat().st_dev:
         try:
             os.link(source, destination)
+            source.unlink()
             return str(destination)
         except OSError:
             # Network filesystems can report the same device while still rejecting hard links.
@@ -48,6 +49,7 @@ def place_file(source_path: str | Path, destination_path: str | Path) -> str:
     os.close(fd)
     shutil.copy2(source, temp_name)
     os.replace(temp_name, destination)
+    source.unlink()
     return str(destination)
 
 
