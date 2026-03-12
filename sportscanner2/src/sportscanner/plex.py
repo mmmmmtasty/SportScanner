@@ -116,6 +116,7 @@ class PlexPmsClient:
         name: str,
         location: str,
         provider_group_id: int,
+        agent: str | None = None,
     ) -> int:
         """Create a TV Shows library in Plex and return the new section id."""
         if not self.configured():
@@ -130,11 +131,12 @@ class PlexPmsClient:
                 params={
                     "name": name,
                     "type": "show",
-                    "agent": "tv.plex.agents.series",
+                    "agent": agent or "tv.plex.agents.series",
                     "scanner": "Plex TV Series",
                     "language": "en-US",
                     "location": location,
                     "metadataAgentProviderGroupId": provider_group_id,
+                    "flattenSeasons": "0",
                     "X-Plex-Token": self.token,
                 },
             )

@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from fastapi import HTTPException
 
-from sportscanner.db.models import Competition, CompetitionSeason, Event, Segment, SegmentStatus
+from sportscanner.db.models import Competition, CompetitionSeason, Event, Recording, RecordingStatus
 from sportscanner.metadata_snapshot import effective_episode_thumb
 from sportscanner.provider.items import episode_metadata, season_episode_items, season_metadata, show_episode_items, show_metadata, show_season_items
 from sportscanner.provider.rating_keys import parse_rating_key
@@ -56,25 +56,25 @@ class ProviderMetadataService:
                     include_children=include_children,
                 )
 
-            segment = session.scalar(
-                select(Segment)
-                .where(Segment.id == values[0], Segment.status == SegmentStatus.PUBLISHED.value)
-                .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
+            recording = session.scalar(
+                select(Recording)
+                .where(Recording.id == values[0], Recording.status == RecordingStatus.PUBLISHED.value)
+                .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
             )
-            if segment is None:
+            if recording is None:
                 raise HTTPException(status_code=404, detail="Unknown episode")
-            season = session.get(CompetitionSeason, segment.competition_season_id)
+            season = session.get(CompetitionSeason, recording.competition_season_id)
             if season is None:
                 raise HTTPException(status_code=404, detail="Missing season")
             competition = session.get(Competition, season.competition_id)
             if competition is None:
                 raise HTTPException(status_code=404, detail="Missing show")
-            event = session.get(Event, segment.event_id) if segment.event_id else None
+            event = session.get(Event, recording.event_id) if recording.event_id else None
             return episode_metadata(
                 competition,
                 season,
                 event,
-                segment,
+                recording,
                 self.provider_identifier,
             )
 
@@ -132,15 +132,27 @@ class ProviderMetadataService:
                 competition = session.get(Competition, values[0])
                 if competition is None:
                     raise HTTPException(status_code=404, detail="Unknown season")
-                return [
-                    ImageModel(type="coverPoster", url=competition.poster_url, alt=competition.name)
-                ] if competition.poster_url else []
+                images = []
+                if competition.poster_url:
+                    images.append(ImageModel(type="coverPoster", url=competition.poster_url, alt=competition.name))
+                if competition.fanart_url:
+                    images.append(ImageModel(type="background", url=competition.fanart_url, alt=competition.name))
+                return images
 
-            segment = session.scalar(
-                select(Segment).where(Segment.id == values[0], Segment.status == SegmentStatus.PUBLISHED.value)
+            recording = session.scalar(
+                select(Recording).where(Recording.id == values[0], Recording.status == RecordingStatus.PUBLISHED.value)
             )
-            if segment is None:
+            if recording is None:
                 raise HTTPException(status_code=404, detail="Unknown episode")
-            event = session.get(Event, segment.event_id) if segment.event_id else None
-            thumb = effective_episode_thumb(segment, event)
-            return [ImageModel(type="snapshot", url=thumb, alt=segment.title)] if thumb else []
+            event = session.get(Event, recording.event_id) if recording.event_id else None
+            season = session.get(CompetitionSeason, recording.competition_season_id)
+            competition = session.get(Competition, season.competition_id) if season else None
+            images = []
+            thumb = effective_episode_thumb(recording, event)
+            if thumb:
+                images.append(ImageModel(type="snapshot", url=thumb, alt=recording.title))
+            if competition and competition.poster_url:
+                images.append(ImageModel(type="coverPoster", url=competition.poster_url, alt=competition.name))
+            if competition and competition.fanart_url:
+                images.append(ImageModel(type="background", url=competition.fanart_url, alt=competition.name))
+            return images

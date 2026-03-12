@@ -1,0 +1,31 @@
+{% if events %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Round</th>
+        <th>Event</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in events %}
+      <tr>
+        <td>{{ event.date or "—" }}</td>
+        <td>{{ event.round_number or "—" }}</td>
+        <td>{{ event.name }}</td>
+        <td>
+          <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task_id) }}">
+            <input type="hidden" name="event_id" value="{{ event.id }}" />
+            <button type="submit" class="secondary compact-button">Use This Event</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="empty-state">No cached events found for this season. Try refreshing competition metadata first.</p>
+{% endif %}

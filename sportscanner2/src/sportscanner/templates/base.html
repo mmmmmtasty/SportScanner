@@ -13,47 +13,58 @@
     <main class="container">
       <nav class="topnav">
         <ul>
-          <li><a href="{{ request.url_for('dashboard') }}" class="brand">SportScanner 2</a></li>
+          <li><a href="{{ request.url_for('inbox') }}" class="brand">SportScanner 2</a></li>
         </ul>
         <ul>
-          <li><a href="{{ request.url_for('dashboard') }}" title="See ingest status, next steps, and trigger rescans">Dashboard</a></li>
-          <li><a href="{{ request.url_for('review_queue') }}" title="Resolve files that could not be matched safely">Review</a></li>
-          <li><a href="{{ request.url_for('competitions') }}" title="Inspect published competitions, seasons, and segments">Competitions</a></li>
+          <li><a href="{{ request.url_for('inbox') }}" title="See every file, current state, and next action">Inbox</a></li>
+          <li><a href="{{ request.url_for('library_page') }}" title="Browse competitions, seasons, and published recordings">Library</a></li>
+          <li><a href="{{ request.url_for('plex_page') }}" title="Check Plex connection, refresh jobs, and library actions">Plex</a></li>
           <li><a href="{{ request.url_for('settings_page') }}" title="Save Plex settings and register the SportScanner provider">Settings</a></li>
-          <li><a href="{{ request.url_for('logs_page') }}" title="Inspect recent logs for ingest, review, and Plex activity">Logs</a></li>
+          <li><a href="{{ request.url_for('advanced_page') }}" title="Inspect logs, debug output, and advanced tools">Advanced</a></li>
         </ul>
       </nav>
       <section class="workflow-banner" aria-label="Expected workflow">
-        <strong>Expected flow</strong>
+        <strong>Inbox-first flow</strong>
         <div class="workflow-steps">
           <a
-            href="{{ request.url_for('settings_page') }}"
+            href="{{ request.url_for('inbox') }}"
             class="workflow-step"
-            title="Save Plex connection settings and register the provider"
-          >1. Settings</a>
+            title="Start in Inbox to see every file, current status, and next action"
+          >1. Inbox</a>
           <a
-            href="{{ request.url_for('dashboard') }}"
+            href="{{ request.url_for('library_page') }}"
             class="workflow-step"
-            title="Rescan after adding files, sidecars, or upstream schedule changes"
-          >2. Rescan</a>
+            title="Review file detail and library context when a match needs confirmation or correction"
+          >2. File Detail</a>
           <a
-            href="{{ request.url_for('review_queue') }}"
+            href="{{ request.url_for('plex_page') }}"
             class="workflow-step"
-            title="Resolve ambiguous files before expecting Plex metadata to settle"
-          >3. Review</a>
+            title="Watch Plex refresh status and trigger library refreshes when needed"
+          >3. Plex</a>
           <a
-            href="{{ request.url_for('plex_libraries_page') }}"
+            href="{{ request.url_for('advanced_page') }}"
             class="workflow-step"
-            title="Refresh Plex metadata after SportScanner has the right match and schedule data"
-          >4. Plex Refresh</a>
+            title="Use Advanced for logs, raw metadata, and debugging views"
+          >4. Advanced</a>
         </div>
         <span
           class="tooltip-chip"
           tabindex="0"
-          title="Plex Scan discovers files in the managed library. Plex Refresh Metadata asks Plex to pull the current SportScanner title, date, summary, and artwork for files it already knows about."
-        >Why refresh?</span>
+          title="Inbox is the primary workflow. Library, Plex, and Advanced are supporting views for browsing, refreshes, and debugging."
+        >Workflow guide</span>
       </section>
+      <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
       {% block content %}{% endblock %}
     </main>
+    <script>
+      document.body.addEventListener("showToast", (event) => {
+        const container = document.getElementById("toast-container");
+        const toast = document.createElement("div");
+        toast.className = "toast";
+        toast.textContent = event.detail.value || event.detail;
+        container.appendChild(toast);
+        window.setTimeout(() => toast.remove(), 2800);
+      });
+    </script>
   </body>
   </html>

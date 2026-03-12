@@ -6,7 +6,7 @@
     <p class="eyebrow">{{ competition.sport or "Competition" }}</p>
     <h1>{{ competition.name }}</h1>
     <p class="hero-copy">
-      {{ competition.description or "Inspect seasons, published segments, and the current episode ordering for this competition." }}
+      {{ competition.description or "Inspect seasons, published recordings, and the current episode ordering for this competition." }}
     </p>
   </div>
   <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
@@ -70,7 +70,7 @@
 
   <article class="panel">
     <div class="panel-header">
-      <h2>Segments</h2>
+      <h2>Recordings</h2>
     </div>
     <div class="table-wrap">
       <table>
@@ -85,22 +85,22 @@
           </tr>
         </thead>
         <tbody>
-          {% for segment in segments %}
+          {% for recording in recordings %}
           <tr>
-            <td>{{ segment.episode_number or "" }}</td>
-            <td><a href="{{ request.url_for('segment_detail', segment_id=segment.id) }}">{{ segment.title }}</a></td>
-            <td>{{ segment.kind }}</td>
-            <td>{{ segment.air_date or "" }}</td>
-            <td>{{ segment.status }}</td>
+            <td>{{ recording.episode_number or "" }}</td>
+            <td><a href="{{ request.url_for('recording_detail', recording_id=recording.id) }}">{{ recording.title }}</a></td>
+            <td>{{ recording.kind }}</td>
+            <td>{{ recording.air_date or "" }}</td>
+            <td>{{ recording.status }}</td>
             <td>
-              <form method="post" action="{{ request.url_for('refresh_segment_metadata', segment_id=segment.id) }}">
+              <form method="post" action="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}">
                 <button type="submit" class="secondary compact-button">Refresh Item</button>
               </form>
             </td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="6">No segments.</td>
+            <td colspan="6">No recordings.</td>
           </tr>
           {% endfor %}
         </tbody>

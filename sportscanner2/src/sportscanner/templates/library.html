@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Library{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Published Library</p>
+    <h1>Library</h1>
+    <p class="hero-copy">
+      Browse competitions, seasons, and recordings that SportScanner already knows about, then refresh one competition when upstream schedules move.
+    </p>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Competition</th>
+          <th>Sport</th>
+          <th>Seasons</th>
+          <th>Recordings</th>
+          <th>Last Refreshed</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><a href="{{ request.url_for('library_competition_detail', competition_id=row.competition.id) }}">{{ row.competition.name }}</a></td>
+          <td>{{ row.competition.sport or "" }}</td>
+          <td>{{ row.season_count }}</td>
+          <td>{{ row.recording_count }}</td>
+          <td>{{ row.last_refreshed.strftime("%Y-%m-%d %H:%M") if row.last_refreshed else "Never" }}</td>
+          <td>
+            <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=row.competition.id) }}">
+              <button type="submit" class="secondary compact-button">Refresh Schedule</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="empty-state">No competitions yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

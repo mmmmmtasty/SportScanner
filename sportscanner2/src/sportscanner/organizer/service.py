@@ -11,11 +11,11 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from sportscanner.config import Settings
-from sportscanner.db.models import Competition, CompetitionSeason, Event, EventOrder, EventOrigin, ReviewTask, ReviewTaskStatus, Segment, SegmentStatus
-from sportscanner.db.queries import get_or_create_competition_season, get_segment_by_source_path
-from sportscanner.metadata_snapshot import clear_segment_metadata_snapshot, sync_segment_metadata_snapshot
+from sportscanner.db.models import Competition, CompetitionSeason, Event, EventOrder, EventOrigin, Recording, RecordingStatus, ReviewTask, ReviewTaskStatus
+from sportscanner.db.queries import get_or_create_competition_season, get_recording_by_source_path
+from sportscanner.metadata_snapshot import clear_recording_metadata_snapshot, sync_recording_metadata_snapshot
 from sportscanner.organizer.matcher import best_db_competition_match, best_upstream_competition_match, match_event, season_for_date
-from sportscanner.organizer.numbering import EventSequenceInput, SegmentCodeInput, compute_event_sequences, compute_segment_codes, derive_weekend_group, episode_number
+from sportscanner.organizer.numbering import EventSequenceInput, RecordingCodeInput, compute_event_sequences, compute_recording_codes, derive_weekend_group, episode_number
 from sportscanner.organizer.parser import ParsedFile, is_media_file, parse_filename
 from sportscanner.organizer.placer import build_managed_filename, move_managed_file, place_file, season_directory_name
 from sportscanner.organizer.plexmatch import render_season_plexmatch, render_show_plexmatch, write_atomic_if_changed
@@ -34,7 +34,7 @@ class SidecarMetadata:
     competition: str | None = None
     season: int | None = None
     event: str | None = None
-    segment_kind: str | None = None
+    kind: str | None = None
     title_suffix: str | None = None
     tsdb_event_id: int | None = None
 
@@ -69,7 +69,7 @@ def read_sidecar(path: Path) -> SidecarMetadata:
         competition=data.get("competition"),
         season=int(data["season"]) if data.get("season") else None,
         event=data.get("event"),
-        segment_kind=data.get("segment_kind"),
+        kind=data.get("kind") or data.get("segment_kind"),
         title_suffix=data.get("title_suffix"),
         tsdb_event_id=int(data["tsdb_event_id"]) if data.get("tsdb_event_id") else None,
     )
@@ -130,36 +130,36 @@ class OrganizerService:
                 assert refreshed is not None
                 return refreshed
 
-    def refresh_segment_metadata(self, segment_id: str) -> Segment:
+    def refresh_recording_metadata(self, recording_id: str) -> Recording:
         with self._ingest_lock:
             with self.session_factory() as session:
-                segment = session.get(Segment, segment_id)
-                if segment is None:
-                    raise KeyError(f"Unknown segment: {segment_id}")
-                self._refresh_segment_metadata(session, segment)
+                recording = session.get(Recording, recording_id)
+                if recording is None:
+                    raise KeyError(f"Unknown recording: {recording_id}")
+                self._refresh_recording_metadata(session, recording)
                 session.commit()
-                refreshed = session.get(Segment, segment_id)
+                refreshed = session.get(Recording, recording_id)
                 assert refreshed is not None
                 return refreshed
 
-    def ingest_path_if_parseable(self, source_path: str | Path) -> Segment | None:
+    def ingest_path_if_parseable(self, source_path: str | Path) -> Recording | None:
         try:
             return self.ingest_path(source_path)
         except ValueError as exc:
             logger.warning("ingest_skipped_unparsable source_path=%s error=%s", source_path, exc)
             return None
 
-    def ingest_path(self, source_path: str | Path) -> Segment:
+    def ingest_path(self, source_path: str | Path) -> Recording:
         with self._ingest_lock:
             logger.info("ingest_started source_path=%s", source_path)
             parsed = parse_filename(source_path)
             sidecar = read_sidecar(parsed.source_path)
             with self.session_factory() as session:
-                segment = self._upsert_segment_from_path(session, parsed, sidecar)
+                recording = self._upsert_recording_from_path(session, parsed, sidecar)
                 session.commit()
-                segment_id = segment.id
+                recording_id = recording.id
             with self.session_factory() as session:
-                result = session.get(Segment, segment_id)
+                result = session.get(Recording, recording_id)
                 assert result is not None
                 logger.info(
                     "ingest_completed source_path=%s status=%s match_method=%s event_id=%s episode_number=%s",
@@ -178,23 +178,23 @@ class OrganizerService:
         event_id: str | None = None,
         tsdb_event_id: int | None = None,
         publish_as_special: bool = False,
-    ) -> Segment:
+    ) -> Recording:
         with self.session_factory() as session:
             task = session.get(ReviewTask, task_id)
             if task is None:
                 raise KeyError(f"Unknown review task: {task_id}")
-            segment = session.get(Segment, task.segment_id)
-            if segment is None:
-                raise KeyError(f"Unknown segment for review task: {task.segment_id}")
+            recording = session.get(Recording, task.recording_id)
+            if recording is None:
+                raise KeyError(f"Unknown recording for review task: {task.recording_id}")
 
             if publish_as_special:
-                segment = self._publish_as_special(session, segment)
-                task.resolution = {"type": "special", "event_id": segment.event_id}
+                recording = self._publish_as_special(session, recording)
+                task.resolution = {"type": "special", "event_id": recording.event_id}
             elif tsdb_event_id is not None:
-                event = self._resolve_review_lookup_event(session, segment, tsdb_event_id)
-                segment = self._assign_segment_to_event(
+                event = self._resolve_review_lookup_event(session, recording, tsdb_event_id)
+                recording = self._assign_recording_to_event(
                     session,
-                    segment,
+                    recording,
                     event,
                     match_method="manual_lookup_event_id",
                 )
@@ -203,58 +203,58 @@ class OrganizerService:
                 event = session.get(Event, event_id)
                 if event is None:
                     raise KeyError(f"Unknown event: {event_id}")
-                segment = self._assign_segment_to_event(
+                recording = self._assign_recording_to_event(
                     session,
-                    segment,
+                    recording,
                     event,
                     match_method="manual_resolution",
                 )
                 task.resolution = {"type": "event", "event_id": event.id}
             else:
-                segment.status = SegmentStatus.IGNORED.value
-                clear_segment_metadata_snapshot(segment)
+                recording.status = RecordingStatus.IGNORED.value
+                clear_recording_metadata_snapshot(recording)
                 task.resolution = {"type": "ignored"}
 
             task.status = ReviewTaskStatus.RESOLVED.value
             session.commit()
-            refreshed = session.get(Segment, segment.id)
+            refreshed = session.get(Recording, recording.id)
             assert refreshed is not None
             logger.info(
-                "review_task_resolved task_id=%s resolution_type=%s segment_id=%s event_id=%s",
+                "review_task_resolved task_id=%s resolution_type=%s recording_id=%s event_id=%s",
                 task_id,
                 task.resolution.get("type"),
-                segment.id,
-                segment.event_id,
+                recording.id,
+                recording.event_id,
             )
             return refreshed
 
-    def _assign_segment_to_event(
+    def _assign_recording_to_event(
         self,
         session: Session,
-        segment: Segment,
+        recording: Recording,
         event: Event,
         *,
         match_method: str,
-    ) -> Segment:
-        segment.event_id = event.id
-        segment.competition_season_id = event.competition_season_id
-        segment.status = SegmentStatus.PUBLISHED.value
-        segment.match_confidence = 1.0
-        segment.match_method = match_method
+    ) -> Recording:
+        recording.event_id = event.id
+        recording.competition_season_id = event.competition_season_id
+        recording.status = RecordingStatus.PUBLISHED.value
+        recording.match_confidence = 1.0
+        recording.match_method = match_method
         session.flush()
         self._recompute_sequences_for_season(session, event.competition_season_id)
-        self._recompute_segments_for_event(session, event.id)
-        self._publish_segment(session, segment)
-        return segment
+        self._recompute_recordings_for_event(session, event.id)
+        self._publish_recording(session, recording)
+        return recording
 
-    def _resolve_review_lookup_event(self, session: Session, segment: Segment, tsdb_event_id: int) -> Event:
+    def _resolve_review_lookup_event(self, session: Session, recording: Recording, tsdb_event_id: int) -> Event:
         if self.metadata_source is None:
             raise ValueError("Metadata source is not configured")
         upstream = self.metadata_source.lookup_event(tsdb_event_id)
         if upstream is None:
             raise KeyError(f"Unknown upstream event: {tsdb_event_id}")
 
-        current_season = session.get(CompetitionSeason, segment.competition_season_id)
+        current_season = session.get(CompetitionSeason, recording.competition_season_id)
         current_competition = session.get(Competition, current_season.competition_id) if current_season else None
         if current_competition is not None and (
             not upstream.competition_name
@@ -286,7 +286,7 @@ class OrganizerService:
             raise KeyError(f"Could not resolve season for upstream event: {tsdb_event_id}")
         return self._upsert_event(session, season.id, upstream)
 
-    def _upsert_segment_from_path(self, session: Session, parsed: ParsedFile, sidecar: SidecarMetadata) -> Segment:
+    def _upsert_recording_from_path(self, session: Session, parsed: ParsedFile, sidecar: SidecarMetadata) -> Recording:
         # Pre-fetch upstream search results before any session.flush() to avoid a
         # write-lock deadlock: _get_json opens its own session to write api_cache,
         # but that session would be blocked by the write lock held by this one.
@@ -317,53 +317,53 @@ class OrganizerService:
         )
         session.flush()
 
-        existing = get_segment_by_source_path(session, str(parsed.source_path))
+        existing = get_recording_by_source_path(session, str(parsed.source_path))
         title = parsed.title
         if sidecar.title_suffix:
             title = f"{title} {sidecar.title_suffix}".strip()
-        kind = sidecar.segment_kind or parsed.segment_kind
-        segment = existing or Segment(id=f"seg_{uuid4().hex}")
-        segment.competition_season_id = season.id
-        segment.kind = kind
-        segment.title = title
-        segment.air_date = parsed.event_date
-        segment.source_path = str(parsed.source_path)
-        segment.status = SegmentStatus.STAGED.value
-        clear_segment_metadata_snapshot(segment)
+        kind = sidecar.kind or parsed.kind
+        recording = existing or Recording(id=f"rec_{uuid4().hex}")
+        recording.competition_season_id = season.id
+        recording.kind = kind
+        recording.title = title
+        recording.air_date = parsed.event_date
+        recording.source_path = str(parsed.source_path)
+        recording.status = RecordingStatus.STAGED.value
+        clear_recording_metadata_snapshot(recording)
         if existing is None:
-            session.add(segment)
+            session.add(recording)
         session.flush()
 
         direct_match = self._match_via_sidecar(session, competition, season.id, sidecar)
         if direct_match is not None:
-            segment.event_id = direct_match.id
-            segment.status = SegmentStatus.PUBLISHED.value
-            segment.match_confidence = 1.0
-            segment.match_method = "sidecar_event_id"
+            recording.event_id = direct_match.id
+            recording.status = RecordingStatus.PUBLISHED.value
+            recording.match_confidence = 1.0
+            recording.match_method = "sidecar_event_id"
             session.flush()
             self._recompute_sequences_for_season(session, season.id)
-            self._recompute_segments_for_event(session, direct_match.id)
-            self._publish_segment(session, segment)
-            return segment
+            self._recompute_recordings_for_event(session, direct_match.id)
+            self._publish_recording(session, recording)
+            return recording
 
         if season_number == 0:
-            self._ensure_review_task(session, segment, [])
-            segment.status = SegmentStatus.REVIEW.value
-            segment.match_method = "special_requires_review"
-            logger.info("segment_requires_special_review segment_id=%s source_path=%s", segment.id, segment.source_path)
-            return segment
+            self._ensure_review_task(session, recording, [])
+            recording.status = RecordingStatus.REVIEW.value
+            recording.match_method = "special_requires_review"
+            logger.info("recording_requires_special_review recording_id=%s source_path=%s", recording.id, recording.source_path)
+            return recording
 
         if not season.is_complete:
-            self._ensure_review_task(session, segment, [])
-            segment.status = SegmentStatus.STAGED.value
-            segment.match_method = "season_incomplete"
+            self._ensure_review_task(session, recording, [])
+            recording.status = RecordingStatus.STAGED.value
+            recording.match_method = "season_incomplete"
             logger.info(
-                "segment_staged_for_incomplete_season segment_id=%s season_id=%s source_path=%s",
-                segment.id,
+                "recording_staged_for_incomplete_season recording_id=%s season_id=%s source_path=%s",
+                recording.id,
                 season.id,
-                segment.source_path,
+                recording.source_path,
             )
-            return segment
+            return recording
 
         season_events = list(session.scalars(select(Event).where(Event.competition_season_id == season.id)))
         upstream_events = [self._event_to_upstream(event, competition.name) for event in season_events]
@@ -371,37 +371,37 @@ class OrganizerService:
 
         if event_match.event is not None:
             matched_event = self._upsert_event(session, season.id, event_match.event)
-            segment.event_id = matched_event.id
-            segment.match_confidence = event_match.confidence
-            segment.match_method = event_match.method
+            recording.event_id = matched_event.id
+            recording.match_confidence = event_match.confidence
+            recording.match_method = event_match.method
             if event_match.confidence >= 0.8:
-                segment.status = SegmentStatus.PUBLISHED.value
+                recording.status = RecordingStatus.PUBLISHED.value
                 session.flush()
                 self._recompute_sequences_for_season(session, season.id)
-                self._recompute_segments_for_event(session, matched_event.id)
-                self._publish_segment(session, segment)
+                self._recompute_recordings_for_event(session, matched_event.id)
+                self._publish_recording(session, recording)
             else:
-                segment.status = SegmentStatus.REVIEW.value
-                self._ensure_review_task(session, segment, event_match.candidates)
+                recording.status = RecordingStatus.REVIEW.value
+                self._ensure_review_task(session, recording, event_match.candidates)
                 logger.info(
-                    "segment_sent_to_review segment_id=%s method=%s confidence=%s",
-                    segment.id,
+                    "recording_sent_to_review recording_id=%s method=%s confidence=%s",
+                    recording.id,
                     event_match.method,
                     event_match.confidence,
                 )
-            return segment
+            return recording
 
-        segment.match_confidence = event_match.confidence
-        segment.match_method = event_match.method
-        segment.status = SegmentStatus.REVIEW.value
-        self._ensure_review_task(session, segment, event_match.candidates)
+        recording.match_confidence = event_match.confidence
+        recording.match_method = event_match.method
+        recording.status = RecordingStatus.REVIEW.value
+        self._ensure_review_task(session, recording, event_match.candidates)
         logger.info(
-            "segment_sent_to_review segment_id=%s method=%s confidence=%s",
-            segment.id,
+            "recording_sent_to_review recording_id=%s method=%s confidence=%s",
+            recording.id,
             event_match.method,
             event_match.confidence,
         )
-        return segment
+        return recording
 
     def _resolve_competition(
         self,
@@ -586,111 +586,111 @@ class OrganizerService:
                 for event in events:
                     self._upsert_event(session, season.id, event)
                 self._recompute_sequences_for_season(session, season.id)
-                self._refresh_published_segments_for_season(session, season.id)
+                self._refresh_published_recordings_for_season(session, season.id)
 
-        retry_segments = list(
+        retry_recordings = list(
             session.scalars(
-                select(Segment)
-                .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
+                select(Recording)
+                .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
                 .where(
                     CompetitionSeason.competition_id == competition.id,
                     or_(
-                        Segment.event_id.is_(None),
-                        Segment.status != SegmentStatus.PUBLISHED.value,
+                        Recording.event_id.is_(None),
+                        Recording.status != RecordingStatus.PUBLISHED.value,
                     ),
                 )
-                .order_by(Segment.created_at.asc(), Segment.id.asc())
+                .order_by(Recording.created_at.asc(), Recording.id.asc())
             )
         )
-        for segment in retry_segments:
-            self._retry_segment_match(session, segment)
+        for recording in retry_recordings:
+            self._retry_recording_match(session, recording)
 
-        published_segments = list(
+        published_recordings = list(
             session.scalars(
-                select(Segment)
-                .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
+                select(Recording)
+                .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
                 .where(
                     CompetitionSeason.competition_id == competition.id,
-                    Segment.status == SegmentStatus.PUBLISHED.value,
+                    Recording.status == RecordingStatus.PUBLISHED.value,
                 )
             )
         )
-        for segment in published_segments:
-            sync_segment_metadata_snapshot(
+        for recording in published_recordings:
+            sync_recording_metadata_snapshot(
                 session,
-                segment=segment,
+                recording=recording,
                 metadata_source_name=getattr(self.metadata_source, "name", None),
             )
         logger.info(
-            "competition_metadata_refreshed competition=%s season_count=%s retried_segments=%s",
+            "competition_metadata_refreshed competition=%s season_count=%s retried_recordings=%s",
             competition.name,
             len(seasons),
-            len(retry_segments),
+            len(retry_recordings),
         )
 
-    def _refresh_segment_metadata(self, session: Session, segment: Segment) -> Segment:
-        event = session.get(Event, segment.event_id) if segment.event_id else None
-        current_season_id = segment.competition_season_id
+    def _refresh_recording_metadata(self, session: Session, recording: Recording) -> Recording:
+        event = session.get(Event, recording.event_id) if recording.event_id else None
+        current_season_id = recording.competition_season_id
         if self.metadata_source is not None and event is not None and event.tsdb_id is not None:
             try:
-                refreshed_event = self._resolve_review_lookup_event(session, segment, event.tsdb_id)
+                refreshed_event = self._resolve_review_lookup_event(session, recording, event.tsdb_id)
             except Exception as exc:
                 logger.warning(
-                    "segment_refresh_lookup_failed segment_id=%s tsdb_id=%s error=%s",
-                    segment.id,
+                    "recording_refresh_lookup_failed recording_id=%s tsdb_id=%s error=%s",
+                    recording.id,
                     event.tsdb_id,
                     exc,
                 )
             else:
-                segment.event_id = refreshed_event.id
-                segment.competition_season_id = refreshed_event.competition_season_id
-                segment.status = SegmentStatus.PUBLISHED.value
+                recording.event_id = refreshed_event.id
+                recording.competition_season_id = refreshed_event.competition_season_id
+                recording.status = RecordingStatus.PUBLISHED.value
                 session.flush()
 
                 affected_seasons = {current_season_id, refreshed_event.competition_season_id}
                 for season_id in sorted(affected_seasons):
                     self._recompute_sequences_for_season(session, season_id)
-                    self._refresh_published_segments_for_season(session, season_id)
+                    self._refresh_published_recordings_for_season(session, season_id)
 
-                refreshed_season = session.get(CompetitionSeason, segment.competition_season_id)
+                refreshed_season = session.get(CompetitionSeason, recording.competition_season_id)
                 refreshed_competition = (
                     session.get(Competition, refreshed_season.competition_id) if refreshed_season is not None else None
                 )
                 if refreshed_competition is not None:
                     self._refresh_competition_details(refreshed_competition, overwrite=True)
-                sync_segment_metadata_snapshot(
+                sync_recording_metadata_snapshot(
                     session,
-                    segment=segment,
+                    recording=recording,
                     metadata_source_name=getattr(self.metadata_source, "name", None),
                 )
                 logger.info(
-                    "segment_metadata_refreshed segment_id=%s method=lookup_event event_id=%s",
-                    segment.id,
-                    segment.event_id,
+                    "recording_metadata_refreshed recording_id=%s method=lookup_event event_id=%s",
+                    recording.id,
+                    recording.event_id,
                 )
-                return segment
+                return recording
 
-        refreshed = self._retry_segment_match(session, segment)
+        refreshed = self._retry_recording_match(session, recording)
         logger.info(
-            "segment_metadata_refreshed segment_id=%s method=reingest event_id=%s status=%s",
+            "recording_metadata_refreshed recording_id=%s method=reingest event_id=%s status=%s",
             refreshed.id,
             refreshed.event_id,
             refreshed.status,
         )
         return refreshed
 
-    def _retry_segment_match(self, session: Session, segment: Segment) -> Segment:
-        parsed = parse_filename(segment.source_path)
+    def _retry_recording_match(self, session: Session, recording: Recording) -> Recording:
+        parsed = parse_filename(recording.source_path)
         sidecar = read_sidecar(parsed.source_path)
-        refreshed = self._upsert_segment_from_path(session, parsed, sidecar)
+        refreshed = self._upsert_recording_from_path(session, parsed, sidecar)
         competition_season = session.get(CompetitionSeason, refreshed.competition_season_id)
         competition = session.get(Competition, competition_season.competition_id) if competition_season else None
         if competition is not None:
             self._refresh_competition_details(competition, overwrite=True)
-            if refreshed.status == SegmentStatus.PUBLISHED.value:
-                sync_segment_metadata_snapshot(
+            if refreshed.status == RecordingStatus.PUBLISHED.value:
+                sync_recording_metadata_snapshot(
                     session,
-                    segment=refreshed,
+                    recording=refreshed,
                     metadata_source_name=getattr(self.metadata_source, "name", None),
                 )
         return refreshed
@@ -763,7 +763,7 @@ class OrganizerService:
         for event in events:
             self._upsert_event(session, season.id, event)
         self._recompute_sequences_for_season(session, season.id)
-        self._refresh_published_segments_for_season(session, season.id)
+        self._refresh_published_recordings_for_season(session, season.id)
         logger.info(
             "season_events_synced competition=%s season_id=%s event_count=%s",
             competition.name,
@@ -845,113 +845,115 @@ class OrganizerService:
         for event in events:
             event.event_sequence = sequence_map.get(event.id)
 
-    def _recompute_segments_for_event(self, session: Session, event_id: str) -> None:
+    def _recompute_recordings_for_event(self, session: Session, event_id: str) -> None:
         event = session.get(Event, event_id)
         if event is None or event.event_sequence is None:
             return
-        segments = list(session.scalars(select(Segment).where(Segment.event_id == event_id)))
-        code_map = compute_segment_codes(
+        recordings = list(session.scalars(select(Recording).where(Recording.event_id == event_id)))
+        code_map = compute_recording_codes(
             [
-                SegmentCodeInput(
-                    segment_id=segment.id,
-                    kind=segment.kind,
-                    title=segment.title,
-                    source_path=segment.source_path,
+                RecordingCodeInput(
+                    recording_id=recording.id,
+                    kind=recording.kind,
+                    title=recording.title,
+                    source_path=recording.source_path,
                 )
-                for segment in segments
+                for recording in recordings
             ]
         )
-        for segment in segments:
-            segment.segment_code = code_map[segment.id]
-            segment.episode_number = episode_number(event.event_sequence, segment.segment_code)
+        for recording in recordings:
+            if recording.status == RecordingStatus.PUBLISHED.value and recording.episode_number is not None:
+                continue  # freeze episode numbers for published recordings
+            recording.recording_code = code_map[recording.id]
+            recording.episode_number = episode_number(event.event_sequence, recording.recording_code)
 
-    def _ensure_review_task(self, session: Session, segment: Segment, candidates: list[dict]) -> None:
+    def _ensure_review_task(self, session: Session, recording: Recording, candidates: list[dict]) -> None:
         task = session.scalar(
             select(ReviewTask).where(
-                ReviewTask.segment_id == segment.id,
+                ReviewTask.recording_id == recording.id,
                 ReviewTask.status == ReviewTaskStatus.OPEN.value,
             )
         )
         if task is None:
-            task = ReviewTask(segment_id=segment.id, task_type="match_review")
+            task = ReviewTask(recording_id=recording.id, task_type="match_review")
             session.add(task)
         task.candidates = candidates
         task.status = ReviewTaskStatus.OPEN.value
-        logger.info("review_task_open segment_id=%s candidate_count=%s", segment.id, len(candidates))
+        logger.info("review_task_open recording_id=%s candidate_count=%s", recording.id, len(candidates))
 
-    def _refresh_published_segments_for_season(self, session: Session, competition_season_id: str) -> None:
-        published_segments = list(
+    def _refresh_published_recordings_for_season(self, session: Session, competition_season_id: str) -> None:
+        published_recordings = list(
             session.scalars(
-                select(Segment).where(
-                    Segment.competition_season_id == competition_season_id,
-                    Segment.status == SegmentStatus.PUBLISHED.value,
+                select(Recording).where(
+                    Recording.competition_season_id == competition_season_id,
+                    Recording.status == RecordingStatus.PUBLISHED.value,
                 )
             )
         )
-        if not published_segments:
+        if not published_recordings:
             return
-        event_ids = sorted({segment.event_id for segment in published_segments if segment.event_id})
+        event_ids = sorted({recording.event_id for recording in published_recordings if recording.event_id})
         for event_id in event_ids:
-            self._recompute_segments_for_event(session, event_id)
-        for segment in published_segments:
-            self._publish_segment(session, segment)
+            self._recompute_recordings_for_event(session, event_id)
+        for recording in published_recordings:
+            self._publish_recording(session, recording)
         logger.info(
-            "season_publish_reconciled season_id=%s published_segment_count=%s",
+            "season_publish_reconciled season_id=%s published_recording_count=%s",
             competition_season_id,
-            len(published_segments),
+            len(published_recordings),
         )
 
-    def _publish_segment(self, session: Session, segment: Segment) -> None:
-        if segment.event_id is None:
-            clear_segment_metadata_snapshot(segment)
+    def _publish_recording(self, session: Session, recording: Recording) -> None:
+        if recording.event_id is None:
+            clear_recording_metadata_snapshot(recording)
             return
-        event = session.get(Event, segment.event_id)
-        season = session.get(CompetitionSeason, segment.competition_season_id)
+        event = session.get(Event, recording.event_id)
+        season = session.get(CompetitionSeason, recording.competition_season_id)
         if event is None or season is None:
-            clear_segment_metadata_snapshot(segment)
+            clear_recording_metadata_snapshot(recording)
             return
         competition = session.get(Competition, season.competition_id)
         if competition is None:
-            clear_segment_metadata_snapshot(segment)
+            clear_recording_metadata_snapshot(recording)
             return
 
         show_dir = self.settings.library_dir / competition.name
         season_dir = show_dir / season_directory_name(season.season_number)
         destination = season_dir / build_managed_filename(
             competition_name=competition.name,
-            air_date=segment.air_date,
-            title=segment.title,
-            source_path=segment.source_path,
+            air_date=recording.air_date,
+            title=recording.title,
+            source_path=recording.source_path,
         )
-        existing_managed = Path(segment.managed_path) if segment.managed_path else None
-        source_path = Path(segment.source_path)
+        existing_managed = Path(recording.managed_path) if recording.managed_path else None
+        source_path = Path(recording.source_path)
         if destination.exists():
-            segment.managed_path = str(destination)
+            recording.managed_path = str(destination)
         elif existing_managed is not None and existing_managed.exists():
             if existing_managed != destination:
-                segment.managed_path = move_managed_file(existing_managed, destination)
+                recording.managed_path = move_managed_file(existing_managed, destination)
             else:
-                segment.managed_path = str(destination)
+                recording.managed_path = str(destination)
         elif source_path.exists():
-            segment.managed_path = place_file(segment.source_path, destination)
+            recording.managed_path = place_file(recording.source_path, destination)
         else:
             logger.warning(
-                "segment_publish_source_missing segment_id=%s source_path=%s managed_path=%s",
-                segment.id,
-                segment.source_path,
-                segment.managed_path,
+                "recording_publish_source_missing recording_id=%s source_path=%s managed_path=%s",
+                recording.id,
+                recording.source_path,
+                recording.managed_path,
             )
-            segment.managed_path = segment.managed_path or str(destination)
-        sync_segment_metadata_snapshot(
+            recording.managed_path = recording.managed_path or str(destination)
+        sync_recording_metadata_snapshot(
             session,
-            segment=segment,
+            recording=recording,
             metadata_source_name=getattr(self.metadata_source, "name", None),
         )
-        published_segments = list(
+        published_recordings = list(
             session.scalars(
-                select(Segment).where(
-                    Segment.competition_season_id == season.id,
-                    Segment.status == SegmentStatus.PUBLISHED.value,
+                select(Recording).where(
+                    Recording.competition_season_id == season.id,
+                    Recording.status == RecordingStatus.PUBLISHED.value,
                 )
             )
         )
@@ -959,21 +961,21 @@ class OrganizerService:
         write_atomic_if_changed(show_dir / ".plexmatch", render_show_plexmatch(competition, guid_prefix))
         write_atomic_if_changed(
             season_dir / ".plexmatch",
-            render_season_plexmatch(competition, season, published_segments, guid_prefix),
+            render_season_plexmatch(competition, season, published_recordings, guid_prefix),
         )
         logger.info(
-            "segment_published segment_id=%s season_id=%s event_id=%s managed_path=%s episode_number=%s",
-            segment.id,
+            "recording_published recording_id=%s season_id=%s event_id=%s managed_path=%s episode_number=%s",
+            recording.id,
             season.id,
             event.id,
-            segment.managed_path,
-            segment.episode_number,
+            recording.managed_path,
+            recording.episode_number,
         )
 
-    def _publish_as_special(self, session: Session, segment: Segment) -> Segment:
-        season = session.get(CompetitionSeason, segment.competition_season_id)
+    def _publish_as_special(self, session: Session, recording: Recording) -> Recording:
+        season = session.get(CompetitionSeason, recording.competition_season_id)
         if season is None:
-            raise KeyError(f"Unknown season: {segment.competition_season_id}")
+            raise KeyError(f"Unknown season: {recording.competition_season_id}")
         competition = session.get(Competition, season.competition_id)
         if competition is None:
             raise KeyError(f"Unknown competition: {season.competition_id}")
@@ -989,19 +991,19 @@ class OrganizerService:
             id=f"manual_{uuid4().hex}",
             competition_season_id=season0.id,
             origin=EventOrigin.MANUAL.value,
-            name=segment.title,
-            date=segment.air_date,
-            time=segment.air_time,
+            name=recording.title,
+            date=recording.air_date,
+            time=recording.air_time,
         )
         session.add(event)
         session.flush()
-        segment.competition_season_id = season0.id
-        segment.event_id = event.id
-        segment.status = SegmentStatus.PUBLISHED.value
-        segment.match_confidence = 1.0
-        segment.match_method = "manual_special"
+        recording.competition_season_id = season0.id
+        recording.event_id = event.id
+        recording.status = RecordingStatus.PUBLISHED.value
+        recording.match_confidence = 1.0
+        recording.match_method = "manual_special"
         session.flush()
         self._recompute_sequences_for_season(session, season0.id)
-        self._recompute_segments_for_event(session, event.id)
-        self._publish_segment(session, segment)
-        return segment
+        self._recompute_recordings_for_event(session, event.id)
+        self._publish_recording(session, recording)
+        return recording

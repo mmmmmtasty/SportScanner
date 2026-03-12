@@ -4,9 +4,9 @@ from datetime import date, time
 
 from sportscanner.organizer.numbering import (
     EventSequenceInput,
-    SegmentCodeInput,
+    RecordingCodeInput,
     compute_event_sequences,
-    compute_segment_codes,
+    compute_recording_codes,
     derive_weekend_group,
     episode_number,
 )
@@ -34,13 +34,13 @@ def test_derive_weekend_group_strips_year_and_session_suffix() -> None:
 
 def test_segment_codes_avoid_collisions_for_alt_and_editorial() -> None:
     segments = [
-        SegmentCodeInput("primary", "race", "Austrian Grand Prix Race", "/tmp/1.mkv"),
-        SegmentCodeInput("alt1", "alt_feed", "Austrian Grand Prix Race Alternate", "/tmp/2.mkv"),
-        SegmentCodeInput("analysis", "analysis", "Post-Race Analysis", "/tmp/3.mkv"),
-        SegmentCodeInput("highlights", "highlights", "Race Highlights", "/tmp/4.mkv"),
+        RecordingCodeInput("primary", "race", "Austrian Grand Prix Race", "/tmp/1.mkv"),
+        RecordingCodeInput("alt1", "alt_feed", "Austrian Grand Prix Race Alternate", "/tmp/2.mkv"),
+        RecordingCodeInput("analysis", "analysis", "Post-Race Analysis", "/tmp/3.mkv"),
+        RecordingCodeInput("highlights", "highlights", "Race Highlights", "/tmp/4.mkv"),
     ]
 
-    codes = compute_segment_codes(segments)
+    codes = compute_recording_codes(segments)
 
     assert codes["primary"] == 50
     assert codes["alt1"] == 51

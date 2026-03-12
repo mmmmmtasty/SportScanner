@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 import sportscanner.organizer.placer as placer
-from sportscanner.db.models import Competition, Event, ReviewTask, Segment
+from sportscanner.db.models import Competition, Event, ReviewTask, Recording
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.plex import PlexRegistrationResult
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
@@ -170,14 +170,15 @@ def test_dashboard_shows_connected_plex_state(provider_app) -> None:
     response = client.get("/admin/")
 
     assert response.status_code == 200
-    assert "Expected flow" in response.text
-    assert "Plex Show Libraries" in response.text
+    assert "Inbox-first flow" in response.text
+    assert "Inbox" in response.text
+    assert "Plex connection" in response.text
     assert "Connected" in response.text
 
 
 def test_review_queue_explains_resolution_flow(provider_app) -> None:
     with provider_app.state.services.session_factory() as session:
-        session.add(ReviewTask(segment_id="seg_primary", task_type="match_review"))
+        session.add(ReviewTask(recording_id="seg_primary", task_type="match_review"))
         session.commit()
 
     client = TestClient(provider_app)
@@ -239,8 +240,8 @@ def test_review_task_detail_shows_queue_position_and_ignore_action(provider_app)
     with provider_app.state.services.session_factory() as session:
         session.add_all(
             [
-                ReviewTask(segment_id="seg_primary", task_type="match_review"),
-                ReviewTask(segment_id="seg_primary", task_type="match_review"),
+                ReviewTask(recording_id="seg_primary", task_type="match_review"),
+                ReviewTask(recording_id="seg_primary", task_type="match_review"),
             ]
         )
         session.commit()
@@ -288,7 +289,7 @@ def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
 
     provider_app.state.services.metadata_source = SearchMetadataSource()
     with provider_app.state.services.session_factory() as session:
-        session.add(ReviewTask(segment_id="seg_primary", task_type="match_review"))
+        session.add(ReviewTask(recording_id="seg_primary", task_type="match_review"))
         session.commit()
 
     client = TestClient(provider_app)
@@ -326,17 +327,20 @@ def test_plex_libraries_page_explains_refresh_vs_scan(provider_app) -> None:
     response = client.get("/admin/plex-libraries")
 
     assert response.status_code == 200
-    assert "When To Use Force Refresh" in response.text
-    assert "Scan discovers new files in the managed library." in response.text
+    assert "Plex" in response.text
+    assert "Refresh Queue" in response.text
+    assert "Libraries" in response.text
     assert "Force Refresh" in response.text
 
 
 def test_segment_detail_shows_matched_event_context(provider_app) -> None:
     client = TestClient(provider_app)
 
-    response = client.get("/admin/segments/seg_primary")
+    response = client.get("/admin/recordings/seg_primary")
 
     assert response.status_code == 200
+    assert "What We Found" in response.text
+    assert "Best Match" in response.text
     assert "Current Mapping" in response.text
     assert "Matched Event" in response.text
     assert "Austrian Grand Prix Race" in response.text
@@ -347,7 +351,7 @@ def test_segment_detail_persists_and_shows_cached_item_metadata(provider_app) ->
     with provider_app.state.services.session_factory() as session:
         competition = session.scalar(select(Competition).where(Competition.id == "tsdb_4370"))
         event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
-        segment = session.get(Segment, "seg_primary")
+        segment = session.get(Recording, "seg_primary")
         assert competition is not None
         assert event is not None
         assert segment is not None
@@ -359,7 +363,7 @@ def test_segment_detail_persists_and_shows_cached_item_metadata(provider_app) ->
         session.commit()
 
     client = TestClient(provider_app)
-    response = client.get("/admin/segments/seg_primary")
+    response = client.get("/admin/recordings/seg_primary")
 
     assert response.status_code == 200
     assert "Cached Item Metadata" in response.text
@@ -368,7 +372,7 @@ def test_segment_detail_persists_and_shows_cached_item_metadata(provider_app) ->
     assert "https://example.com/show-poster.jpg" in response.text
 
     with provider_app.state.services.session_factory() as session:
-        segment = session.get(Segment, "seg_primary")
+        segment = session.get(Recording, "seg_primary")
         assert segment is not None
         assert segment.metadata_source == "fake"
         assert segment.metadata_record is not None
@@ -382,7 +386,8 @@ def test_competitions_page_shows_row_refresh_actions(provider_app) -> None:
     response = client.get("/admin/competitions")
 
     assert response.status_code == 200
-    assert "Refresh Metadata" in response.text
+    assert "Refresh Schedule" in response.text
+    assert "Library" in response.text
     assert "/admin/competitions/tsdb_4370/refresh-metadata" in response.text
 
 
@@ -405,7 +410,7 @@ def test_competition_refresh_route_updates_competition_and_segment_metadata(prov
     with provider_app.state.services.session_factory() as session:
         competition = session.scalar(select(Competition).where(Competition.id == "tsdb_4370"))
         event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
-        segment = session.get(Segment, "seg_primary")
+        segment = session.get(Recording, "seg_primary")
         assert competition is not None
         assert event is not None
         assert segment is not None
@@ -427,7 +432,7 @@ def test_competition_refresh_route_handles_cross_device_managed_file_moves(provi
     old_managed.write_text("managed file", encoding="utf-8")
 
     with provider_app.state.services.session_factory() as session:
-        segment = session.get(Segment, "seg_primary")
+        segment = session.get(Recording, "seg_primary")
         assert segment is not None
         segment.managed_path = str(old_managed)
         session.commit()
@@ -446,7 +451,7 @@ def test_competition_refresh_route_handles_cross_device_managed_file_moves(provi
 
     assert response.status_code == 303
     with provider_app.state.services.session_factory() as session:
-        segment = session.get(Segment, "seg_primary")
+        segment = session.get(Recording, "seg_primary")
         assert segment is not None
         assert segment.managed_path is not None
         destination = Path(segment.managed_path)
@@ -466,12 +471,12 @@ def test_segment_refresh_route_retries_item_metadata(provider_app) -> None:
     )
     client = TestClient(provider_app)
 
-    response = client.post("/admin/segments/seg_primary/refresh-metadata", follow_redirects=False)
+    response = client.post("/admin/recordings/seg_primary/refresh-metadata", follow_redirects=False)
 
     assert response.status_code == 303
     with provider_app.state.services.session_factory() as session:
         event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
-        segment = session.get(Segment, "seg_primary")
+        segment = session.get(Recording, "seg_primary")
         assert event is not None
         assert segment is not None
         assert event.name == "Austrian Grand Prix Revised"
@@ -488,7 +493,7 @@ def test_stats_json_returns_counts(provider_app) -> None:
     assert response.status_code == 200
     data = response.json()
     assert "competitions" in data
-    assert "published_segments" in data
+    assert "published_recordings" in data
     assert "open_review_tasks" in data
 
 

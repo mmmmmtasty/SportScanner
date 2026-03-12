@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Inbox{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Primary Workflow</p>
+    <h1>Inbox</h1>
+    <p class="hero-copy">
+      Start here for every file. Review status, confidence, current match, and the next action without bouncing between disconnected pages.
+    </p>
+  </div>
+  <article class="hero-card queue-card">
+    <div class="status-line"><span>Total files</span><strong>{{ stats.recordings }}</strong></div>
+    <div class="status-line"><span>Needs match</span><strong>{{ stats.review_recordings }}</strong></div>
+    <div class="status-line"><span>In Plex</span><strong>{{ stats.published_recordings }}</strong></div>
+    <div class="status-line"><span>Plex refresh queue</span><strong>{{ stats.pending_refresh_jobs }}</strong></div>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Filters</h2>
+  </div>
+  <form method="get" class="filters-grid">
+    <label>
+      Status
+      <select name="status">
+        <option value="">All states</option>
+        <option value="review" {% if filters.status == "review" %}selected{% endif %}>Needs Match</option>
+        <option value="staged" {% if filters.status == "staged" %}selected{% endif %}>Waiting for Schedule</option>
+        <option value="published" {% if filters.status == "published" %}selected{% endif %}>In Plex</option>
+        <option value="ignored" {% if filters.status == "ignored" %}selected{% endif %}>Ignored</option>
+        <option value="error" {% if filters.status == "error" %}selected{% endif %}>Error</option>
+      </select>
+    </label>
+    <label>
+      Competition
+      <select name="competition_id">
+        <option value="">All competitions</option>
+        {% for competition in competitions %}
+        <option value="{{ competition.id }}" {% if filters.competition_id == competition.id %}selected{% endif %}>{{ competition.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Confidence
+      <select name="confidence">
+        <option value="">Any confidence</option>
+        <option value="high" {% if filters.confidence == "high" %}selected{% endif %}>High</option>
+        <option value="medium" {% if filters.confidence == "medium" %}selected{% endif %}>Medium</option>
+        <option value="low" {% if filters.confidence == "low" %}selected{% endif %}>Low / Unknown</option>
+      </select>
+    </label>
+    <label>
+      Date from
+      <input type="date" name="date_from" value="{{ filters.date_from }}" />
+    </label>
+    <label>
+      Date to
+      <input type="date" name="date_to" value="{{ filters.date_to }}" />
+    </label>
+    <div class="filter-actions">
+      <button type="submit">Apply Filters</button>
+      <a href="{{ request.url_for('inbox') }}" role="button" class="secondary">Reset</a>
+    </div>
+  </form>
+</section>
+
+<section class="actions">
+  <form method="post" action="{{ request.url_for('rescan') }}">
+    <button type="submit">Rescan Incoming</button>
+  </form>
+  <a href="{{ request.url_for('review_queue') }}" role="button" class="secondary">Open Review Queue</a>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>All Files</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Filename</th>
+          <th>Status</th>
+          <th>Best Match</th>
+          <th>Confidence</th>
+          <th>Why</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            <strong title="{{ row.recording.source_path }}">{{ row.recording.source_path.split("/")[-1] }}</strong>
+            <div class="muted-line">{{ row.competition.name if row.competition else "Unknown competition" }}</div>
+          </td>
+          <td><span class="status-chip {{ row.status.class_name }}">{{ row.status.label }}</span></td>
+          <td>
+            {% if row.event %}
+            <strong>{{ row.event.name }}</strong>
+            <div class="muted-line">{{ row.competition.name if row.competition else "Unknown" }}{% if row.event.date %} · {{ row.event.date }}{% endif %}</div>
+            {% else %}
+            <strong>No match found</strong>
+            <div class="muted-line">{{ row.season.label if row.season else "Season unknown" }}</div>
+            {% endif %}
+          </td>
+          <td>
+            <span class="pill confidence-{{ row.confidence_class }}">{{ row.confidence_score }}%</span>
+          </td>
+          <td class="muted-cell">{{ row.explanation }}</td>
+          <td><a href="{{ row.action_href }}">{{ row.action_label }}</a></td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="empty-state">No recordings matched the current filters.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<details class="panel" open>
+  <summary><strong>System Status</strong></summary>
+  <div class="split-grid status-top-gap">
+    <article>
+      <div class="status-stack">
+        <div class="status-line"><span>Plex connection</span><strong>{% if plex_status.reachable %}Connected{% elif plex_status.configured %}Configured but unreachable{% else %}Not configured{% endif %}</strong></div>
+        <div class="status-line"><span>Plex libraries</span><strong>{{ plex_status.library_count }}</strong></div>
+        <div class="status-line"><span>Provider URL</span><strong>{{ values.provider_public_url or "Not set" }}</strong></div>
+      </div>
+      {% if plex_status.error %}
+      <p class="helper-text">Plex status error: {{ plex_status.error }}</p>
+      {% endif %}
+    </article>
+    <article>
+      <ul class="plain-list">
+        {% for step in next_steps %}
+        <li>{{ step }}</li>
+        {% endfor %}
+      </ul>
+    </article>
+  </div>
+</details>
+{% endblock %}

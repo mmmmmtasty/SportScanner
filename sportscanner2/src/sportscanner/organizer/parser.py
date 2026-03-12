@@ -44,7 +44,7 @@ PATTERNS = [
     ),
 ]
 
-SEGMENT_KIND_MAP = {
+RECORDING_KIND_MAP = {
     # Multi-word sprint sessions must come before bare "race" and "sprint".
     "sprint race": "sprint",
     "sprint qualifying": "sprint_qualifying",
@@ -98,8 +98,8 @@ class ParsedFile:
     show: str
     event_date: date | None
     title: str
-    segment_kind: str
-    segment_label: str | None
+    kind: str
+    kind_label: str | None
     season_hint: int | None = None
 
     def search_query(self) -> str:
@@ -125,11 +125,11 @@ def clean_title(value: str) -> str:
     return normalize_whitespace(TITLE_PREFIX_RE.sub("", value))
 
 
-def infer_segment_kind(label: str | None, title: str) -> str:
+def infer_recording_kind(label: str | None, title: str) -> str:
     candidates = [label or "", title]
     for candidate in candidates:
         lowered = normalize_whitespace(candidate).lower()
-        for key, value in SEGMENT_KIND_MAP.items():
+        for key, value in RECORDING_KIND_MAP.items():
             if key in lowered:
                 return value
     if re.search(r"\b(?:vs|v)\b", title, flags=re.IGNORECASE):
@@ -162,14 +162,14 @@ def parse_filename(path: str | Path) -> ParsedFile:
             parsed_date = date(int(groups["year"]), int(groups["month"]), int(groups["day"]))
         title = clean_title(groups.get("title", ""))
         label = normalize_whitespace(groups["label"]) if groups.get("label") else None
-        kind = infer_segment_kind(label, title)
+        kind = infer_recording_kind(label, title)
         return ParsedFile(
             source_path=source_path,
             show=normalize_whitespace(groups["show"]),
             event_date=parsed_date,
             title=title,
-            segment_kind=kind,
-            segment_label=label,
+            kind=kind,
+            kind_label=label,
             season_hint=int(groups["season"]) if groups.get("season") else None,
         )
     raise ValueError(f"Could not parse filename: {source_path.name}")

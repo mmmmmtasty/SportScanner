@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Advanced{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Debug & Operations</p>
+    <h1>Advanced</h1>
+    <p class="hero-copy">
+      Use this page for logs, raw operational visibility, and the older troubleshooting views that support the main Inbox workflow.
+    </p>
+  </div>
+</section>
+
+<section class="guide-grid">
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>What Lives Here</h2>
+    </div>
+    <p>Logs, debug views, migration helpers, and any low-level tools that are useful but not part of the normal file-to-Plex workflow.</p>
+  </article>
+  <article class="guide-card">
+    <div class="panel-header">
+      <h2>Normal Path</h2>
+    </div>
+    <p>Most daily work should still happen in Inbox, Library, Plex, and Settings. Come here when you need deeper visibility.</p>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Recent Logs</h2>
+    <a href="{{ request.url_for('logs_page') }}">Open full logs</a>
+  </div>
+  {% include "logs_entries.html" %}
+</section>
+{% endblock %}

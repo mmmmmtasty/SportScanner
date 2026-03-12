@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from typing import Iterable
 
-from sportscanner.db.models import Competition, CompetitionSeason, Segment
+from sportscanner.db.models import Competition, CompetitionSeason, Recording
 from sportscanner.provider.rating_keys import make_season_guid, make_show_guid
 
 
@@ -22,7 +22,7 @@ def render_show_plexmatch(competition: Competition, guid_prefix: str) -> str:
 def render_season_plexmatch(
     competition: Competition,
     season: CompetitionSeason,
-    segments: Iterable[Segment],
+    recordings: Iterable[Recording],
     guid_prefix: str,
 ) -> str:
     lines = [
@@ -30,11 +30,11 @@ def render_season_plexmatch(
         f"season: {season.season_number}",
         f"guid: {make_season_guid(competition.id, season.season_number, guid_prefix)}",
     ]
-    for segment in sorted(segments, key=lambda item: (item.episode_number or 0, item.title, item.source_path)):
-        if segment.episode_number is None:
+    for recording in sorted(recordings, key=lambda item: (item.episode_number or 0, item.title, item.source_path)):
+        if recording.episode_number is None:
             continue
-        filename = os.path.basename(segment.managed_path or segment.source_path)
-        lines.append(f"ep: {segment.episode_number}: {filename}")
+        filename = os.path.basename(recording.managed_path or recording.source_path)
+        lines.append(f"ep: {recording.episode_number}: {filename}")
     lines.append("")
     return "\n".join(lines)
 

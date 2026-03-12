@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sportscanner.organizer.parser import infer_segment_kind, parse_filename
+from sportscanner.organizer.parser import infer_recording_kind, parse_filename
 
 
 def test_parse_date_first_filename() -> None:
@@ -11,7 +11,7 @@ def test_parse_date_first_filename() -> None:
     assert parsed.show == "Formula 1"
     assert parsed.event_date.isoformat() == "2025-06-29"
     assert parsed.title == "Austrian Grand Prix"
-    assert parsed.segment_kind == "race"
+    assert parsed.kind == "race"
 
 
 def test_parse_legacy_filename_with_season_hint() -> None:
@@ -26,7 +26,7 @@ def test_parse_dot_separated_filename() -> None:
 
     assert parsed.show == "English Premier League"
     assert parsed.title == "Arsenal vs Bournemouth"
-    assert parsed.segment_kind == "match"
+    assert parsed.kind == "match"
 
 
 def test_parse_epl_year_title_day_month_filename() -> None:
@@ -35,7 +35,7 @@ def test_parse_epl_year_title_day_month_filename() -> None:
     assert parsed.show == "EPL"
     assert parsed.event_date.isoformat() == "2025-12-21"
     assert parsed.title == "Aston Villa vs Manchester United"
-    assert parsed.segment_kind == "match"
+    assert parsed.kind == "match"
 
 
 def test_parse_nhl_day_first_filename() -> None:
@@ -44,7 +44,7 @@ def test_parse_nhl_day_first_filename() -> None:
     assert parsed.show == "NHL"
     assert parsed.event_date.isoformat() == "2026-01-14"
     assert parsed.title == "Philadelphia Flyers vs Buffalo Sabres"
-    assert parsed.segment_kind == "match"
+    assert parsed.kind == "match"
 
 
 def test_parse_nhl_prefix_year_title_day_month_filename() -> None:
@@ -53,7 +53,7 @@ def test_parse_nhl_prefix_year_title_day_month_filename() -> None:
     assert parsed.show == "NHL"
     assert parsed.event_date.isoformat() == "2026-01-12"
     assert parsed.title == "Tampa Bay Lightning vs Philadelphia Flyers"
-    assert parsed.segment_kind == "match"
+    assert parsed.kind == "match"
 
 
 def test_parse_dot_separated_epl_filename_strips_resolution_suffix() -> None:
@@ -64,6 +64,6 @@ def test_parse_dot_separated_epl_filename_strips_resolution_suffix() -> None:
     assert parsed.title == "Manchester United vs West Ham"
 
 
-def test_infer_segment_kind_prefers_sprint_race_over_race() -> None:
-    assert infer_segment_kind(None, "Sprint Race") == "sprint"
-    assert infer_segment_kind(None, "Austrian Grand Prix Sprint Race") == "sprint"
+def test_infer_recording_kind_prefers_sprint_race_over_race() -> None:
+    assert infer_recording_kind(None, "Sprint Race") == "sprint"
+    assert infer_recording_kind(None, "Austrian Grand Prix Sprint Race") == "sprint"

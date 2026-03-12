@@ -17,8 +17,8 @@
       <strong>{{ summary.resolved_tasks }}</strong>
     </div>
     <div class="status-line">
-      <span>Segments in review</span>
-      <strong>{{ summary.review_segments }}</strong>
+      <span>Recordings in review</span>
+      <strong>{{ summary.review_recordings }}</strong>
     </div>
   </article>
 </section>
@@ -26,8 +26,8 @@
 <section class="stat-grid compact-grid">
   <article class="metric-card"><h2>{{ summary.open_tasks }}</h2><p>Open Tasks</p></article>
   <article class="metric-card"><h2>{{ summary.resolved_tasks }}</h2><p>Resolved Tasks</p></article>
-  <article class="metric-card"><h2>{{ summary.review_segments }}</h2><p>Review Segments</p></article>
-  <article class="metric-card"><h2>{{ summary.staged_segments }}</h2><p>Staged Segments</p></article>
+  <article class="metric-card"><h2>{{ summary.review_recordings }}</h2><p>Review Recordings</p></article>
+  <article class="metric-card"><h2>{{ summary.staged_recordings }}</h2><p>Staged Recordings</p></article>
 </section>
 
 <section class="guide-grid">
@@ -79,10 +79,10 @@
         <tr>
           <td>{{ row.task.id }}</td>
           <td>{{ row.competition.name if row.competition else "Unknown" }}</td>
-          <td>{{ row.segment.title if row.segment else row.task.segment_id }}</td>
-          <td>{{ row.segment.kind if row.segment else "" }}</td>
-          <td>{{ row.segment.air_date if row.segment else "" }}</td>
-          <td class="muted-cell">{{ row.segment.source_path.split("/")[-1] if row.segment else "" }}</td>
+          <td>{{ row.recording.title if row.recording else row.task.recording_id }}</td>
+          <td>{{ row.recording.kind if row.recording else "" }}</td>
+          <td>{{ row.recording.air_date if row.recording else "" }}</td>
+          <td class="muted-cell">{{ row.recording.source_path.split("/")[-1] if row.recording else "" }}</td>
           <td>{{ row.task.candidates|length }}</td>
           <td>
             <a

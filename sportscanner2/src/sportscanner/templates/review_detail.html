@@ -4,7 +4,7 @@
 <section class="page-header">
   <div>
     <p class="eyebrow">Review Task {{ task.id }}</p>
-    <h1>{{ segment.title if segment else task.segment_id }}</h1>
+    <h1>{{ recording.title if recording else task.recording_id }}</h1>
     <p class="hero-copy">
       {% if queue_position %}
       Queue item {{ queue_position }} of {{ queue_total }}.
@@ -28,17 +28,17 @@
     <div class="panel-header">
       <h2>File Details</h2>
     </div>
-    {% if segment %}
+    {% if recording %}
     <div class="status-stack">
       <div class="status-line"><span>Competition</span><strong>{{ competition.name if competition else "Unknown" }}</strong></div>
       <div class="status-line"><span>Season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
-      <div class="status-line"><span>Kind</span><strong>{{ segment.kind }}</strong></div>
-      <div class="status-line"><span>Status</span><strong>{{ segment.status }}</strong></div>
-      <div class="status-line"><span>Episode</span><strong>{{ segment.episode_number or "Unassigned" }}</strong></div>
-      <div class="status-line"><span>Air date</span><strong>{{ segment.air_date or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Kind</span><strong>{{ recording.kind }}</strong></div>
+      <div class="status-line"><span>Status</span><strong>{{ recording.status }}</strong></div>
+      <div class="status-line"><span>Episode</span><strong>{{ recording.episode_number or "Unassigned" }}</strong></div>
+      <div class="status-line"><span>Air date</span><strong>{{ recording.air_date or "Unknown" }}</strong></div>
     </div>
-    <p class="helper-text"><strong>File:</strong> {{ segment.source_path.split("/")[-1] }}</p>
-    <p class="helper-text"><strong>Path:</strong> {{ segment.source_path }}</p>
+    <p class="helper-text"><strong>File:</strong> {{ recording.source_path.split("/")[-1] }}</p>
+    <p class="helper-text"><strong>Path:</strong> {{ recording.source_path }}</p>
     <p class="helper-text">
       Local file naming stays tied to this parsed file metadata. Plex-facing title, date, summary,
       and artwork come from the event you choose here after Plex refreshes metadata.
@@ -126,6 +126,53 @@
   </div>
 </section>
 
+<details class="panel">
+  <summary>
+    <span>Browse All Season Events</span>
+    {% if season and not season.is_complete %}
+    <span class="pill warning-pill" title="TheSportsDB schedule for this season may be incomplete">Schedule incomplete</span>
+    {% endif %}
+  </summary>
+  <div
+    hx-get="{{ request.url_for('review_season_events', task_id=task.id) }}"
+    hx-trigger="toggle once from:closest details"
+    hx-target="this"
+    hx-swap="innerHTML"
+  >
+    <p class="helper-text">Loading season events…</p>
+  </div>
+</details>
+
+<details class="panel">
+  <summary>Reassign Competition</summary>
+  <div class="panel-body">
+    <p class="helper-text">
+      Use this if the competition was matched wrong at ingest. Reassigning clears the current event
+      match and moves the recording to the new competition/season for re-matching.
+    </p>
+    <form
+      method="post"
+      action="{{ request.url_for('reassign_review_task', task_id=task.id) }}"
+      class="reassign-form"
+    >
+      <label>
+        Competition
+        <select name="competition_id" required>
+          <option value="">— select —</option>
+          {% for c in all_competitions %}
+          <option value="{{ c.id }}"{% if competition and c.id == competition.id %} selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Season (e.g. 2025 or 2024/25)
+        <input name="season_label" value="{{ season.label if season else '' }}" placeholder="2025" required />
+      </label>
+      <button type="submit" class="secondary">Reassign</button>
+    </form>
+  </div>
+</details>
+
 <section class="panel">
   <div class="panel-header">
     <h2>Search For Another Event</h2>
@@ -149,6 +196,16 @@
         title="Search cached local events first; SportScanner can also import a fresh TheSportsDB event from these results"
       />
     </label>
+    <div class="date-filter-row">
+      <label>
+        From
+        <input type="date" name="date_from" value="{{ recording.air_date.isoformat() if recording and recording.air_date else '' }}" />
+      </label>
+      <label>
+        To
+        <input type="date" name="date_to" value="" />
+      </label>
+    </div>
     <button type="submit" class="secondary" title="Search cached events and live TheSportsDB results">Search</button>
   </form>
   <div id="event-search-results" class="search-results"></div>

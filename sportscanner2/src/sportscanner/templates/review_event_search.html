@@ -1,7 +1,7 @@
 {% if results %}
 <div class="card-grid">
   {% for r in results %}
-  <article class="candidate-card">
+  <article class="candidate-card confidence-{{ r.confidence_class }}">
     <div>
       <div class="result-heading">
         <strong>{{ r.name }}</strong>
@@ -11,6 +11,11 @@
         >{{ r.source }}</span>
       </div>
       <p>{{ r.competition }}{% if r.season %} · {{ r.season }}{% endif %}{% if r.date %} · {{ r.date }}{% endif %}</p>
+      <p class="helper-text">
+        Match {{ r.score_pct }}%
+        {% if r.round %} · Round {{ r.round }}{% endif %}
+        {% if r.home_team and r.away_team %} · {{ r.home_team }} vs {{ r.away_team }}{% endif %}
+      </p>
     </div>
     <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task_id) }}">
       {% if r.event_id %}

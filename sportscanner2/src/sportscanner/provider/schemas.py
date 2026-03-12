@@ -57,6 +57,7 @@ class MetadataItemModel(BaseModel):
     grandparentType: Literal["show"] | None = None
     grandparentThumb: str | None = None
     originallyAvailableAt: date_cls | None = None
+    duration: int | None = None
     thumb: str | None = None
     art: str | None = None
     Children: ChildrenModel | None = None

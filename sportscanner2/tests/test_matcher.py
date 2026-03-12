@@ -28,8 +28,8 @@ def test_match_event_prefers_filename_search_exactness() -> None:
         show="Formula 1",
         event_date=date(2025, 6, 29),
         title="Austrian Grand Prix Race",
-        segment_kind="race",
-        segment_label="Race",
+        kind="race",
+        kind_label="Race",
     )
     search = [
         UpstreamEvent(id="tsdb_1001", name="Austrian Grand Prix Race", competition_name="Formula 1", date=parsed.event_date),
@@ -67,8 +67,8 @@ def test_match_event_filters_search_results_with_normalized_competition_names() 
         show="Formula 1",
         event_date=date(2025, 6, 29),
         title="Australian Grand Prix Race",
-        segment_kind="race",
-        segment_label="Race",
+        kind="race",
+        kind_label="Race",
     )
     search = [
         UpstreamEvent(

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Plex{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Plex Integration</p>
+    <h1>Plex</h1>
+    <p class="hero-copy">
+      Check connection status, recent refresh work, and available libraries in one place before asking Plex to scan or refresh metadata.
+    </p>
+  </div>
+</section>
+
+{% if error %}
+<article class="panel">
+  <header>Error</header>
+  <p>{{ error }}</p>
+</article>
+{% endif %}
+
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Connection Status</h2>
+    </div>
+    <div class="status-stack">
+      <div class="status-line"><span>Provider identifier</span><strong>{{ provider_identifier or "Not set" }}</strong></div>
+      <div class="status-line"><span>Visible libraries</span><strong>{{ sections|length }}</strong></div>
+      <div class="status-line"><span>Plex status</span><strong>{% if error %}Needs attention{% else %}Connected{% endif %}</strong></div>
+    </div>
+    <p><a href="{{ request.url_for('plex_registration_page') }}">Open registration and library creation</a></p>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Refresh Queue</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Recording</th>
+            <th>Section</th>
+            <th>Status</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for job in refresh_jobs %}
+          <tr>
+            <td>{{ job.id }}</td>
+            <td>{{ job.recording_id or "Library-wide" }}</td>
+            <td>{{ job.section_id }}</td>
+            <td><span class="status-chip status-{{ job.status }}">{{ job.status }}</span></td>
+            <td>{{ job.created_at.strftime("%Y-%m-%d %H:%M") if job.created_at else "" }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5" class="empty-state">No refresh jobs have been recorded yet.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Libraries</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Agent</th>
+          <th>Scanner</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for section in sections %}
+        <tr>
+          <td>{{ section.key }}</td>
+          <td>{{ section.title }}</td>
+          <td>{{ section.type }}</td>
+          <td class="muted-cell">{{ section.agent }}</td>
+          <td class="muted-cell">{{ section.scanner }}</td>
+          <td>
+            {% if section.type == "show" %}
+            <form method="post" action="{{ request.url_for('plex_refresh_section', section_id=section.key) }}">
+              <button type="submit" class="secondary compact-button">Force Refresh</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="empty-state">No library sections found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

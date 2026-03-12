@@ -36,9 +36,9 @@
 <section class="stat-grid">
   <article class="metric-card"><h2>{{ stats.competitions }}</h2><p>Competitions</p></article>
   <article class="metric-card"><h2>{{ stats.seasons }}</h2><p>Seasons</p></article>
-  <article class="metric-card"><h2>{{ stats.published_segments }}</h2><p>Published</p></article>
+  <article class="metric-card"><h2>{{ stats.published_recordings }}</h2><p>Published</p></article>
   <article class="metric-card"><h2>{{ stats.review_tasks }}</h2><p>Open Review Tasks</p></article>
-  <article class="metric-card"><h2>{{ stats.review_segments }}</h2><p>Queued For Review</p></article>
+  <article class="metric-card"><h2>{{ stats.review_recordings }}</h2><p>Queued For Review</p></article>
   <article class="metric-card"><h2>{{ plex_status.show_library_count }}</h2><p>Plex Show Libraries</p></article>
 </section>
 
@@ -62,7 +62,7 @@
       <h2>When Plex Looks Stale</h2>
     </div>
     <p>
-      If SportScanner already shows the right competition or segment but Plex still shows
+      If SportScanner already shows the right competition or recording but Plex still shows
       <code>local://</code> metadata, old dates, or generic titles, go to Plex Libraries and use
       <strong>Force Refresh</strong>. Scan is only for new or renamed files.
     </p>
@@ -96,8 +96,8 @@
         <strong>{{ stats.review_tasks }}</strong>
       </div>
       <div class="status-line">
-        <span>Staged segments</span>
-        <strong>{{ stats.staged_segments }}</strong>
+        <span>Staged recordings</span>
+        <strong>{{ stats.staged_recordings }}</strong>
       </div>
     </div>
     {% if plex_status.error %}
@@ -127,8 +127,8 @@
       {% for task in recent_tasks %}
       <li>
         <div>
-          <strong>{{ task.segment.title if task.segment else task.segment_id }}</strong>
-          <p>#{{ task.id }}{% if task.segment and task.segment.air_date %} · {{ task.segment.air_date }}{% endif %}</p>
+          <strong>{{ task.recording.title if task.recording else task.recording_id }}</strong>
+          <p>#{{ task.id }}{% if task.recording and task.recording.air_date %} · {{ task.recording.air_date }}{% endif %}</p>
         </div>
         <a href="{{ request.url_for('review_task_detail', task_id=task.id) }}">Review</a>
       </li>
@@ -144,16 +144,16 @@
       <a href="{{ request.url_for('competitions') }}">Browse competitions</a>
     </div>
     <ul class="record-list">
-      {% for row in recent_segments %}
+      {% for row in recent_recordings %}
       <li>
         <div>
-          <strong>{{ row.segment.title }}</strong>
-          <p>{{ row.competition }} · Season {{ row.season }}{% if row.segment.episode_number %} · E{{ row.segment.episode_number }}{% endif %}</p>
+          <strong>{{ row.recording.title }}</strong>
+          <p>{{ row.competition }} · Season {{ row.season }}{% if row.recording.episode_number %} · E{{ row.recording.episode_number }}{% endif %}</p>
         </div>
-        <a href="{{ request.url_for('segment_detail', segment_id=row.segment.id) }}">Open</a>
+        <a href="{{ request.url_for('recording_detail', recording_id=row.recording.id) }}">Open</a>
       </li>
       {% else %}
-      <li class="empty-state">No published segments yet.</li>
+      <li class="empty-state">No published recordings yet.</li>
       {% endfor %}
     </ul>
   </article>

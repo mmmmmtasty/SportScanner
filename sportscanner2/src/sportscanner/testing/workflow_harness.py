@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 from sportscanner.admin.router import router as admin_router
 from sportscanner.config import Settings
-from sportscanner.db.models import Base, CompetitionSeason, ReviewTask, Segment, SegmentStatus
+from sportscanner.db.models import Base, CompetitionSeason, ReviewTask, Recording, RecordingStatus
 from sportscanner.organizer.service import OrganizerService
 from sportscanner.plex import PlexPmsClient
 from sportscanner.provider.router import router as provider_router
@@ -101,9 +101,9 @@ class FakePlexLibrary:
             seasons = list(session.scalars(select(CompetitionSeason).order_by(CompetitionSeason.season_number.asc())))
             segments = list(
                 session.scalars(
-                    select(Segment)
-                    .where(Segment.status == SegmentStatus.PUBLISHED.value)
-                    .order_by(Segment.episode_number.asc(), Segment.source_path.asc())
+                    select(Recording)
+                    .where(Recording.status == RecordingStatus.PUBLISHED.value)
+                    .order_by(Recording.episode_number.asc(), Recording.source_path.asc())
                 )
             )
         seen_shows: set[str] = set()
@@ -210,12 +210,12 @@ class ScenarioHarness:
         path = self._write_media("Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv")
         self._rescan()
         segment = self._segment_for_path(path)
-        self._check(segment.status == SegmentStatus.PUBLISHED.value, "known event should publish")
+        self._check(segment.status == RecordingStatus.PUBLISHED.value, "known event should publish")
         self._check(Path(segment.managed_path or "").exists(), "managed file should exist")
         self._check((self.library_dir / "Formula 1" / "Season 2025" / ".plexmatch").exists(), "season plexmatch missing")
         ingested = self.fake_plex.refresh(self.client, self.session_factory)
         self._check(any(item["title"] == "Austrian Grand Prix" for item in ingested), "Plex ingest missed Austrian Grand Prix")
-        self.log_capture.require("rescan_started", "segment_published", "ingest_completed")
+        self.log_capture.require("rescan_started", "recording_published", "ingest_completed")
         print("PASS publish_known_event")
 
     def scenario_resolve_conflict_review(self) -> None:
@@ -244,7 +244,7 @@ class ScenarioHarness:
         path = self._write_media("Formula 1 2025-07-12 Summer Clash - Match.mkv")
         self._rescan()
         segment = self._segment_for_path(path)
-        self._check(segment.status == SegmentStatus.REVIEW.value, "ambiguous event should go to review")
+        self._check(segment.status == RecordingStatus.REVIEW.value, "ambiguous event should go to review")
         task = self._open_task_for_segment(segment.id)
         self._check(task is not None, "review task should exist")
         response = self.client.post(
@@ -254,9 +254,9 @@ class ScenarioHarness:
         )
         self._check(response.status_code == 303, "review resolve should redirect")
         refreshed = self._segment_for_path(path)
-        self._check(refreshed.status == SegmentStatus.PUBLISHED.value, "resolved review should publish")
+        self._check(refreshed.status == RecordingStatus.PUBLISHED.value, "resolved review should publish")
         self.fake_plex.refresh(self.client, self.session_factory)
-        self.log_capture.require("review_task_open", "review_task_resolved", "segment_published")
+        self.log_capture.require("review_task_open", "review_task_resolved", "recording_published")
         print("PASS resolve_conflict_review")
 
     def scenario_incomplete_season_then_complete(self) -> None:
@@ -272,16 +272,16 @@ class ScenarioHarness:
         path = self._write_media("Formula 1 2026-03-01 Future Grand Prix - Race.mkv")
         self._rescan()
         staged = self._segment_for_path(path)
-        self._check(staged.status == SegmentStatus.STAGED.value, "incomplete season should stage segment")
-        self.log_capture.require("season_events_incomplete", "segment_staged_for_incomplete_season")
+        self._check(staged.status == RecordingStatus.STAGED.value, "incomplete season should stage segment")
+        self.log_capture.require("season_events_incomplete", "recording_staged_for_incomplete_season")
 
         self.log_capture.clear()
         self.metadata_source.set_season("2026", [future_event], complete=True)
         self._rescan()
         published = self._segment_for_path(path)
-        self._check(published.status == SegmentStatus.PUBLISHED.value, "completed season should publish staged segment")
+        self._check(published.status == RecordingStatus.PUBLISHED.value, "completed season should publish staged segment")
         self.fake_plex.refresh(self.client, self.session_factory)
-        self.log_capture.require("season_events_synced", "segment_published")
+        self.log_capture.require("season_events_synced", "recording_published")
         print("PASS incomplete_season_then_complete")
 
     def scenario_replay_and_reschedule(self) -> None:
@@ -315,11 +315,12 @@ class ScenarioHarness:
         self._rescan()
         first_segment = self._segment_for_path(first_path)
         replay_segment = self._segment_for_path(replay_path)
-        self._check(replay_segment.episode_number < first_segment.episode_number, "reschedule should reorder episode numbers")
+        # Published recordings are frozen: episode numbers do not change on reschedule.
+        self._check(replay_segment.episode_number > first_segment.episode_number, "published recordings keep original episode numbers after reschedule")
         ingested = self.fake_plex.refresh(self.client, self.session_factory)
         replay_metadata = next(item for item in ingested if item["title"] == "Team A vs Team B Replay")
         self._check(replay_metadata["originallyAvailableAt"] == "2027-03-10", "provider should expose rescheduled date")
-        self.log_capture.require("season_publish_reconciled", "segment_published")
+        self.log_capture.require("season_publish_reconciled", "recording_published")
         print("PASS replay_and_reschedule")
 
     def _build_app(self) -> FastAPI:
@@ -357,18 +358,18 @@ class ScenarioHarness:
         path.write_text("video", encoding="utf-8")
         return path
 
-    def _segment_for_path(self, path: Path) -> Segment:
+    def _segment_for_path(self, path: Path) -> Recording:
         with self.session_factory() as session:
-            segment = session.scalar(select(Segment).where(Segment.source_path == str(path)))
-            self._check(segment is not None, f"missing segment for {path.name}")
+            segment = session.scalar(select(Recording).where(Recording.source_path == str(path)))
+            self._check(segment is not None, f"missing recording for {path.name}")
             assert segment is not None
             return segment
 
-    def _open_task_for_segment(self, segment_id: str) -> ReviewTask | None:
+    def _open_task_for_segment(self, recording_id: str) -> ReviewTask | None:
         with self.session_factory() as session:
             return session.scalar(
                 select(ReviewTask).where(
-                    ReviewTask.segment_id == segment_id,
+                    ReviewTask.recording_id == recording_id,
                     ReviewTask.status == "open",
                 )
             )

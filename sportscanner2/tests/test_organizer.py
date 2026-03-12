@@ -6,7 +6,7 @@ from datetime import date
 
 from sqlalchemy import func, select
 
-from sportscanner.db.models import Competition, Event, ReviewTask, Segment, SegmentStatus
+from sportscanner.db.models import Competition, Event, ReviewTask, Recording, RecordingStatus
 from sportscanner.organizer.service import OrganizerService
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
 
@@ -68,9 +68,9 @@ def test_ingest_publishes_matched_file(settings, organizer, session_factory) -> 
 
     segment = organizer.ingest_path(source)
 
-    assert segment.status == SegmentStatus.PUBLISHED.value
+    assert segment.status == RecordingStatus.PUBLISHED.value
     with session_factory() as session:
-        stored = session.get(Segment, segment.id)
+        stored = session.get(Recording,segment.id)
         assert stored is not None
         assert stored.episode_number == 150
         assert stored.metadata_source == "fake"
@@ -88,7 +88,7 @@ def test_ingest_without_complete_season_holds_for_review(settings, session_facto
 
     segment = organizer.ingest_path(source)
 
-    assert segment.status == SegmentStatus.STAGED.value
+    assert segment.status == RecordingStatus.STAGED.value
     with session_factory() as session:
         tasks = list(session.scalars(select(ReviewTask)))
         assert len(tasks) == 1
@@ -112,19 +112,19 @@ def test_rescan_publishes_staged_segment_when_season_completes(settings, session
     path.write_text("video", encoding="utf-8")
 
     staged = organizer.ingest_path(path)
-    assert staged.status == SegmentStatus.STAGED.value
+    assert staged.status == RecordingStatus.STAGED.value
 
     source.complete = True
     organizer.rescan_incoming()
 
     with session_factory() as session:
-        stored = session.get(Segment, staged.id)
+        stored = session.get(Recording,staged.id)
         assert stored is not None
-        assert stored.status == SegmentStatus.PUBLISHED.value
+        assert stored.status == RecordingStatus.PUBLISHED.value
         assert stored.episode_number == 150
 
 
-def test_reschedule_reorders_published_segments(settings, session_factory) -> None:
+def test_reschedule_does_not_renumber_published_recordings(settings, session_factory) -> None:
     source = MutableMetadataSource(
         complete=True,
         events=[
@@ -166,15 +166,16 @@ def test_reschedule_reorders_published_segments(settings, session_factory) -> No
     organizer.rescan_incoming()
 
     with session_factory() as session:
-        refreshed_first = session.get(Segment, first_segment.id)
-        refreshed_second = session.get(Segment, second_segment.id)
+        refreshed_first = session.get(Recording,first_segment.id)
+        refreshed_second = session.get(Recording,second_segment.id)
         assert refreshed_first is not None
         assert refreshed_second is not None
-        assert refreshed_first.episode_number == 250
-        assert refreshed_second.episode_number == 150
+        # Published recordings are frozen — episode numbers do not change on rescan.
+        assert refreshed_first.episode_number == 150
+        assert refreshed_second.episode_number == 250
 
 
-def test_refresh_segment_metadata_reorders_affected_published_items(settings, session_factory) -> None:
+def test_refresh_recording_metadata_does_not_renumber_published_items(settings, session_factory) -> None:
     source = MutableMetadataSource(
         complete=True,
         events=[
@@ -211,17 +212,19 @@ def test_refresh_segment_metadata_reorders_affected_published_items(settings, se
         date=date(2025, 6, 15),
     )
 
-    organizer.refresh_segment_metadata(second_segment.id)
+    organizer.refresh_recording_metadata(second_segment.id)
 
     with session_factory() as session:
-        refreshed_first = session.get(Segment, first_segment.id)
-        refreshed_second = session.get(Segment, second_segment.id)
+        refreshed_first = session.get(Recording,first_segment.id)
+        refreshed_second = session.get(Recording,second_segment.id)
         updated_event = session.scalar(select(Event).where(Event.tsdb_id == 1002))
         assert refreshed_first is not None
         assert refreshed_second is not None
         assert updated_event is not None
-        assert refreshed_first.episode_number == 250
-        assert refreshed_second.episode_number == 150
+        # Published recordings are frozen — episode numbers do not change even when
+        # upstream schedules shift. Only the event metadata is updated.
+        assert refreshed_first.episode_number == 150
+        assert refreshed_second.episode_number == 250
         assert updated_event.name == "British Grand Prix Updated"
         assert refreshed_second.metadata_record is not None
         assert refreshed_second.metadata_record["event"]["date"] == "2025-06-15"
@@ -245,7 +248,7 @@ def test_refresh_competition_metadata_retries_unmatched_segments(settings, sessi
     path.write_text("video", encoding="utf-8")
 
     staged = organizer.ingest_path(path)
-    assert staged.status == SegmentStatus.STAGED.value
+    assert staged.status == RecordingStatus.STAGED.value
 
     with session_factory() as session:
         competition = session.scalar(select(Competition).where(Competition.name == "Formula 1"))
@@ -256,9 +259,9 @@ def test_refresh_competition_metadata_retries_unmatched_segments(settings, sessi
     organizer.refresh_competition_metadata(competition_id)
 
     with session_factory() as session:
-        refreshed = session.get(Segment, staged.id)
+        refreshed = session.get(Recording,staged.id)
         assert refreshed is not None
-        assert refreshed.status == SegmentStatus.PUBLISHED.value
+        assert refreshed.status == RecordingStatus.PUBLISHED.value
         assert refreshed.event_id == "tsdb_1001"
         assert refreshed.episode_number == 150
 
@@ -292,8 +295,8 @@ def test_replayed_event_is_published_as_distinct_episode(settings, session_facto
     first_segment = organizer.ingest_path(first)
     replay_segment = organizer.ingest_path(replay)
 
-    assert first_segment.status == SegmentStatus.PUBLISHED.value
-    assert replay_segment.status == SegmentStatus.PUBLISHED.value
+    assert first_segment.status == RecordingStatus.PUBLISHED.value
+    assert replay_segment.status == RecordingStatus.PUBLISHED.value
     assert first_segment.event_id != replay_segment.event_id
     assert first_segment.episode_number != replay_segment.episode_number
 
@@ -334,7 +337,7 @@ def test_concurrent_ingest_of_same_path_is_serialized(settings, session_factory)
     assert len(result_ids) == 2
     assert result_ids[0] == result_ids[1]
     with session_factory() as session:
-        assert session.scalar(select(func.count(Segment.id)).where(Segment.source_path == str(path))) == 1
+        assert session.scalar(select(func.count(Recording.id)).where(Recording.source_path == str(path))) == 1
         assert session.scalar(select(func.count(Competition.id)).where(Competition.name == "Formula 1")) == 1
 
 
@@ -349,7 +352,7 @@ def test_rescan_skips_unparsable_media_files(settings, organizer, session_factor
     assert str(valid) in processed
     assert str(invalid) not in processed
     with session_factory() as session:
-        assert session.scalar(select(func.count(Segment.id))) == 1
+        assert session.scalar(select(func.count(Recording.id))) == 1
 
 
 def test_competition_config_applies_event_order(settings, session_factory) -> None:
@@ -404,7 +407,7 @@ def test_resolve_review_task_accepts_upstream_lookup_event(settings, session_fac
     source.write_text("video", encoding="utf-8")
 
     segment = organizer.ingest_path(source)
-    assert segment.status == SegmentStatus.STAGED.value
+    assert segment.status == RecordingStatus.STAGED.value
 
     organizer.metadata_source = MutableMetadataSource(
         complete=True,
@@ -420,11 +423,11 @@ def test_resolve_review_task_accepts_upstream_lookup_event(settings, session_fac
     )
 
     with session_factory() as session:
-        task = session.scalar(select(ReviewTask).where(ReviewTask.segment_id == segment.id))
+        task = session.scalar(select(ReviewTask).where(ReviewTask.recording_id == segment.id))
         assert task is not None
         task_id = task.id
 
     resolved = organizer.resolve_review_task(task_id, tsdb_event_id=1001)
 
-    assert resolved.status == SegmentStatus.PUBLISHED.value
+    assert resolved.status == RecordingStatus.PUBLISHED.value
     assert resolved.event_id == "tsdb_1001"

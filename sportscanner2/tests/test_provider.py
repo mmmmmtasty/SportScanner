@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from sportscanner.db.models import Competition, Event
+from sportscanner.db.models import Competition, Event, Recording
 
 
 def test_root_redirects_to_admin(provider_app) -> None:
@@ -215,13 +215,36 @@ def test_provider_episode_metadata(provider_app) -> None:
     assert metadata["grandparentTitle"] == "Formula 1"
 
 
+def test_provider_episode_duration_is_included_when_set(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        segment = session.get(Recording, "seg_primary")
+        segment.duration_ms = 5_400_000  # 90 minutes
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.get("/provider/tv/library/metadata/episode_seg_primary")
+
+    assert response.status_code == 200
+    metadata = response.json()["MediaContainer"]["Metadata"][0]
+    assert metadata["duration"] == 5_400_000
+
+
+def test_provider_episode_duration_absent_when_unset(provider_app) -> None:
+    client = TestClient(provider_app)
+    response = client.get("/provider/tv/library/metadata/episode_seg_primary")
+
+    assert response.status_code == 200
+    metadata = response.json()["MediaContainer"]["Metadata"][0]
+    assert "duration" not in metadata
+
+
 def test_provider_episode_metadata_prefers_upstream_event_fields(provider_app) -> None:
     with provider_app.state.services.session_factory() as session:
         competition = session.scalar(select(Competition).where(Competition.id == "tsdb_4370"))
         event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
         assert competition is not None
         assert event is not None
-        segment = event.segments[0]
+        segment = event.recordings[0]
         competition.poster_url = "https://example.com/show.jpg"
         competition.formed_year = 1950
         event.name = "2025 Formula 1 Australian Grand Prix - Qualifying"
@@ -251,7 +274,7 @@ def test_provider_episode_match_uses_display_title_similarity(provider_app) -> N
     with provider_app.state.services.session_factory() as session:
         event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
         assert event is not None
-        segment = event.segments[0]
+        segment = event.recordings[0]
         event.name = "2025 Formula 1 Australian Grand Prix - Qualifying"
         segment.kind = "qualifying"
         segment.title = "Qualifying"
@@ -299,7 +322,7 @@ def test_provider_episode_images_use_snapshot_type(provider_app) -> None:
     with provider_app.state.services.session_factory() as session:
         event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
         assert event is not None
-        segment = event.segments[0]
+        segment = event.recordings[0]
         segment.thumb_url = "https://example.com/episode.jpg"
         session.commit()
 
@@ -309,6 +332,35 @@ def test_provider_episode_images_use_snapshot_type(provider_app) -> None:
     assert response.status_code == 200
     image = response.json()["MediaContainer"]["Image"][0]
     assert image["type"] == "snapshot"
+
+
+def test_provider_all_four_sports_in_library(provider_app) -> None:
+    """Verify all 4 sports (F1, EPL, NBA, UFC) are accessible via the provider API."""
+    client = TestClient(provider_app)
+
+    sports = [
+        ("Formula 1", "seg_primary", "Austrian Grand Prix Race"),
+        ("English Premier League", "seg_epl_001", "Arsenal vs Tottenham"),
+        ("NBA", "seg_nba_001", "Lakers vs Celtics"),
+        ("UFC", "seg_ufc_001", "310 Main Card"),
+    ]
+
+    for show_title, segment_id, episode_title in sports:
+        # Show is matchable by title
+        match_response = client.post(
+            "/provider/tv/library/metadata/matches",
+            json={"type": 2, "title": show_title},
+        )
+        assert match_response.status_code == 200, f"{show_title}: match failed"
+        results = match_response.json()["MediaContainer"]["Metadata"]
+        assert any(r["title"] == show_title for r in results), f"{show_title}: not found in matches"
+
+        # Episode is retrievable by segment id
+        ep_response = client.get(f"/provider/tv/library/metadata/episode_{segment_id}")
+        assert ep_response.status_code == 200, f"{show_title}: episode fetch failed"
+        metadata = ep_response.json()["MediaContainer"]["Metadata"][0]
+        assert metadata["grandparentTitle"] == show_title, f"{show_title}: wrong grandparentTitle"
+        assert metadata["title"] == episode_title, f"{show_title}: wrong episode title"
 
 
 def test_provider_show_and_season_metadata_include_original_dates(provider_app) -> None:

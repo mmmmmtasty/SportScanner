@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, selectinload
 
-from sportscanner.db.models import Competition, CompetitionSeason, Event, ReviewTask, Segment, SegmentStatus
+from sportscanner.db.models import Competition, CompetitionSeason, Event, Recording, RecordingStatus, ReviewTask
 
 
 def get_or_create_competition_season(
@@ -57,11 +57,11 @@ def get_published_season(session: Session, competition_id: str, season_number: i
     )
 
 
-def get_published_segment(session: Session, segment_id: str) -> Segment | None:
+def get_published_recording(session: Session, recording_id: str) -> Recording | None:
     return session.scalar(
-        select(Segment)
-        .where(Segment.id == segment_id, Segment.status == SegmentStatus.PUBLISHED.value)
-        .options(selectinload(Segment.event), selectinload(Segment.competition_season))
+        select(Recording)
+        .where(Recording.id == recording_id, Recording.status == RecordingStatus.PUBLISHED.value)
+        .options(selectinload(Recording.event), selectinload(Recording.competition_season))
     )
 
 
@@ -75,28 +75,28 @@ def list_published_seasons(session: Session, competition_id: str) -> list[Compet
     )
 
 
-def list_published_segments_for_season(session: Session, competition_season_id: str) -> list[Segment]:
+def list_published_recordings_for_season(session: Session, competition_season_id: str) -> list[Recording]:
     return list(
         session.scalars(
-            select(Segment)
+            select(Recording)
             .where(
-                Segment.competition_season_id == competition_season_id,
-                Segment.status == SegmentStatus.PUBLISHED.value,
+                Recording.competition_season_id == competition_season_id,
+                Recording.status == RecordingStatus.PUBLISHED.value,
             )
-            .order_by(Segment.episode_number.asc(), Segment.title.asc())
+            .order_by(Recording.episode_number.asc(), Recording.title.asc())
         )
     )
 
 
-def list_published_segments_for_competition(session: Session, competition_id: str) -> list[Segment]:
-    stmt: Select[tuple[Segment]] = (
-        select(Segment)
-        .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
+def list_published_recordings_for_competition(session: Session, competition_id: str) -> list[Recording]:
+    stmt: Select[tuple[Recording]] = (
+        select(Recording)
+        .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
         .where(
             CompetitionSeason.competition_id == competition_id,
-            Segment.status == SegmentStatus.PUBLISHED.value,
+            Recording.status == RecordingStatus.PUBLISHED.value,
         )
-        .order_by(CompetitionSeason.season_number.asc(), Segment.episode_number.asc())
+        .order_by(CompetitionSeason.season_number.asc(), Recording.episode_number.asc())
     )
     return list(session.scalars(stmt))
 
@@ -107,8 +107,8 @@ def list_open_review_tasks(session: Session) -> list[ReviewTask]:
             select(ReviewTask)
             .where(ReviewTask.status == "open")
             .options(
-                selectinload(ReviewTask.segment).selectinload(Segment.event),
-                selectinload(ReviewTask.segment).selectinload(Segment.competition_season),
+                selectinload(ReviewTask.recording).selectinload(Recording.event),
+                selectinload(ReviewTask.recording).selectinload(Recording.competition_season),
             )
             .order_by(ReviewTask.created_at.asc())
         )
@@ -119,6 +119,5 @@ def get_event_by_tsdb_id(session: Session, tsdb_id: int) -> Event | None:
     return session.scalar(select(Event).where(Event.tsdb_id == tsdb_id))
 
 
-def get_segment_by_source_path(session: Session, source_path: str) -> Segment | None:
-    return session.scalar(select(Segment).where(Segment.source_path == source_path))
-
+def get_recording_by_source_path(session: Session, source_path: str) -> Recording | None:
+    return session.scalar(select(Recording).where(Recording.source_path == source_path))

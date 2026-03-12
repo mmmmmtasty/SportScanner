@@ -6,7 +6,7 @@ from difflib import SequenceMatcher
 
 from sqlalchemy import func, select
 
-from sportscanner.db.models import Competition, CompetitionSeason, Event, Segment, SegmentStatus
+from sportscanner.db.models import Competition, CompetitionSeason, Event, Recording, RecordingStatus
 from sportscanner.provider.rating_keys import (
     make_episode_guid,
     make_episode_rating_key,
@@ -24,17 +24,17 @@ def sequence_score(left: str, right: str) -> int:
 
 def show_leaf_count(session, competition_id: str) -> int:
     return session.scalar(
-        select(func.count(Segment.id))
-        .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
+        select(func.count(Recording.id))
+        .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
         .where(
             CompetitionSeason.competition_id == competition_id,
-            Segment.status == SegmentStatus.PUBLISHED.value,
+            Recording.status == RecordingStatus.PUBLISHED.value,
         )
     ) or 0
 
 
-def segment_event_dates(session, segments: list[Segment]) -> dict[str, date | None]:
-    event_ids = sorted({segment.event_id for segment in segments if segment.event_id})
+def recording_event_dates(session, recordings: list[Recording]) -> dict[str, date | None]:
+    event_ids = sorted({recording.event_id for recording in recordings if recording.event_id})
     if not event_ids:
         return {}
     rows = session.execute(select(Event.id, Event.date).where(Event.id.in_(event_ids))).all()
@@ -64,17 +64,17 @@ def _strip_event_name_prefixes(event_name: str, competition_name: str) -> str:
     return text or event_name
 
 
-def episode_display_title(segment: Segment, event: Event | None, competition_name: str = "") -> str:
+def episode_display_title(recording: Recording, event: Event | None, competition_name: str = "") -> str:
     if event is None or not event.name:
-        return segment.title
+        return recording.title
     stripped_event = _strip_event_name_prefixes(event.name, competition_name)
-    if segment.kind in PRIMARY_EVENT_KINDS:
+    if recording.kind in PRIMARY_EVENT_KINDS:
         return stripped_event
     event_tokens = normalize_title(stripped_event)
-    segment_tokens = normalize_title(segment.title)
-    if segment_tokens[: len(event_tokens)] == event_tokens:
-        return segment.title
-    return f"{stripped_event} {segment.title}".strip()
+    recording_tokens = normalize_title(recording.title)
+    if recording_tokens[: len(event_tokens)] == event_tokens:
+        return recording.title
+    return f"{stripped_event} {recording.title}".strip()
 
 
 def first_event_date(session, competition_id: str, season_number: int | None = None) -> date | None:
@@ -92,22 +92,23 @@ def episode_metadata(
     competition: Competition,
     season: CompetitionSeason,
     event: Event | None,
-    segment: Segment,
+    recording: Recording,
     provider_identifier: str,
 ) -> MetadataItemModel:
-    rating_key = make_episode_rating_key(segment.id)
+    rating_key = make_episode_rating_key(recording.id)
     season_rating_key = make_season_rating_key(competition.id, season.season_number)
     show_rating_key = make_show_rating_key(competition.id)
-    aired_at = event.date if event is not None else segment.air_date
+    aired_at = event.date if event is not None else recording.air_date
     return MetadataItemModel(
         ratingKey=rating_key,
-        guid=make_episode_guid(segment.id, provider_identifier),
+        guid=make_episode_guid(recording.id, provider_identifier),
         key=f"/library/metadata/{rating_key}",
         type="episode",
-        title=episode_display_title(segment, event, competition.name),
-        summary=segment.summary or (event.description if event is not None else None),
+        title=episode_display_title(recording, event, competition.name),
+        summary=recording.summary or (event.description if event is not None else None),
         year=aired_at.year if aired_at is not None else None,
-        index=segment.episode_number,
+        duration=recording.duration_ms,
+        index=recording.episode_number,
         parentKey=f"/library/metadata/{season_rating_key}",
         parentGuid=make_season_guid(competition.id, season.season_number, provider_identifier),
         parentIndex=season.season_number,
@@ -122,7 +123,7 @@ def episode_metadata(
         grandparentType="show",
         grandparentThumb=competition.poster_url,
         originallyAvailableAt=aired_at,
-        thumb=segment.thumb_url or (event.thumb_url if event is not None else None),
+        thumb=recording.thumb_url or (event.thumb_url if event is not None else None),
     )
 
 
@@ -132,25 +133,25 @@ def season_episode_items(
     season: CompetitionSeason,
     provider_identifier: str,
 ) -> list[MetadataItemModel]:
-    segments = list(
+    recordings = list(
         session.scalars(
-            select(Segment)
+            select(Recording)
             .where(
-                Segment.competition_season_id == season.id,
-                Segment.status == SegmentStatus.PUBLISHED.value,
+                Recording.competition_season_id == season.id,
+                Recording.status == RecordingStatus.PUBLISHED.value,
             )
-            .order_by(Segment.episode_number.asc(), Segment.id.asc())
+            .order_by(Recording.episode_number.asc(), Recording.id.asc())
         )
     )
     return [
         episode_metadata(
             competition,
             season,
-            session.get(Event, segment.event_id) if segment.event_id else None,
-            segment,
+            session.get(Event, recording.event_id) if recording.event_id else None,
+            recording,
             provider_identifier,
         )
-        for segment in segments
+        for recording in recordings
     ]
 
 
@@ -209,26 +210,26 @@ def show_episode_items(session, competition: Competition, provider_identifier: s
             .order_by(CompetitionSeason.season_number.asc())
         )
     }
-    segments = list(
+    recordings = list(
         session.scalars(
-            select(Segment)
-            .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
+            select(Recording)
+            .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
             .where(
                 CompetitionSeason.competition_id == competition.id,
-                Segment.status == SegmentStatus.PUBLISHED.value,
+                Recording.status == RecordingStatus.PUBLISHED.value,
             )
-            .order_by(CompetitionSeason.season_number.asc(), Segment.episode_number.asc(), Segment.id.asc())
+            .order_by(CompetitionSeason.season_number.asc(), Recording.episode_number.asc(), Recording.id.asc())
         )
     )
     return [
         episode_metadata(
             competition,
-            seasons[segment.competition_season_id],
-            session.get(Event, segment.event_id) if segment.event_id else None,
-            segment,
+            seasons[recording.competition_season_id],
+            session.get(Event, recording.event_id) if recording.event_id else None,
+            recording,
             provider_identifier,
         )
-        for segment in segments
+        for recording in recordings
     ]
 
 

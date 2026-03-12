@@ -29,8 +29,8 @@ class EventSequenceInput:
 
 
 @dataclass(slots=True)
-class SegmentCodeInput:
-    segment_id: str
+class RecordingCodeInput:
+    recording_id: str
     kind: str
     title: str
     source_path: str
@@ -103,22 +103,22 @@ def compute_event_sequences(events: Iterable[EventSequenceInput], event_order: s
 
 
 def _allocate_range(
-    items: list[SegmentCodeInput],
+    items: list[RecordingCodeInput],
     start: int,
     *,
     offset: int = 0,
 ) -> dict[str, int]:
     items = sorted(items, key=lambda item: (normalize_title(item.title), item.source_path))
     if offset + len(items) > MAX_RANGE_SIZE:
-        raise ValueError("Segment range exhausted")
+        raise ValueError("Recording range exhausted")
     return {
-        item.segment_id: start + offset + index
+        item.recording_id: start + offset + index
         for index, item in enumerate(items)
     }
 
 
-def _practice_code(segment: SegmentCodeInput) -> int | None:
-    title = normalize_title(segment.title)
+def _practice_code(recording: RecordingCodeInput) -> int | None:
+    title = normalize_title(recording.title)
     if "practice 1" in title or "fp1" in title:
         return 11
     if "practice 2" in title or "fp2" in title:
@@ -128,26 +128,26 @@ def _practice_code(segment: SegmentCodeInput) -> int | None:
     return None
 
 
-def _looks_like_alt_feed(segment: SegmentCodeInput) -> bool:
-    title = normalize_title(segment.title)
-    return segment.kind == "alt_feed" or any(token in title for token in ["alt feed", "alternate", "home feed", "away feed"])
+def _looks_like_alt_feed(recording: RecordingCodeInput) -> bool:
+    title = normalize_title(recording.title)
+    return recording.kind == "alt_feed" or any(token in title for token in ["alt feed", "alternate", "home feed", "away feed"])
 
 
-def compute_segment_codes(segments: Iterable[SegmentCodeInput]) -> dict[str, int]:
-    items = list(segments)
+def compute_recording_codes(recordings: Iterable[RecordingCodeInput]) -> dict[str, int]:
+    items = list(recordings)
     codes: dict[str, int] = {}
 
     pregame = [item for item in items if item.kind == "pregame"]
     codes.update(_allocate_range(pregame, 0))
 
     practice = [item for item in items if item.kind == "practice"]
-    practice_remaining: list[SegmentCodeInput] = []
+    practice_remaining: list[RecordingCodeInput] = []
     for item in practice:
         explicit_code = _practice_code(item)
         if explicit_code is None:
             practice_remaining.append(item)
         else:
-            codes[item.segment_id] = explicit_code
+            codes[item.recording_id] = explicit_code
     codes.update(_allocate_range(practice_remaining, 10, offset=4))
 
     codes.update(_allocate_range([item for item in items if item.kind == "sprint_qualifying"], 20))
@@ -158,7 +158,7 @@ def compute_segment_codes(segments: Iterable[SegmentCodeInput]) -> dict[str, int
     main_alt = [item for item in items if item.kind in {"match", "race", "alt_feed"} and item not in main_primary]
     main_primary = sorted(main_primary, key=lambda item: (normalize_title(item.title), item.source_path))
     if main_primary:
-        codes[main_primary[0].segment_id] = 50
+        codes[main_primary[0].recording_id] = 50
         if len(main_primary) > 1:
             main_alt.extend(main_primary[1:])
     codes.update(_allocate_range(main_alt, 50, offset=1))
@@ -168,7 +168,7 @@ def compute_segment_codes(segments: Iterable[SegmentCodeInput]) -> dict[str, int
     codes.update(_allocate_range([item for item in items if item.kind in {"analysis", "condensed"}], 80))
 
     assigned = set(codes)
-    other = [item for item in items if item.segment_id not in assigned]
+    other = [item for item in items if item.recording_id not in assigned]
     codes.update(_allocate_range(other, 90))
     return codes
 

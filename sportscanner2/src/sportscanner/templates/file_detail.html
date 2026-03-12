@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}File Detail{% endblock %}
+{% block content %}
+{% set cached = recording.metadata_record or {} %}
+{% set cached_event = cached.get("event") or {} %}
+{% set cached_season = cached.get("season") or {} %}
+{% set cached_competition = cached.get("competition") or {} %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">File {{ recording.id }}</p>
+    <h1>{{ recording.title }}</h1>
+    <p class="hero-copy">
+      Review the parsed file context, current match, and local overrides in one place. Use the review queue for ranked alternatives when SportScanner still needs a decision.
+    </p>
+  </div>
+  <div class="action-stack">
+    <span class="status-chip {{ status.class_name }}">{{ status.label }}</span>
+    <form method="post" action="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}">
+      <button type="submit" class="secondary">Refresh Item Metadata</button>
+    </form>
+  </div>
+</section>
+
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>What We Found</h2>
+    </div>
+    <div class="status-stack">
+      <div class="status-line"><span>Source file</span><strong>{{ recording.source_path.split("/")[-1] }}</strong></div>
+      <div class="status-line"><span>Kind</span><strong>{{ recording.kind }}</strong></div>
+      <div class="status-line"><span>Air date</span><strong>{{ recording.air_date or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Season guess</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Managed path</span><strong>{{ recording.managed_path or "Not published yet" }}</strong></div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Best Match</h2>
+    </div>
+    <div class="status-stack">
+      <div class="status-line"><span>Competition</span><strong>{{ competition.name if competition else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Matched event</span><strong>{{ event.name if event else "Unmatched" }}</strong></div>
+      <div class="status-line"><span>Event date</span><strong>{{ event.date if event and event.date else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Episode</span><strong>{{ format_episode_code(recording) }}</strong></div>
+      <div class="status-line"><span>Confidence</span><strong>{{ ((recording.match_confidence or 0) * 100) | round | int }}%</strong></div>
+    </div>
+    <p class="helper-text">{{ explanation }}</p>
+    {% if review_task %}
+    <p><a href="{{ request.url_for('review_task_detail', task_id=review_task.id) }}">Open ranked alternatives in the review queue</a></p>
+    {% endif %}
+  </article>
+</section>
+
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Current Mapping</h2>
+    </div>
+    <div class="status-stack">
+      <div class="status-line"><span>Competition</span><strong>{{ competition.name if competition else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Matched Event</span><strong>{{ event.name if event else "Unmatched" }}</strong></div>
+      <div class="status-line"><span>TheSportsDB Event ID</span><strong>{{ event.tsdb_id if event and event.tsdb_id else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Status</span><strong>{{ status.label }}</strong></div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Advanced Overrides</h2>
+    </div>
+    <form method="post" action="{{ request.url_for('update_recording', recording_id=recording.id) }}">
+      <label>
+        Title
+        <input name="title" value="{{ recording.title }}" />
+      </label>
+      <label>
+        Kind
+        <input name="kind" value="{{ recording.kind }}" />
+      </label>
+      <button type="submit">Save</button>
+    </form>
+  </article>
+</section>
+
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Cached Item Metadata</h2>
+      {% if recording.metadata_refreshed_at %}
+      <span class="pill">{{ recording.metadata_refreshed_at.strftime("%Y-%m-%d %H:%M UTC") }}</span>
+      {% endif %}
+    </div>
+    {% if cached %}
+    <div class="status-stack">
+      <div class="status-line"><span>Source</span><strong>{{ recording.metadata_source or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Cached Title</span><strong>{{ cached.get("title") or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Air Date</span><strong>{{ cached.get("originallyAvailableAt") or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Matched Event ID</span><strong>{{ cached_event.get("id") or "Unknown" }}</strong></div>
+      <div class="status-line"><span>TheSportsDB Event ID</span><strong>{{ cached_event.get("tsdbId") or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Season</span><strong>{{ cached_season.get("title") or season.label if season else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Competition</span><strong>{{ cached_competition.get("title") or competition.name if competition else "Unknown" }}</strong></div>
+    </div>
+    <p class="helper-text"><strong>Summary:</strong> {{ cached.get("summary") or "No cached summary." }}</p>
+    <details class="metadata-details">
+      <summary>Raw metadata record</summary>
+      <pre class="metadata-pre">{{ cached | tojson(indent=2) }}</pre>
+    </details>
+    {% else %}
+    <p class="empty-state">No cached item metadata has been recorded for this recording yet.</p>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Cached Images</h2>
+    </div>
+    {% if recording.metadata_images %}
+    <div class="metadata-gallery">
+      {% for image in recording.metadata_images %}
+      <figure class="metadata-image-card">
+        <img src="{{ image.url }}" alt="{{ image.alt or image.type }}" loading="lazy" />
+        <figcaption>
+          <strong>{{ image.type }}</strong>
+          <small>{{ image.url }}</small>
+        </figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty-state">No cached images were stored for this recording.</p>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

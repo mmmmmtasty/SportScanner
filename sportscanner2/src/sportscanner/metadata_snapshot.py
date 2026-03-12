@@ -5,25 +5,25 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from sportscanner.db.models import Competition, CompetitionSeason, Event, EventOrigin, Segment
+from sportscanner.db.models import Competition, CompetitionSeason, Event, EventOrigin, Recording
 from sportscanner.provider.items import episode_display_title
 
 
-def effective_episode_thumb(segment: Segment, event: Event | None) -> str | None:
-    return segment.thumb_url or (event.thumb_url if event is not None else None)
+def effective_episode_thumb(recording: Recording, event: Event | None) -> str | None:
+    return recording.thumb_url or (event.thumb_url if event is not None else None)
 
 
-def clear_segment_metadata_snapshot(segment: Segment) -> None:
-    segment.metadata_source = None
-    segment.metadata_record = None
-    segment.metadata_images = None
-    segment.metadata_refreshed_at = None
+def clear_recording_metadata_snapshot(recording: Recording) -> None:
+    recording.metadata_source = None
+    recording.metadata_record = None
+    recording.metadata_images = None
+    recording.metadata_refreshed_at = None
 
 
-def _images_for_segment(competition: Competition, segment: Segment, event: Event | None) -> list[dict[str, str]]:
-    title = episode_display_title(segment, event, competition.name)
+def _images_for_recording(competition: Competition, recording: Recording, event: Event | None) -> list[dict[str, str]]:
+    title = episode_display_title(recording, event, competition.name)
     images: list[dict[str, str]] = []
-    thumb = effective_episode_thumb(segment, event)
+    thumb = effective_episode_thumb(recording, event)
     if thumb:
         images.append({"type": "snapshot", "url": thumb, "alt": title})
     if competition.poster_url:
@@ -33,22 +33,22 @@ def _images_for_segment(competition: Competition, segment: Segment, event: Event
     return images
 
 
-def _record_for_segment(
+def _record_for_recording(
     competition: Competition,
     season: CompetitionSeason,
-    segment: Segment,
+    recording: Recording,
     event: Event,
 ) -> dict[str, Any]:
-    aired_at = event.date or segment.air_date
+    aired_at = event.date or recording.air_date
     return {
         "type": "episode",
-        "title": episode_display_title(segment, event, competition.name),
-        "summary": segment.summary or event.description,
-        "duration": segment.duration_ms,
-        "index": segment.episode_number,
+        "title": episode_display_title(recording, event, competition.name),
+        "summary": recording.summary or event.description,
+        "duration": recording.duration_ms,
+        "index": recording.episode_number,
         "originallyAvailableAt": aired_at.isoformat() if aired_at is not None else None,
-        "thumb": effective_episode_thumb(segment, event),
-        "matchMethod": segment.match_method,
+        "thumb": effective_episode_thumb(recording, event),
+        "matchMethod": recording.match_method,
         "competition": {
             "id": competition.id,
             "title": competition.name,
@@ -69,27 +69,27 @@ def _record_for_segment(
     }
 
 
-def sync_segment_metadata_snapshot(
+def sync_recording_metadata_snapshot(
     session: Session,
     *,
-    segment: Segment,
+    recording: Recording,
     metadata_source_name: str | None,
 ) -> bool:
-    if segment.event_id is None:
-        clear_segment_metadata_snapshot(segment)
+    if recording.event_id is None:
+        clear_recording_metadata_snapshot(recording)
         return False
-    event = session.get(Event, segment.event_id)
-    season = session.get(CompetitionSeason, segment.competition_season_id)
+    event = session.get(Event, recording.event_id)
+    season = session.get(CompetitionSeason, recording.competition_season_id)
     competition = session.get(Competition, season.competition_id) if season is not None else None
     if event is None or season is None or competition is None:
-        clear_segment_metadata_snapshot(segment)
+        clear_recording_metadata_snapshot(recording)
         return False
 
     if event.origin == EventOrigin.UPSTREAM.value:
-        segment.metadata_source = metadata_source_name or EventOrigin.UPSTREAM.value
+        recording.metadata_source = metadata_source_name or EventOrigin.UPSTREAM.value
     else:
-        segment.metadata_source = event.origin
-    segment.metadata_record = _record_for_segment(competition, season, segment, event)
-    segment.metadata_images = _images_for_segment(competition, segment, event)
-    segment.metadata_refreshed_at = datetime.now(UTC)
+        recording.metadata_source = event.origin
+    recording.metadata_record = _record_for_recording(competition, season, recording, event)
+    recording.metadata_images = _images_for_recording(competition, recording, event)
+    recording.metadata_refreshed_at = datetime.now(UTC)
     return True

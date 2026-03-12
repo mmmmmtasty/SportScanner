@@ -8,10 +8,21 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import joinedload
+from sqlalchemy.orm.exc import DetachedInstanceError
 
 from sportscanner.config import validate_plex_provider_identifier
-from sportscanner.db.models import AppSetting, Competition, CompetitionSeason, Event, ReviewTask, Segment, SegmentStatus
-from sportscanner.metadata_snapshot import sync_segment_metadata_snapshot
+from sportscanner.db.models import (
+    AppSetting,
+    Competition,
+    CompetitionSeason,
+    Event,
+    PlexRefreshJob,
+    Recording,
+    RecordingStatus,
+    ReviewTask,
+)
+from sportscanner.db.queries import get_or_create_competition_season
+from sportscanner.metadata_snapshot import sync_recording_metadata_snapshot
 from sportscanner.organizer.matcher import season_for_date, similarity
 from sportscanner.plex import PlexRegistrationResult
 
@@ -20,7 +31,12 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 def _render(request: Request, template_name: str, context: dict) -> HTMLResponse:
     templates = request.app.state.templates
-    merged = {"request": request, **context}
+    merged = {
+        "request": request,
+        "status_meta": _status_meta,
+        "format_episode_code": _format_episode_code,
+        **context,
+    }
     return templates.TemplateResponse(request, template_name, merged)
 
 
@@ -80,60 +96,74 @@ def _review_search_score(
     return score
 
 
-@router.get("/", response_class=HTMLResponse)
-def dashboard(request: Request) -> HTMLResponse:
+def _confidence_class(score: float) -> str:
+    if score >= 0.80:
+        return "high"
+    if score >= 0.50:
+        return "medium"
+    return "low"
+
+
+def _status_meta(status: str, *, has_refresh_pending: bool = False) -> dict[str, str]:
+    if status == RecordingStatus.PUBLISHED.value:
+        label = "In Plex"
+        if has_refresh_pending:
+            label = "Plex Refresh Pending"
+        return {"label": label, "class_name": "status-plex" if has_refresh_pending else "status-published"}
+    if status == RecordingStatus.REVIEW.value:
+        return {"label": "Needs Match", "class_name": "status-review"}
+    if status == RecordingStatus.STAGED.value:
+        return {"label": "Waiting for Schedule", "class_name": "status-staged"}
+    if status == RecordingStatus.IGNORED.value:
+        return {"label": "Ignored", "class_name": "status-ignored"}
+    if status == RecordingStatus.ERROR.value:
+        return {"label": "Error", "class_name": "status-error"}
+    return {"label": status.replace("_", " ").title(), "class_name": "status-neutral"}
+
+
+def _format_episode_code(recording: Recording | None) -> str:
+    if recording is None or recording.episode_number is None:
+        return "Unassigned"
+    season = getattr(recording, "season_number", None)
+    if season is None:
+        try:
+            competition_season = getattr(recording, "competition_season", None)
+        except DetachedInstanceError:
+            competition_season = None
+        season = competition_season.season_number if competition_season is not None else None
+    if season is None:
+        return f"E{recording.episode_number:03d}"
+    return f"S{season % 100:02d}E{recording.episode_number:03d}"
+
+
+def _system_status(request: Request) -> tuple[dict[str, int], dict[str, object], dict[str, str | None], list[str]]:
     services = request.app.state.services
     values = _settings_values(request)
     with _session_factory(request)() as session:
         stats = {
             "competitions": session.scalar(select(func.count(Competition.id))) or 0,
             "seasons": session.scalar(select(func.count(CompetitionSeason.id))) or 0,
-            "segments": session.scalar(select(func.count(Segment.id))) or 0,
-            "published_segments": session.scalar(
-                select(func.count(Segment.id)).where(Segment.status == SegmentStatus.PUBLISHED.value)
+            "recordings": session.scalar(select(func.count(Recording.id))) or 0,
+            "published_recordings": session.scalar(
+                select(func.count(Recording.id)).where(Recording.status == RecordingStatus.PUBLISHED.value)
             ) or 0,
-            "staged_segments": session.scalar(
-                select(func.count(Segment.id)).where(Segment.status == SegmentStatus.STAGED.value)
+            "staged_recordings": session.scalar(
+                select(func.count(Recording.id)).where(Recording.status == RecordingStatus.STAGED.value)
             ) or 0,
-            "review_segments": session.scalar(
-                select(func.count(Segment.id)).where(Segment.status == SegmentStatus.REVIEW.value)
+            "review_recordings": session.scalar(
+                select(func.count(Recording.id)).where(Recording.status == RecordingStatus.REVIEW.value)
             ) or 0,
             "review_tasks": session.scalar(select(func.count(ReviewTask.id)).where(ReviewTask.status == "open")) or 0,
             "resolved_review_tasks": session.scalar(
                 select(func.count(ReviewTask.id)).where(ReviewTask.status == "resolved")
             ) or 0,
+            "pending_refresh_jobs": session.scalar(
+                select(func.count(PlexRefreshJob.id)).where(PlexRefreshJob.status == "pending")
+            ) or 0,
         }
-        recent_tasks = list(
-            session.scalars(
-                select(ReviewTask)
-                .options(joinedload(ReviewTask.segment))
-                .where(ReviewTask.status == "open")
-                .order_by(ReviewTask.created_at.asc())
-                .limit(5)
-            )
-        )
-        recent_segments = list(
-            session.scalars(
-                select(Segment)
-                .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
-                .where(Segment.status == SegmentStatus.PUBLISHED.value)
-                .order_by(Segment.updated_at.desc(), Segment.id.desc())
-                .limit(5)
-            )
-        )
-        recent_segment_rows = []
-        for segment in recent_segments:
-            season = session.get(CompetitionSeason, segment.competition_season_id)
-            competition = session.get(Competition, season.competition_id) if season else None
-            recent_segment_rows.append(
-                {
-                    "segment": segment,
-                    "season": season.label if season else "Unknown",
-                    "competition": competition.name if competition else "Unknown",
-                }
-            )
+
     api_mode = services.metadata_source.probe() if services.metadata_source is not None else "disabled"
-    plex_status = {
+    plex_status: dict[str, object] = {
         "configured": bool(values["pms_url"] and values["pms_token"]),
         "reachable": False,
         "library_count": 0,
@@ -165,18 +195,115 @@ def dashboard(request: Request) -> HTMLResponse:
         next_steps.append("Create a Plex TV library that points at the managed SportScanner library path.")
     if not next_steps:
         next_steps.append("Rescan incoming files after adding new media or metadata overrides.")
+    return stats, plex_status, values, next_steps
+
+
+@router.get("/", response_class=HTMLResponse, name="dashboard")
+def dashboard(request: Request) -> RedirectResponse:
+    return RedirectResponse(url=str(request.url_for("inbox")), status_code=307)
+
+
+@router.get("/inbox", response_class=HTMLResponse, name="inbox")
+def inbox(
+    request: Request,
+    status: str | None = None,
+    competition_id: str | None = None,
+    confidence: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> HTMLResponse:
+    stats, plex_status, values, next_steps = _system_status(request)
+    with _session_factory(request)() as session:
+        stmt = (
+            select(Recording)
+            .options(joinedload(Recording.competition_season), joinedload(Recording.event))
+            .order_by(Recording.updated_at.desc(), Recording.created_at.desc())
+        )
+        if status:
+            stmt = stmt.where(Recording.status == status)
+        if confidence == "high":
+            stmt = stmt.where(Recording.match_confidence >= 0.8)
+        elif confidence == "medium":
+            stmt = stmt.where(Recording.match_confidence >= 0.5, Recording.match_confidence < 0.8)
+        elif confidence == "low":
+            stmt = stmt.where(or_(Recording.match_confidence < 0.5, Recording.match_confidence.is_(None)))
+        if date_from is not None:
+            stmt = stmt.where(Recording.air_date >= date_from)
+        if date_to is not None:
+            stmt = stmt.where(Recording.air_date <= date_to)
+
+        recordings = list(session.scalars(stmt))
+        rows = []
+        competitions = {}
+        for recording in recordings:
+            season = recording.competition_season
+            competition = session.get(Competition, season.competition_id) if season is not None else None
+            if competition is not None:
+                competitions[competition.id] = competition
+            if competition_id and (competition is None or competition.id != competition_id):
+                continue
+            review_task = session.scalar(
+                select(ReviewTask)
+                .where(ReviewTask.recording_id == recording.id, ReviewTask.status == "open")
+                .order_by(ReviewTask.created_at.asc())
+                .limit(1)
+            )
+            action_label = "View"
+            action_href = str(request.url_for("file_detail", recording_id=recording.id))
+            if recording.status == RecordingStatus.REVIEW.value:
+                action_label = "Review ->"
+                action_href = (
+                    str(request.url_for("review_task_detail", task_id=review_task.id))
+                    if review_task is not None
+                    else action_href
+                )
+            elif recording.status == RecordingStatus.STAGED.value:
+                action_label = "Browse Events ->"
+            elif recording.status == RecordingStatus.IGNORED.value:
+                action_label = "View"
+            elif recording.status == RecordingStatus.ERROR.value:
+                action_label = "Retry"
+            explanation = None
+            if recording.match_explanation:
+                explanation = recording.match_explanation.get("summary")
+            if not explanation and recording.match_method:
+                explanation = f"Matched via {recording.match_method.replace('_', ' ')}"
+            rows.append(
+                {
+                    "recording": recording,
+                    "season": season,
+                    "competition": competition,
+                    "event": recording.event,
+                    "review_task": review_task,
+                    "status": _status_meta(
+                        recording.status,
+                        has_refresh_pending=recording.plex_refresh_status == "pending",
+                    ),
+                    "confidence_score": round((recording.match_confidence or 0) * 100),
+                    "confidence_class": _confidence_class(recording.match_confidence or 0),
+                    "explanation": explanation or "No explanation stored yet.",
+                    "action_label": action_label,
+                    "action_href": action_href,
+                }
+            )
 
     return _render(
         request,
-        "dashboard.html",
+        "inbox.html",
         {
+            "rows": rows,
             "stats": stats,
-            "api_mode": api_mode,
             "plex_status": plex_status,
             "values": values,
             "next_steps": next_steps,
-            "recent_tasks": recent_tasks,
-            "recent_segments": recent_segment_rows,
+            "filters": {
+                "status": status or "",
+                "competition_id": competition_id or "",
+                "confidence": confidence or "",
+                "date_from": date_from.isoformat() if date_from else "",
+                "date_to": date_to.isoformat() if date_to else "",
+            },
+            "competitions": sorted(competitions.values(), key=lambda comp: comp.name.lower()),
         },
     )
 
@@ -187,20 +314,20 @@ def review_queue(request: Request) -> HTMLResponse:
         tasks = list(
             session.scalars(
                 select(ReviewTask)
-                .options(joinedload(ReviewTask.segment))
+                .options(joinedload(ReviewTask.recording))
                 .where(ReviewTask.status == "open")
                 .order_by(ReviewTask.created_at.asc())
             )
         )
         rows = []
         for task in tasks:
-            segment = task.segment
-            season = session.get(CompetitionSeason, segment.competition_season_id) if segment else None
+            recording = task.recording
+            season = session.get(CompetitionSeason, recording.competition_season_id) if recording else None
             competition = session.get(Competition, season.competition_id) if season else None
             rows.append(
                 {
                     "task": task,
-                    "segment": segment,
+                    "recording": recording,
                     "season": season,
                     "competition": competition,
                 }
@@ -208,11 +335,11 @@ def review_queue(request: Request) -> HTMLResponse:
         summary = {
             "open_tasks": len(rows),
             "resolved_tasks": session.scalar(select(func.count(ReviewTask.id)).where(ReviewTask.status == "resolved")) or 0,
-            "review_segments": session.scalar(
-                select(func.count(Segment.id)).where(Segment.status == SegmentStatus.REVIEW.value)
+            "review_recordings": session.scalar(
+                select(func.count(Recording.id)).where(Recording.status == RecordingStatus.REVIEW.value)
             ) or 0,
-            "staged_segments": session.scalar(
-                select(func.count(Segment.id)).where(Segment.status == SegmentStatus.STAGED.value)
+            "staged_recordings": session.scalar(
+                select(func.count(Recording.id)).where(Recording.status == RecordingStatus.STAGED.value)
             ) or 0,
         }
     return _render(request, "review_queue.html", {"tasks": rows, "summary": summary})
@@ -224,9 +351,10 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
         task = session.get(ReviewTask, task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="Unknown review task")
-        segment = session.get(Segment, task.segment_id)
-        season = session.get(CompetitionSeason, segment.competition_season_id) if segment else None
+        recording = session.get(Recording, task.recording_id)
+        season = session.get(CompetitionSeason, recording.competition_season_id) if recording else None
         competition = session.get(Competition, season.competition_id) if season else None
+        all_competitions = list(session.scalars(select(Competition).order_by(Competition.name.asc())))
         open_task_ids = list(
             session.scalars(
                 select(ReviewTask.id).where(ReviewTask.status == "open").order_by(ReviewTask.created_at.asc())
@@ -239,8 +367,8 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
         part
         for part in (
             competition.name if competition else None,
-            segment.title if segment else None,
-            segment.air_date.isoformat() if segment and segment.air_date else None,
+            recording.title if recording else None,
+            recording.air_date.isoformat() if recording and recording.air_date else None,
         )
         if part
     )
@@ -249,9 +377,10 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
         "review_detail.html",
         {
             "task": task,
-            "segment": segment,
+            "recording": recording,
             "season": season,
             "competition": competition,
+            "all_competitions": all_competitions,
             "queue_position": queue_position,
             "queue_total": len(open_task_ids),
             "prev_task_id": prev_task_id,
@@ -279,15 +408,99 @@ def resolve_review_task(
     return RedirectResponse(url=f"{request.url_for('review_queue')}", status_code=303)
 
 
+@router.get("/review/{task_id}/season-events", response_class=HTMLResponse)
+def review_season_events(request: Request, task_id: int) -> HTMLResponse:
+    with _session_factory(request)() as session:
+        task = session.get(ReviewTask, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Unknown review task")
+        recording = session.get(Recording, task.recording_id)
+        season = session.get(CompetitionSeason, recording.competition_season_id) if recording else None
+        events = []
+        if season:
+            events = list(
+                session.scalars(
+                    select(Event)
+                    .where(Event.competition_season_id == season.id)
+                    .order_by(Event.date.asc().nulls_last(), Event.round.asc().nulls_last(), Event.name.asc())
+                )
+            )
+    return _render(
+        request,
+        "review_season_events.html",
+        {
+            "task_id": task_id,
+            "season": season,
+            "events": events,
+        },
+    )
+
+
+@router.post("/review/{task_id}/reassign")
+def reassign_review_task(
+    request: Request,
+    task_id: int,
+    competition_id: str = Form(...),
+    season_label: str = Form(...),
+) -> RedirectResponse:
+    with _session_factory(request)() as session:
+        task = session.get(ReviewTask, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Unknown review task")
+        competition = session.get(Competition, competition_id)
+        if competition is None:
+            raise HTTPException(status_code=404, detail="Unknown competition")
+        recording = session.get(Recording, task.recording_id)
+        if recording is None:
+            raise HTTPException(status_code=404, detail="Unknown recording")
+
+        label = season_label.strip()
+        try:
+            season_number = int(label.split("-")[0]) if "-" in label else int(label)
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=400, detail="Invalid season label")
+
+        season = get_or_create_competition_season(
+            session,
+            competition=competition,
+            season_number=season_number,
+            label=label,
+            is_complete=False,
+        )
+        session.flush()
+
+        recording.competition_season_id = season.id
+        recording.event_id = None
+        recording.match_confidence = None
+        recording.match_method = "reassigned"
+        recording.status = RecordingStatus.REVIEW.value
+
+        task.status = "open"
+        task.candidates = []
+        task.resolution = {"type": "reassigned", "competition_id": competition_id, "season_label": label}
+        session.commit()
+
+    return RedirectResponse(
+        url=str(request.url_for("review_task_detail", task_id=task_id)),
+        status_code=303,
+    )
+
+
 @router.get("/review/{task_id}/search", response_class=HTMLResponse)
-def search_events_for_review(request: Request, task_id: int, q: str = "") -> HTMLResponse:
+def search_events_for_review(
+    request: Request,
+    task_id: int,
+    q: str = "",
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> HTMLResponse:
     services = request.app.state.services
     with _session_factory(request)() as session:
         task = session.get(ReviewTask, task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="Unknown review task")
-        segment = session.get(Segment, task.segment_id)
-        season = session.get(CompetitionSeason, segment.competition_season_id) if segment else None
+        recording = session.get(Recording, task.recording_id)
+        season = session.get(CompetitionSeason, recording.competition_season_id) if recording else None
         competition = session.get(Competition, season.competition_id) if season else None
         results = []
         query = q.strip()
@@ -312,7 +525,7 @@ def search_events_for_review(request: Request, task_id: int, q: str = "") -> HTM
                     ev.name,
                     row_comp.name if row_comp else "",
                     preferred_competition=competition.name if competition else None,
-                    preferred_date=segment.air_date if segment else None,
+                    preferred_date=recording.air_date if recording else None,
                     event_date=ev.date,
                 )
                 ranked_rows.append(
@@ -323,14 +536,23 @@ def search_events_for_review(request: Request, task_id: int, q: str = "") -> HTM
                             "tsdb_event_id": None,
                             "name": ev.name,
                             "date": ev.date,
+                            "round": ev.round,
+                            "home_team": ev.home_team,
+                            "away_team": ev.away_team,
                             "competition": row_comp.name if row_comp else "Unknown",
                             "season": row_season.label if row_season else "Unknown",
                             "source": "Cached event",
                             "action_label": "Use This Event",
+                            "score_pct": round(score * 100),
+                            "confidence_class": _confidence_class(score),
                         },
                     )
                 )
-            for _, item in sorted(ranked_rows, key=lambda row: (row[0], row[1]["date"] or date.min), reverse=True):
+            for raw_score, item in sorted(ranked_rows, key=lambda row: (row[0], row[1]["date"] or date.min), reverse=True):
+                if date_from is not None and item["date"] is not None and item["date"] < date_from:
+                    continue
+                if date_to is not None and item["date"] is not None and item["date"] > date_to:
+                    continue
                 dedupe_key = (item["name"], item["date"].isoformat() if item["date"] else None)
                 if dedupe_key in seen:
                     continue
@@ -377,7 +599,7 @@ def search_events_for_review(request: Request, task_id: int, q: str = "") -> HTM
                         upstream.name,
                         upstream.competition_name,
                         preferred_competition=competition.name if competition else None,
-                        preferred_date=segment.air_date if segment else None,
+                        preferred_date=recording.air_date if recording else None,
                         event_date=upstream.date,
                     )
                     ranked_upstream.append(
@@ -388,18 +610,27 @@ def search_events_for_review(request: Request, task_id: int, q: str = "") -> HTM
                                 "tsdb_event_id": tsdb_lookup_id,
                                 "name": upstream.name,
                                 "date": upstream.date,
+                                "round": getattr(upstream, "round", None),
+                                "home_team": upstream.home_team,
+                                "away_team": upstream.away_team,
                                 "competition": upstream.competition_name or (competition.name if competition else "Unknown"),
                                 "season": season_label,
                                 "source": source_label,
                                 "action_label": action_label,
+                                "score_pct": round(score * 100),
+                                "confidence_class": _confidence_class(score),
                             },
                         )
                     )
-                for _, item in sorted(
+                for raw_score, item in sorted(
                     ranked_upstream,
                     key=lambda row: (row[0], row[1]["date"] or date.min),
                     reverse=True,
                 ):
+                    if date_from is not None and item["date"] is not None and item["date"] < date_from:
+                        continue
+                    if date_to is not None and item["date"] is not None and item["date"] > date_to:
+                        continue
                     dedupe_key = (item["name"], item["date"].isoformat() if item["date"] else None)
                     if dedupe_key in seen:
                         continue
@@ -414,11 +645,39 @@ def search_events_for_review(request: Request, task_id: int, q: str = "") -> HTM
     )
 
 
-@router.get("/competitions", response_class=HTMLResponse)
-def competitions(request: Request) -> HTMLResponse:
+@router.get("/competitions", response_class=HTMLResponse, name="competitions")
+def competitions_redirect(request: Request) -> RedirectResponse:
+    return RedirectResponse(url=str(request.url_for("library_page")), status_code=307)
+
+
+@router.get("/library", response_class=HTMLResponse, name="library_page")
+def library_page(request: Request) -> HTMLResponse:
     with _session_factory(request)() as session:
-        rows = list(session.scalars(select(Competition).order_by(Competition.name.asc())))
-    return _render(request, "competitions.html", {"competitions": rows})
+        competitions = list(session.scalars(select(Competition).order_by(Competition.name.asc())))
+        rows = []
+        for competition in competitions:
+            season_count = session.scalar(
+                select(func.count(CompetitionSeason.id)).where(CompetitionSeason.competition_id == competition.id)
+            ) or 0
+            recording_count = session.scalar(
+                select(func.count(Recording.id))
+                .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
+                .where(CompetitionSeason.competition_id == competition.id)
+            ) or 0
+            last_refreshed = session.scalar(
+                select(func.max(Recording.metadata_refreshed_at))
+                .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
+                .where(CompetitionSeason.competition_id == competition.id)
+            )
+            rows.append(
+                {
+                    "competition": competition,
+                    "season_count": season_count,
+                    "recording_count": recording_count,
+                    "last_refreshed": last_refreshed,
+                }
+            )
+    return _render(request, "library.html", {"rows": rows})
 
 
 @router.post("/competitions/{competition_id}/refresh-metadata")
@@ -429,13 +688,21 @@ def competition_refresh_metadata(request: Request, competition_id: str) -> Redir
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return RedirectResponse(
-        url=_redirect_target(request, str(request.url_for("competition_detail", competition_id=competition_id))),
+        url=_redirect_target(request, str(request.url_for("library_competition_detail", competition_id=competition_id))),
         status_code=303,
     )
 
 
-@router.get("/competitions/{competition_id}", response_class=HTMLResponse)
-def competition_detail(request: Request, competition_id: str) -> HTMLResponse:
+@router.get("/competitions/{competition_id}", response_class=HTMLResponse, name="competition_detail")
+def competition_detail_redirect(request: Request, competition_id: str) -> RedirectResponse:
+    return RedirectResponse(
+        url=str(request.url_for("library_competition_detail", competition_id=competition_id)),
+        status_code=307,
+    )
+
+
+@router.get("/library/{competition_id}", response_class=HTMLResponse, name="library_competition_detail")
+def library_competition_detail(request: Request, competition_id: str) -> HTMLResponse:
     with _session_factory(request)() as session:
         competition = session.get(Competition, competition_id)
         if competition is None:
@@ -447,94 +714,120 @@ def competition_detail(request: Request, competition_id: str) -> HTMLResponse:
                 .order_by(CompetitionSeason.season_number.asc())
             )
         )
-        segments = list(
+        recordings = list(
             session.scalars(
-                select(Segment)
-                .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
+                select(Recording)
+                .options(joinedload(Recording.competition_season))
+                .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
                 .where(CompetitionSeason.competition_id == competition_id)
-                .order_by(CompetitionSeason.season_number.asc(), Segment.episode_number.asc())
+                .order_by(CompetitionSeason.season_number.asc(), Recording.episode_number.asc())
             )
         )
     return _render(
         request,
-        "competition_detail.html",
-        {"competition": competition, "seasons": seasons, "segments": segments},
+        "library_competition.html",
+        {"competition": competition, "seasons": seasons, "recordings": recordings},
     )
 
 
-@router.get("/segments/{segment_id}", response_class=HTMLResponse)
-def segment_detail(request: Request, segment_id: str) -> HTMLResponse:
+@router.get("/recordings/{recording_id}", response_class=HTMLResponse, name="recording_detail")
+def recording_detail(request: Request, recording_id: str) -> RedirectResponse:
+    return RedirectResponse(url=str(request.url_for("file_detail", recording_id=recording_id)), status_code=307)
+
+
+@router.get("/files/{recording_id}", response_class=HTMLResponse, name="file_detail")
+def file_detail(request: Request, recording_id: str) -> HTMLResponse:
     services = request.app.state.services
     with _session_factory(request)() as session:
-        segment = session.get(Segment, segment_id)
-        if segment is None:
-            raise HTTPException(status_code=404, detail="Unknown segment")
-        event = session.get(Event, segment.event_id) if segment.event_id else None
-        season = session.get(CompetitionSeason, segment.competition_season_id)
+        recording = session.scalar(
+            select(Recording)
+            .options(joinedload(Recording.competition_season), joinedload(Recording.event))
+            .where(Recording.id == recording_id)
+        )
+        if recording is None:
+            raise HTTPException(status_code=404, detail="Unknown recording")
+        event = session.get(Event, recording.event_id) if recording.event_id else None
+        season = session.get(CompetitionSeason, recording.competition_season_id)
         competition = session.get(Competition, season.competition_id) if season is not None else None
+        review_task = session.scalar(
+            select(ReviewTask)
+            .where(ReviewTask.recording_id == recording.id, ReviewTask.status == "open")
+            .order_by(ReviewTask.created_at.asc())
+            .limit(1)
+        )
         if (
-            segment.status == SegmentStatus.PUBLISHED.value
-            and segment.metadata_record is None
+            recording.status == RecordingStatus.PUBLISHED.value
+            and recording.metadata_record is None
             and event is not None
             and season is not None
             and competition is not None
         ):
-            sync_segment_metadata_snapshot(
+            sync_recording_metadata_snapshot(
                 session,
-                segment=segment,
+                recording=recording,
                 metadata_source_name=getattr(services.metadata_source, "name", None),
             )
             session.commit()
     return _render(
         request,
-        "segment_detail.html",
+        "file_detail.html",
         {
-            "segment": segment,
+            "recording": recording,
             "event": event,
             "season": season,
             "competition": competition,
+            "review_task": review_task,
+            "status": _status_meta(
+                recording.status,
+                has_refresh_pending=recording.plex_refresh_status == "pending",
+            ),
+            "explanation": (
+                (recording.match_explanation or {}).get("summary")
+                or (f"Matched via {recording.match_method.replace('_', ' ')}" if recording.match_method else None)
+                or "No explanation stored yet."
+            ),
         },
     )
 
 
-@router.post("/segments/{segment_id}/refresh-metadata")
-def refresh_segment_metadata(request: Request, segment_id: str) -> RedirectResponse:
+@router.post("/recordings/{recording_id}/refresh-metadata")
+def refresh_recording_metadata(request: Request, recording_id: str) -> RedirectResponse:
     services = request.app.state.services
     try:
-        services.organizer.refresh_segment_metadata(segment_id)
+        services.organizer.refresh_recording_metadata(recording_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return RedirectResponse(
-        url=_redirect_target(request, str(request.url_for("segment_detail", segment_id=segment_id))),
+        url=_redirect_target(request, str(request.url_for("file_detail", recording_id=recording_id))),
         status_code=303,
     )
 
 
-@router.post("/segments/{segment_id}")
-def update_segment(
+@router.post("/recordings/{recording_id}")
+def update_recording(
     request: Request,
-    segment_id: str,
+    recording_id: str,
     title: str = Form(...),
     kind: str = Form(...),
 ) -> RedirectResponse:
     services = request.app.state.services
     with _session_factory(request)() as session:
-        segment = session.get(Segment, segment_id)
-        if segment is None:
-            raise HTTPException(status_code=404, detail="Unknown segment")
-        segment.title = title
-        segment.kind = kind
-        if segment.event_id is not None:
-            sync_segment_metadata_snapshot(
+        recording = session.get(Recording, recording_id)
+        if recording is None:
+            raise HTTPException(status_code=404, detail="Unknown recording")
+        recording.title = title
+        recording.kind = kind
+        if recording.event_id is not None:
+            sync_recording_metadata_snapshot(
                 session,
-                segment=segment,
+                recording=recording,
                 metadata_source_name=getattr(services.metadata_source, "name", None),
             )
         session.commit()
-    return RedirectResponse(url=f"{request.url_for('segment_detail', segment_id=segment_id)}", status_code=303)
+    return RedirectResponse(url=f"{request.url_for('file_detail', recording_id=recording_id)}", status_code=303)
 
 
-@router.get("/settings", response_class=HTMLResponse)
+@router.get("/settings", response_class=HTMLResponse, name="settings_page")
 def settings_page(request: Request) -> HTMLResponse:
     values = _settings_values(request)
     return _render(request, "settings.html", {"values": values, "error": None})
@@ -632,7 +925,7 @@ def register_with_plex(request: Request) -> RedirectResponse:
     return RedirectResponse(url=str(destination), status_code=303)
 
 
-@router.get("/register-plex", response_class=HTMLResponse)
+@router.get("/register-plex", response_class=HTMLResponse, name="plex_registration_page")
 def plex_registration_page(
     request: Request,
     provider_identifier: str | None = None,
@@ -659,10 +952,16 @@ def plex_registration_page(
     )
 
 
-@router.get("/logs", response_class=HTMLResponse)
+@router.get("/logs", response_class=HTMLResponse, name="logs_page")
 def logs_page(request: Request) -> HTMLResponse:
     entries = request.app.state.log_buffer.entries()
     return _render(request, "logs.html", {"entries": entries})
+
+
+@router.get("/advanced", response_class=HTMLResponse, name="advanced_page")
+def advanced_page(request: Request) -> HTMLResponse:
+    entries = request.app.state.log_buffer.entries()
+    return _render(request, "advanced.html", {"entries": entries})
 
 
 @router.get("/logs/entries", response_class=HTMLResponse)
@@ -683,9 +982,9 @@ def stats_json(request: Request) -> dict:
         return {
             "competitions": session.scalar(select(func.count(Competition.id))) or 0,
             "seasons": session.scalar(select(func.count(CompetitionSeason.id))) or 0,
-            "segments": session.scalar(select(func.count(Segment.id))) or 0,
-            "published_segments": session.scalar(
-                select(func.count(Segment.id)).where(Segment.status == SegmentStatus.PUBLISHED.value)
+            "recordings": session.scalar(select(func.count(Recording.id))) or 0,
+            "published_recordings": session.scalar(
+                select(func.count(Recording.id)).where(Recording.status == RecordingStatus.PUBLISHED.value)
             ) or 0,
             "open_review_tasks": session.scalar(
                 select(func.count(ReviewTask.id)).where(ReviewTask.status == "open")
@@ -767,17 +1066,25 @@ def create_plex_library(
 @router.post("/rescan")
 def rescan(request: Request) -> RedirectResponse:
     request.app.state.services.organizer.rescan_incoming()
-    return RedirectResponse(url=f"{request.url_for('dashboard')}", status_code=303)
+    return RedirectResponse(url=f"{request.url_for('inbox')}", status_code=303)
 
 
-@router.get("/plex-libraries", response_class=HTMLResponse)
-def plex_libraries_page(request: Request) -> HTMLResponse:
+@router.get("/plex-libraries", response_class=HTMLResponse, name="plex_libraries_page")
+def plex_libraries_redirect(request: Request) -> RedirectResponse:
+    return RedirectResponse(url=str(request.url_for("plex_page")), status_code=307)
+
+
+@router.get("/plex", response_class=HTMLResponse, name="plex_page")
+def plex_page(request: Request) -> HTMLResponse:
     services = request.app.state.services
     with _session_factory(request)() as session:
         pms_url = _setting(session, "pms_url", services.settings.pms_url)
         pms_token = _setting(session, "pms_token", services.settings.pms_token)
         provider_identifier = _setting(
             session, "plex_provider_identifier", services.settings.plex_provider_identifier
+        )
+        refresh_jobs = list(
+            session.scalars(select(PlexRefreshJob).order_by(PlexRefreshJob.created_at.desc()).limit(50))
         )
     plex = services.plex.with_credentials(pms_url, pms_token)
     sections = []
@@ -792,8 +1099,13 @@ def plex_libraries_page(request: Request) -> HTMLResponse:
         error = f"Could not reach Plex: {exc}"
     return _render(
         request,
-        "plex_libraries.html",
-        {"sections": sections, "error": error, "provider_identifier": provider_identifier},
+        "plex.html",
+        {
+            "sections": sections,
+            "error": error,
+            "provider_identifier": provider_identifier,
+            "refresh_jobs": refresh_jobs,
+        },
     )
 
 
@@ -808,4 +1120,4 @@ def plex_refresh_section(request: Request, section_id: int) -> RedirectResponse:
         plex.refresh_library_section(section_id)
     except (ValueError, httpx.HTTPError):
         pass
-    return RedirectResponse(url=str(request.url_for("plex_libraries_page")), status_code=303)
+    return RedirectResponse(url=str(request.url_for("plex_page")), status_code=303)

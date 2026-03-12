@@ -516,9 +516,125 @@ table tbody tr {
   font-size: 0.85rem;
 }
 
+.muted-line {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .compact-button {
   padding: 0.25rem 0.75rem;
   font-size: 0.85rem;
+}
+
+.filters-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  align-items: end;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.24rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+}
+
+.status-published {
+  background: rgba(23, 105, 75, 0.14);
+  color: var(--success);
+  border-color: rgba(23, 105, 75, 0.18);
+}
+
+.status-plex {
+  background: rgba(10, 99, 201, 0.14);
+  color: var(--accent-strong);
+  border-color: rgba(10, 99, 201, 0.22);
+}
+
+.status-review {
+  background: rgba(169, 105, 0, 0.14);
+  color: var(--warm);
+  border-color: rgba(169, 105, 0, 0.2);
+}
+
+.status-staged {
+  background: rgba(70, 89, 114, 0.12);
+  color: var(--muted);
+  border-color: rgba(70, 89, 114, 0.18);
+}
+
+.status-ignored,
+.status-neutral {
+  background: rgba(16, 32, 50, 0.08);
+  color: var(--ink);
+  border-color: rgba(16, 32, 50, 0.12);
+}
+
+.status-error {
+  background: rgba(160, 34, 40, 0.12);
+  color: #8e1e24;
+  border-color: rgba(160, 34, 40, 0.18);
+}
+
+.status-pending {
+  background: rgba(10, 99, 201, 0.14);
+  color: var(--accent-strong);
+  border-color: rgba(10, 99, 201, 0.22);
+}
+
+.status-success {
+  background: rgba(23, 105, 75, 0.14);
+  color: var(--success);
+  border-color: rgba(23, 105, 75, 0.18);
+}
+
+.confidence-high {
+  background: rgba(23, 105, 75, 0.14);
+  color: var(--success);
+}
+
+.confidence-medium {
+  background: rgba(169, 105, 0, 0.14);
+  color: var(--warm);
+}
+
+.confidence-low {
+  background: rgba(160, 34, 40, 0.12);
+  color: #8e1e24;
+}
+
+.status-top-gap {
+  margin-top: 1rem;
+}
+
+#toast-container {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  display: grid;
+  gap: 0.6rem;
+  z-index: 20;
+}
+
+.toast {
+  min-width: 16rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.9rem;
+  background: rgba(9, 20, 31, 0.95);
+  color: #f7fbff;
+  box-shadow: var(--shadow);
 }
 
 input,
@@ -550,7 +666,8 @@ button.secondary,
   .search-form,
   .status-line,
   .record-list li,
-  .candidate-card {
+  .candidate-card,
+  .filter-actions {
     align-items: start;
     flex-direction: column;
   }

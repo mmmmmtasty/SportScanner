@@ -44,9 +44,11 @@ def adapt_competition(payload: dict) -> UpstreamCompetition:
 
 def adapt_event(payload: dict, *, competition_name: str | None = None) -> UpstreamEvent:
     tsdb_id = payload.get("idEvent")
+    league_id = payload.get("idLeague")
     return UpstreamEvent(
         id=f"tsdb_{tsdb_id}" if tsdb_id else f"manual_{payload.get('strEvent', 'event')}",
         tsdb_id=int(tsdb_id) if tsdb_id else None,
+        competition_tsdb_id=int(league_id) if league_id else None,
         name=payload.get("strEvent") or payload.get("strFilename") or "Unknown Event",
         competition_name=competition_name or payload.get("strLeague") or "",
         date=_parse_date(payload.get("dateEvent") or payload.get("dateEventLocal")),

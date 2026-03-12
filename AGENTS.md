@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd help` to get understand how to use it.
+This project uses **bd** (beads) for issue tracking. Run `bd help` to get understand how to use it. Use `bd create` to create new beads.
 
 ## Non-Interactive Shell Commands
 

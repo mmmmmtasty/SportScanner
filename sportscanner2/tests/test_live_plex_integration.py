@@ -14,12 +14,47 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from sportscanner.db.models import Base, Competition, CompetitionSeason, Event, Recording, RecordingStatus
 from sportscanner.organizer.placer import build_managed_filename, season_directory_name
+from sportscanner.organizer.plexmatch import render_season_plexmatch, render_show_plexmatch, write_atomic_if_changed
 
 
 pytestmark = pytest.mark.plex_integration
 
 LIVE_COMPETITION_NAME = "English Premier League"
+
+# Four distinct sport types used in test_live_four_sports_in_plex_library.
+# Real TheSportsDB event IDs with confirmed thumbnails and descriptions.
+_FOUR_SPORTS_FIXTURES = [
+    dict(
+        key="f1",
+        competition="Formula 1",
+        tsdb_event_id=2408111,   # Australian Grand Prix 2026-03-08
+        filename="Formula 1 2026.03.08 Australian Grand Prix.mkv",
+        competition_yml=None,    # single-year season, no special config needed
+    ),
+    dict(
+        key="epl",
+        competition="English Premier League",
+        tsdb_event_id=2267361,   # Tottenham vs Crystal Palace 2026-03-05
+        filename="English Premier League 2026.03.05 Tottenham Hotspur vs Crystal Palace.mkv",
+        competition_yml="season_pattern: cross_year\nseason_split_month: 7\nseason_split_day: 1\n",
+    ),
+    dict(
+        key="nba",
+        competition="NBA",
+        tsdb_event_id=2358310,   # Orlando Magic vs Cleveland Cavaliers 2026-03-11
+        filename="NBA 2026.03.11 Orlando Magic vs Cleveland Cavaliers.mkv",
+        competition_yml=None,
+    ),
+    dict(
+        key="ufc",
+        competition="UFC",
+        tsdb_event_id=2391887,   # UFC 326 Holloway vs Oliveira 2, 2026-03-07
+        filename="UFC 2026.03.07 UFC 326 Holloway vs Oliveira 2.mkv",
+        competition_yml=None,
+    ),
+]
 LIVE_TSDB_EVENT_ID = 2069558
 LIVE_FIXTURE_FILENAME = "English Premier League 2024.08.17 Arsenal vs Wolverhampton Wanderers.mkv"
 
@@ -41,16 +76,16 @@ def _db_path() -> Path:
     pytest.skip("SPORTSCANNER_DB_PATH is required for the live ingest integration test")
 
 
-def _segment_id_for_source_path(db_path: Path, source_path: Path) -> str:
+def _recording_id_for_source_path(db_path: Path, source_path: Path) -> str:
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     try:
         with factory() as session:
             row = session.execute(
-                text("SELECT id FROM segment WHERE source_path = :source_path"),
+                text("SELECT id FROM recording WHERE source_path = :source_path"),
                 {"source_path": str(source_path)},
             ).first()
-            assert row is not None, f"missing segment row for {source_path}"
+            assert row is not None, f"missing recording row for {source_path}"
             return str(row[0])
     finally:
         engine.dispose()
@@ -67,7 +102,7 @@ def _cleanup_live_test_state(db_path: Path, incoming_dir: Path, library_dir: Pat
                 text(
                     """
                     SELECT id, source_path, managed_path
-                    FROM segment
+                    FROM recording
                     WHERE source_path LIKE :source_pattern
                        OR managed_path LIKE :managed_pattern
                     """
@@ -77,13 +112,13 @@ def _cleanup_live_test_state(db_path: Path, incoming_dir: Path, library_dir: Pat
                     "managed_pattern": managed_pattern,
                 },
             ).all()
-            segment_ids = [str(row[0]) for row in rows]
-            if segment_ids:
-                placeholders = ", ".join(f":segment_id_{index}" for index in range(len(segment_ids)))
-                params = {f"segment_id_{index}": segment_id for index, segment_id in enumerate(segment_ids)}
-                session.execute(text(f"DELETE FROM review_task WHERE segment_id IN ({placeholders})"), params)
-                session.execute(text(f"DELETE FROM override WHERE segment_id IN ({placeholders})"), params)
-                session.execute(text(f"DELETE FROM segment WHERE id IN ({placeholders})"), params)
+            recording_ids = [str(row[0]) for row in rows]
+            if recording_ids:
+                placeholders = ", ".join(f":recording_id_{index}" for index in range(len(recording_ids)))
+                params = {f"recording_id_{index}": recording_id for index, recording_id in enumerate(recording_ids)}
+                session.execute(text(f"DELETE FROM review_task WHERE recording_id IN ({placeholders})"), params)
+                session.execute(text(f"DELETE FROM override WHERE recording_id IN ({placeholders})"), params)
+                session.execute(text(f"DELETE FROM recording WHERE id IN ({placeholders})"), params)
                 session.commit()
     finally:
         engine.dispose()
@@ -533,7 +568,7 @@ def test_live_ingest_and_metadata_resolution() -> None:
             assert episode.find(".//Part") is not None
             assert episode.find(".//Part").attrib.get("file") == plex_managed_path
 
-            segment_id = _segment_id_for_source_path(db_path, fixture_path)
+            segment_id = _recording_id_for_source_path(db_path, fixture_path)
             provider_response = client.get(f"/provider/tv/library/metadata/episode_{segment_id}")
             assert provider_response.status_code == 200, provider_response.text
             provider_metadata = provider_response.json()["MediaContainer"]["Metadata"][0]
@@ -598,7 +633,8 @@ def test_live_ingest_and_metadata_resolution() -> None:
                 time.sleep(settle_seconds)
 
         finally:
-            # Remove incoming fixture first so SportScanner won't re-process during cleanup.
+            # Remove incoming fixture only — leave the managed library files, DB records,
+            # and Plex library entries in place so you can verify the result manually.
             if fixture_sidecar.exists():
                 fixture_sidecar.unlink()
             competition_config = fixture_dir / "competition.sportscanner.yml"
@@ -608,9 +644,203 @@ def test_live_ingest_and_metadata_resolution() -> None:
                 fixture_path.unlink()
             if fixture_dir.exists():
                 fixture_dir.rmdir()
-            # Give Plex a moment to finish any in-flight metadata writes before
-            # we delete the managed library files.
-            cleanup_delay = int(os.getenv("SPORTSCANNER_PLEX_CLEANUP_DELAY_SECONDS", "15"))
-            if cleanup_delay > 0:
-                time.sleep(cleanup_delay)
-            _cleanup_live_test_state(db_path, incoming_dir, library_dir)
+
+
+def test_live_four_sports_in_plex_library() -> None:
+    """Full end-to-end test that populates the Sport_Test Plex library with 4 different
+    sport types, each resolved against TheSportsDB so metadata and thumbnails are real.
+
+    Flow
+    ----
+    1. Clear every existing show from the Sport_Test Plex library section and its
+       backing library directory so we start from a clean slate.
+    2. Drop 4 incoming video files (one per sport) into the incoming directory, each
+       with a sidecar pointing at a real TheSportsDB event ID.
+    3. Trigger /admin/rescan.  The organizer fetches event metadata from TSDB
+       (title, date, thumbnail URL, description) and publishes each segment.
+    4. Trigger a Plex scan so it picks up the new managed files + .plexmatch.
+    5. Force-refresh the Plex section so Plex resolves metadata via our provider.
+    6. Assert all 4 shows appear in Plex with provider-backed guids and thumbnails.
+    7. Leave the library populated — no teardown — so the user can inspect in Plex.
+       Only the temporary incoming files are removed.
+
+    Sports covered: Formula 1 (Motorsport), EPL (Soccer), NBA (Basketball), UFC (MMA)
+    """
+    provider_base_url = os.getenv("SPORTSCANNER_PROVIDER_URL", "http://127.0.0.1:32699").rstrip("/")
+    plex_base_url = os.getenv("SPORTSCANNER_PMS_URL", "http://192.168.0.127:32400").rstrip("/")
+    plex_token = _required_env("SPORTSCANNER_PMS_TOKEN")
+    provider_identifier = os.getenv(
+        "SPORTSCANNER_PROVIDER_IDENTIFIER",
+        "tv.plex.agents.custom.sportscanner.metadata.local",
+    )
+    library_name = os.getenv("SPORTSCANNER_PLEX_LIBRARY_NAME", "Sport_Test")
+
+    incoming_dir_env = os.getenv("SPORTSCANNER_INCOMING_DIR")
+    if not incoming_dir_env:
+        pytest.skip("SPORTSCANNER_INCOMING_DIR is required for the four-sports test")
+    incoming_dir = Path(incoming_dir_env)
+    if not incoming_dir.exists():
+        pytest.skip(f"SPORTSCANNER_INCOMING_DIR={incoming_dir} does not exist (share not mounted?)")
+
+    run_id = str(int(time.time()))
+
+    # Long timeout — rescan processes the full incoming directory; with many files
+    # and any uncached TSDB lookups, this can take well over 2 minutes.
+    with httpx.Client(base_url=provider_base_url, timeout=300.0) as client, httpx.Client(timeout=30.0) as plex_client:
+        health = client.get("/health").raise_for_status()
+        library_dir = Path(health.json()["library_dir"])
+
+        section = _find_library_section(plex_client, plex_base_url, plex_token, library_name)
+        section_id = int(section.attrib["key"])
+        location = section.find("./Location")
+        assert location is not None and location.attrib.get("path"), "Plex library is missing a Location path"
+        plex_library_root = PurePosixPath(location.attrib["path"])
+
+        # ── Step 1: Clear every existing show from Plex + the filesystem ─────────────
+        for show in _show_directories(plex_client, plex_base_url, plex_token, section_id):
+            _delete_metadata(plex_client, plex_base_url, plex_token, show.attrib["ratingKey"])
+
+        for show_dir in library_dir.iterdir():
+            if show_dir.is_dir():
+                shutil.rmtree(show_dir, ignore_errors=True)
+
+        # ── Step 2: Create incoming fixtures for each sport ───────────────────────────
+        fixture_dirs: list[Path] = []
+        for fixture in _FOUR_SPORTS_FIXTURES:
+            fixture_dir = incoming_dir / f"four-sports-{fixture['key']}-{run_id}"
+            fixture_dir.mkdir(parents=True, exist_ok=True)
+            fixture_dirs.append(fixture_dir)
+
+            if fixture["competition_yml"]:
+                (fixture_dir / "competition.sportscanner.yml").write_text(
+                    fixture["competition_yml"], encoding="utf-8"
+                )
+
+            video_path = fixture_dir / fixture["filename"]
+            _write_valid_video(video_path)
+
+            sidecar_path = video_path.with_suffix(".sportscanner.yml")
+            sidecar_path.write_text(f"tsdb_event_id: {fixture['tsdb_event_id']}\n", encoding="utf-8")
+
+        # ── Step 3: Rescan and wait for all 4 segments to be published ────────────────
+        stats_before = client.get("/admin/stats.json").raise_for_status().json()
+        published_before = stats_before["published_segments"]
+
+        rescan_response = client.post("/admin/rescan")
+        assert rescan_response.status_code in (200, 303), (
+            f"Rescan returned unexpected status {rescan_response.status_code}"
+        )
+
+        deadline = time.monotonic() + 90
+        published_after = published_before
+        while time.monotonic() < deadline:
+            stats = client.get("/admin/stats.json").raise_for_status().json()
+            published_after = stats["published_segments"]
+            if published_after >= published_before + len(_FOUR_SPORTS_FIXTURES):
+                break
+            time.sleep(2)
+
+        assert published_after >= published_before + len(_FOUR_SPORTS_FIXTURES), (
+            f"Expected {len(_FOUR_SPORTS_FIXTURES)} new published segments after rescan "
+            f"(was {published_before}, now {published_after})"
+        )
+
+        # ── Step 4: Scan each show directory in Plex then do a full refresh ───────────
+        for fixture in _FOUR_SPORTS_FIXTURES:
+            plex_client.get(
+                f"{plex_base_url}/library/sections/{section_id}/refresh",
+                params={"path": str(plex_library_root / fixture["competition"]), "X-Plex-Token": plex_token},
+            )
+
+        plex_client.get(
+            f"{plex_base_url}/library/sections/{section_id}/refresh",
+            params={"X-Plex-Token": plex_token},
+        )
+
+        # ── Step 5: Poll until all 4 shows appear in Plex ────────────────────────────
+        # Poll for ALL shows simultaneously with a shared deadline.  After a full library
+        # delete+rescan the Plex scanner has to process every show; checking each fixture
+        # sequentially with its own 180 s timeout would be far too generous per item yet
+        # still risk expiring before the single bulk scan completes.
+        expected_titles = {f["competition"] for f in _FOUR_SPORTS_FIXTURES}
+        scan_deadline = time.monotonic() + 600
+        while time.monotonic() < scan_deadline:
+            found = {
+                d.attrib.get("title")
+                for d in _show_directories(plex_client, plex_base_url, plex_token, section_id)
+                if d.attrib.get("title") in expected_titles
+            }
+            if found >= expected_titles:
+                break
+            time.sleep(3)
+        else:
+            found = {
+                d.attrib.get("title")
+                for d in _show_directories(plex_client, plex_base_url, plex_token, section_id)
+                if d.attrib.get("title") in expected_titles
+            }
+            missing = expected_titles - found
+            pytest.fail(f"Plex never scanned {missing!r} into {library_name} after 600 s")
+
+        # ── Step 6: Force-refresh so Plex resolves provider metadata ─────────────────
+        plex_client.get(
+            f"{plex_base_url}/library/sections/{section_id}/refresh",
+            params={"force": 1, "X-Plex-Token": plex_token},
+        )
+
+        # ── Step 7: For each sport, poll until the episode has a provider guid ────────
+        for fixture in _FOUR_SPORTS_FIXTURES:
+            show = _poll_until(
+                time.monotonic() + 60,
+                lambda comp=fixture["competition"]: next(
+                    (
+                        d
+                        for d in _show_directories(plex_client, plex_base_url, plex_token, section_id)
+                        if d.attrib.get("title") == comp
+                    ),
+                    None,
+                ),
+                f"Show '{fixture['competition']}' disappeared after force-refresh",
+            )
+
+            seasons = _metadata_children(plex_client, plex_base_url, plex_token, show.attrib["key"]).findall(".//Directory")
+            assert len(seasons) >= 1, f"{fixture['competition']}: no seasons found in Plex"
+            season = seasons[0]
+
+            episode = _poll_until(
+                time.monotonic() + 120,
+                lambda s=season, comp=fixture["competition"], pid=provider_identifier: next(
+                    (
+                        v
+                        for v in _metadata_children(plex_client, plex_base_url, plex_token, s.attrib["key"]).findall(".//Video")
+                        if v.attrib.get("guid", "").startswith(f"{pid}://episode/")
+                    ),
+                    None,
+                ),
+                f"{fixture['competition']}: Plex never resolved provider metadata for the episode",
+            )
+
+            # Plex's ratingKey is its own internal integer; our rating key lives in the
+            # guid: "provider://episode/episode_{segment_id}".
+            episode_guid = episode.attrib.get("guid", "")
+            our_rating_key = episode_guid.split(f"{provider_identifier}://episode/", 1)[-1]
+            provider_response = client.get(f"/provider/tv/library/metadata/{our_rating_key}")
+            assert provider_response.status_code == 200, (
+                f"{fixture['competition']}: provider returned {provider_response.status_code} "
+                f"for rating key {our_rating_key}"
+            )
+            meta = provider_response.json()["MediaContainer"]["Metadata"][0]
+
+            assert meta["grandparentTitle"] == fixture["competition"], (
+                f"{fixture['competition']}: wrong grandparentTitle — got {meta['grandparentTitle']!r}"
+            )
+            assert meta.get("thumb"), (
+                f"{fixture['competition']}: no thumbnail URL — TSDB metadata was not fetched"
+            )
+            assert meta["guid"].startswith(f"{provider_identifier}://episode/"), (
+                f"{fixture['competition']}: episode guid has wrong prefix: {meta['guid']!r}"
+            )
+
+        # ── Cleanup: remove incoming fixtures; leave library in place ─────────────────
+        for fixture_dir in fixture_dirs:
+            shutil.rmtree(fixture_dir, ignore_errors=True)

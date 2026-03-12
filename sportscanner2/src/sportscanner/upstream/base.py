@@ -38,6 +38,7 @@ class UpstreamEvent:
     description: str | None = None
     thumb_url: str | None = None
     tsdb_id: int | None = None
+    competition_tsdb_id: int | None = None
     weekend_group: str | None = None
 
 

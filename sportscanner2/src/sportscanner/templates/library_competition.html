@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Library Competition{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">{{ competition.sport or "Competition" }}</p>
+    <h1>{{ competition.name }}</h1>
+    <p class="hero-copy">
+      {{ competition.description or "Inspect seasons, recordings, and the current local organization for this competition." }}
+    </p>
+  </div>
+  <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
+    <button type="submit" class="secondary">Refresh Schedule</button>
+  </form>
+</section>
+
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Seasons</h2>
+    </div>
+    <ul class="record-list">
+      {% for season in seasons %}
+      <li>
+        <div>
+          <strong>{{ season.label }}</strong>
+          <p>{% if season.is_complete %}Schedule imported and ready{% else %}Schedule still incomplete upstream{% endif %}</p>
+        </div>
+      </li>
+      {% else %}
+      <li class="empty-state">No seasons.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Recordings</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Episode</th>
+            <th>Title</th>
+            <th>Kind</th>
+            <th>Air Date</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for recording in recordings %}
+          {% set meta = status_meta(recording.status, has_refresh_pending=recording.plex_refresh_status == "pending") %}
+          <tr>
+            <td>{{ format_episode_code(recording) }}</td>
+            <td><a href="{{ request.url_for('file_detail', recording_id=recording.id) }}">{{ recording.title }}</a></td>
+            <td>{{ recording.kind }}</td>
+            <td>{{ recording.air_date or "" }}</td>
+            <td><span class="status-chip {{ meta.class_name }}">{{ meta.label }}</span></td>
+            <td>
+              <form method="post" action="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}">
+                <button type="submit" class="secondary compact-button">Refresh Item</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="empty-state">No recordings.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}
