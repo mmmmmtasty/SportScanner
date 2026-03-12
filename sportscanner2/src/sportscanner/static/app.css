@@ -15,7 +15,7 @@
   --accent-soft: #deebfb;
   --warm: #a96900;
   --success: #17694b;
-  --shadow: 0 20px 55px rgba(14, 26, 44, 0.1);
+  --shadow: 0 24px 60px rgba(4, 12, 22, 0.28);
 
   --pico-color: var(--ink);
   --pico-muted-color: var(--muted);
@@ -41,9 +41,9 @@ body {
   min-height: 100vh;
   color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(210, 142, 24, 0.18), transparent 28%),
-    radial-gradient(circle at top right, rgba(10, 99, 201, 0.16), transparent 26%),
-    linear-gradient(180deg, #f7f0e1 0%, #e4edf8 100%);
+    radial-gradient(circle at top left, rgba(210, 142, 24, 0.16), transparent 30%),
+    radial-gradient(circle at top right, rgba(78, 156, 242, 0.2), transparent 28%),
+    linear-gradient(180deg, #16263a 0%, #0b1520 100%);
 }
 
 body,
@@ -180,9 +180,19 @@ main.container {
   align-items: start;
 }
 
+.hero > div:first-child,
+.page-header > div:first-child {
+  padding: 1.2rem 1.3rem;
+  border: 1px solid rgba(227, 238, 249, 0.14);
+  border-radius: 1.25rem;
+  background: linear-gradient(180deg, rgba(7, 18, 31, 0.72), rgba(10, 26, 41, 0.56));
+  backdrop-filter: blur(12px);
+  box-shadow: 0 24px 60px rgba(3, 10, 18, 0.22);
+}
+
 .eyebrow {
   margin-bottom: 0.35rem;
-  color: var(--accent);
+  color: #8dc4ff;
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -192,14 +202,33 @@ main.container {
 .hero h1,
 .page-header h1 {
   margin-bottom: 0.5rem;
-  color: var(--ink-strong);
+  color: #f4f8fc;
   font-size: clamp(2rem, 4vw, 3.2rem);
 }
 
 .hero-copy {
   max-width: 56rem;
   margin-bottom: 0;
-  color: var(--muted);
+  color: rgba(229, 238, 248, 0.84);
+}
+
+.hero-copy code,
+.page-header code {
+  background: rgba(227, 238, 249, 0.14);
+  color: #f4f8fc;
+}
+
+main.container > p {
+  margin: 0;
+  color: rgba(229, 238, 248, 0.84);
+}
+
+main.container > p a {
+  color: #d2e6ff;
+}
+
+main.container > p a:hover {
+  color: #f7fbff;
 }
 
 .hero-card,
