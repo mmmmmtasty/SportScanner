@@ -28,7 +28,7 @@ class EventOrigin(str, enum.Enum):
     MANUAL = "manual"
 
 
-class SegmentStatus(str, enum.Enum):
+class RecordingStatus(str, enum.Enum):
     STAGED = "staged"
     REVIEW = "review"
     PUBLISHED = "published"
@@ -40,6 +40,17 @@ class ReviewTaskStatus(str, enum.Enum):
     OPEN = "open"
     RESOLVED = "resolved"
     DISMISSED = "dismissed"
+
+
+class CompetitionAliasSource(str, enum.Enum):
+    AUTO = "auto"
+    MANUAL = "manual"
+
+
+class PlexRefreshJobStatus(str, enum.Enum):
+    PENDING = "pending"
+    SUCCESS = "success"
+    ERROR = "error"
 
 
 class Competition(Base):
@@ -64,6 +75,10 @@ class Competition(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     seasons: Mapped[list["CompetitionSeason"]] = relationship(back_populates="competition", cascade="all, delete-orphan")
+    aliases: Mapped[list["CompetitionAlias"]] = relationship(
+        back_populates="competition",
+        cascade="all, delete-orphan",
+    )
 
     def all_names(self) -> list[str]:
         return [self.name, *self.alternate_names]
@@ -82,7 +97,24 @@ class CompetitionSeason(Base):
 
     competition: Mapped[Competition] = relationship(back_populates="seasons")
     events: Mapped[list["Event"]] = relationship(back_populates="competition_season", cascade="all, delete-orphan")
-    segments: Mapped[list["Segment"]] = relationship(back_populates="competition_season")
+    recordings: Mapped[list["Recording"]] = relationship(back_populates="competition_season")
+
+
+class CompetitionAlias(Base):
+    __tablename__ = "competition_alias"
+    __table_args__ = (UniqueConstraint("competition_id", "alias_text", name="uq_competition_alias"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    competition_id: Mapped[str] = mapped_column(ForeignKey("competition.id"), nullable=False, index=True)
+    alias_text: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[CompetitionAliasSource] = mapped_column(
+        String(32),
+        nullable=False,
+        default=CompetitionAliasSource.MANUAL.value,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+
+    competition: Mapped[Competition] = relationship(back_populates="aliases")
 
 
 class Event(Base):
@@ -111,11 +143,11 @@ class Event(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     competition_season: Mapped[CompetitionSeason] = relationship(back_populates="events")
-    segments: Mapped[list["Segment"]] = relationship(back_populates="event")
+    recordings: Mapped[list["Recording"]] = relationship(back_populates="event")
 
 
-class Segment(Base):
-    __tablename__ = "segment"
+class Recording(Base):
+    __tablename__ = "recording"
 
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
     event_id: Mapped[str | None] = mapped_column(ForeignKey("event.id"))
@@ -123,7 +155,7 @@ class Segment(Base):
     kind: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     episode_number: Mapped[int | None] = mapped_column(Integer)
-    segment_code: Mapped[int | None] = mapped_column(Integer)
+    recording_code: Mapped[int | None] = mapped_column(Integer)
     air_date: Mapped[date | None] = mapped_column(Date)
     air_time: Mapped[time | None] = mapped_column(Time)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
@@ -137,13 +169,37 @@ class Segment(Base):
     metadata_record: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     metadata_images: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     metadata_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    status: Mapped[SegmentStatus] = mapped_column(String(32), default=SegmentStatus.STAGED.value)
+    match_explanation: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    file_fingerprint: Mapped[str | None] = mapped_column(String(255), index=True)
+    plex_refresh_status: Mapped[str | None] = mapped_column(String(32))
+    plex_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[RecordingStatus] = mapped_column(String(32), default=RecordingStatus.STAGED.value)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
-    event: Mapped[Event | None] = relationship(back_populates="segments")
-    competition_season: Mapped[CompetitionSeason] = relationship(back_populates="segments")
-    review_tasks: Mapped[list["ReviewTask"]] = relationship(back_populates="segment")
+    event: Mapped[Event | None] = relationship(back_populates="recordings")
+    competition_season: Mapped[CompetitionSeason] = relationship(back_populates="recordings")
+    review_tasks: Mapped[list["ReviewTask"]] = relationship(back_populates="recording")
+    refresh_jobs: Mapped[list["PlexRefreshJob"]] = relationship(back_populates="recording")
+
+
+class PlexRefreshJob(Base):
+    __tablename__ = "plex_refresh_job"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    recording_id: Mapped[str | None] = mapped_column(ForeignKey("recording.id"), index=True)
+    section_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    status: Mapped[PlexRefreshJobStatus] = mapped_column(
+        String(32),
+        nullable=False,
+        default=PlexRefreshJobStatus.PENDING.value,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+    recording: Mapped[Recording | None] = relationship(back_populates="refresh_jobs")
 
 
 class Asset(Base):
@@ -162,7 +218,7 @@ class Override(Base):
     __tablename__ = "override"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    segment_id: Mapped[str] = mapped_column(ForeignKey("segment.id"), nullable=False)
+    recording_id: Mapped[str] = mapped_column(ForeignKey("recording.id"), nullable=False)
     field: Mapped[str] = mapped_column(String(128), nullable=False)
     old_value: Mapped[str | None] = mapped_column(Text)
     new_value: Mapped[str | None] = mapped_column(Text)
@@ -174,7 +230,7 @@ class ReviewTask(Base):
     __tablename__ = "review_task"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    segment_id: Mapped[str] = mapped_column(ForeignKey("segment.id"), nullable=False)
+    recording_id: Mapped[str] = mapped_column(ForeignKey("recording.id"), nullable=False)
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
     candidates: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     status: Mapped[ReviewTaskStatus] = mapped_column(String(32), default=ReviewTaskStatus.OPEN.value, index=True)
@@ -182,7 +238,7 @@ class ReviewTask(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
-    segment: Mapped[Segment] = relationship(back_populates="review_tasks")
+    recording: Mapped[Recording] = relationship(back_populates="review_tasks")
 
 
 class ApiCache(Base):
