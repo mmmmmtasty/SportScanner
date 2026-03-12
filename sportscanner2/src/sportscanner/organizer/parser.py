@@ -30,16 +30,43 @@ PATTERNS = [
         re.IGNORECASE,
     ),
     re.compile(
+        r"^(?P<show>.+?)\s+(?P<day>\d{2})-(?P<month>\d{2})-(?P<year>\d{4})\s+(?P<title>.+)$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^(?P<show>.+?)\s+(?:(?P<prefix>rs|ps|match\s+day\s*\d+|md\d+|round\s+\d+)\s+)?"
+        r"(?P<year>\d{4})\s+(?P<title>.+?)\s+(?P<day>\d{2})\s+(?P<month>\d{2})$",
+        re.IGNORECASE,
+    ),
+    re.compile(
         r"^(?P<show>.*?)[^0-9A-Za-z]+(?P<year>\d{4})[^0-9A-Za-z]+(?P<month>\d{2})[^0-9A-Za-z]+(?P<day>\d{2})[^0-9A-Za-z]+(?P<title>.+)$",
         re.IGNORECASE,
     ),
 ]
 
 SEGMENT_KIND_MAP = {
-    "match": "match",
-    "game": "match",
+    # Multi-word sprint sessions must come before bare "race" and "sprint".
+    "sprint race": "sprint",
+    "sprint qualifying": "sprint_qualifying",
+    "shootout qualifying": "sprint_qualifying",
+    # Explicit free-practice forms should win before bare "practice".
+    "free practice 1": "practice",
+    "free practice 2": "practice",
+    "free practice 3": "practice",
+    "fp1": "practice",
+    "fp2": "practice",
+    "fp3": "practice",
+    "practice 1": "practice",
+    "practice 2": "practice",
+    "practice 3": "practice",
+    "practice": "practice",
+    "qualifying": "qualifying",
+    "qual": "qualifying",
+    "sprint": "sprint",
     "race": "race",
     "main event": "race",
+    "match": "match",
+    "game": "match",
     "pregame": "pregame",
     "pre game": "pregame",
     "pre-race show": "pregame",
@@ -48,28 +75,21 @@ SEGMENT_KIND_MAP = {
     "post-race analysis": "analysis",
     "analysis": "analysis",
     "highlights": "highlights",
-    "condensed": "condensed",
     "condensed game": "condensed",
+    "condensed": "condensed",
     "alternate feed": "alt_feed",
     "alt feed": "alt_feed",
     "alt": "alt_feed",
-    "qualifying": "qualifying",
-    "qual": "qualifying",
-    "sprint qualifying": "sprint_qualifying",
-    "shootout qualifying": "sprint_qualifying",
-    "sprint": "sprint",
-    "fp1": "practice",
-    "fp2": "practice",
-    "fp3": "practice",
-    "practice": "practice",
-    "practice 1": "practice",
-    "practice 2": "practice",
-    "practice 3": "practice",
 }
 
 NOISE_SUFFIXES = [
-    r"\b(?:720p|1080p|2160p|x264|x265|h\.?264|h\.?265|hevc|hdr|webrip|web-dl|bluray|aac)\b.*$",
+    r"\b(?:\d{3,4}(?:p|i)(?:en)?(?:\d{2}(?:fps?)?)?|x264|x265|h\.?264|h\.?265|hevc|hdr|"
+    r"webrip|web-dl|web|bluray|aac|hdtv|uhdtv|avc1|ddp?5\.1|4k)\b.*$",
 ]
+TITLE_PREFIX_RE = re.compile(
+    r"^(?:rs|ps|regular season|preseason|match\s+day\s*\d+|md\d+|round\s+\d+)\b[\s:-]*",
+    re.IGNORECASE,
+)
 
 
 @dataclass(slots=True)
@@ -99,6 +119,10 @@ def clean_stem(stem: str) -> str:
     for pattern in NOISE_SUFFIXES:
         result = re.sub(pattern, "", result, flags=re.IGNORECASE)
     return normalize_whitespace(result)
+
+
+def clean_title(value: str) -> str:
+    return normalize_whitespace(TITLE_PREFIX_RE.sub("", value))
 
 
 def infer_segment_kind(label: str | None, title: str) -> str:
@@ -136,7 +160,7 @@ def parse_filename(path: str | Path) -> ParsedFile:
             parsed_date = _parse_date(groups["date"])
         else:
             parsed_date = date(int(groups["year"]), int(groups["month"]), int(groups["day"]))
-        title = normalize_whitespace(groups.get("title", ""))
+        title = clean_title(groups.get("title", ""))
         label = normalize_whitespace(groups["label"]) if groups.get("label") else None
         kind = infer_segment_kind(label, title)
         return ParsedFile(

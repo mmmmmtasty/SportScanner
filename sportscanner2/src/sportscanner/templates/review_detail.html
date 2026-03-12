@@ -1,74 +1,110 @@
 {% extends "base.html" %}
 {% block title %}Review Task{% endblock %}
 {% block content %}
-<h1>Review Task {{ task.id }}</h1>
-{% if segment %}
-<article>
-  <header><strong>{{ segment.title }}</strong></header>
-  <p>
-    <strong>Competition:</strong> {{ competition.name if competition else "Unknown" }} &nbsp;|&nbsp;
-    <strong>Season:</strong> {{ season.label if season else "Unknown" }} &nbsp;|&nbsp;
-    <strong>Kind:</strong> {{ segment.kind }}
-    {% if segment.episode_number %}&nbsp;|&nbsp;<strong>Episode:</strong> {{ segment.episode_number }}{% endif %}
-    {% if segment.air_date %}&nbsp;|&nbsp;<strong>Air Date:</strong> {{ segment.air_date }}{% endif %}
-  </p>
-  <p><strong>Status:</strong> {{ segment.status }}</p>
-  <p style="font-size:0.85em;color:var(--pico-muted-color)">
-    <strong>File:</strong> {{ segment.source_path.split("/")[-1] }}<br/>
-    <strong>Full path:</strong> {{ segment.source_path }}
-  </p>
-</article>
-{% endif %}
-<section>
-  <h2>Candidates</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Confidence</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for candidate in task.candidates %}
-      <tr>
-        <td>{{ candidate.name or candidate["name"] }}</td>
-        <td>{{ candidate.confidence or candidate["confidence"] }}</td>
-        <td>
-          <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task.id) }}">
-            <input type="hidden" name="event_id" value="{{ candidate.event_id or candidate['event_id'] }}" />
-            <button type="submit">Use This Event</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="3">No automatic candidates.</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Review Task {{ task.id }}</p>
+    <h1>{{ segment.title if segment else task.segment_id }}</h1>
+    <p class="hero-copy">
+      {% if queue_position %}
+      Queue item {{ queue_position }} of {{ queue_total }}.
+      {% endif %}
+      Accept a candidate, search a better event, publish as a special, or ignore the file explicitly.
+    </p>
+  </div>
+  <div class="inline-actions">
+    {% if prev_task_id %}
+    <a href="{{ request.url_for('review_task_detail', task_id=prev_task_id) }}" role="button" class="secondary">Previous</a>
+    {% endif %}
+    {% if next_task_id %}
+    <a href="{{ request.url_for('review_task_detail', task_id=next_task_id) }}" role="button" class="secondary">Next</a>
+    {% endif %}
+    <a href="{{ request.url_for('review_queue') }}" role="button" class="secondary">Back To Queue</a>
+  </div>
 </section>
 
-<section>
-  <h2>Search for Event Manually</h2>
-  <form hx-get="{{ request.url_for('search_events_for_review', task_id=task.id) }}"
-        hx-target="#event-search-results"
-        hx-swap="innerHTML"
-        hx-trigger="submit">
-    <div style="display:flex;gap:0.5rem;align-items:flex-end">
-      <label style="flex:1;margin-bottom:0">
-        Competition or event name
-        <input name="q" placeholder="e.g. Formula 1, Monaco Grand Prix…" />
-      </label>
-      <button type="submit" class="secondary" style="margin-bottom:0">Search</button>
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>File Details</h2>
     </div>
-  </form>
-  <div id="event-search-results" style="margin-top:1rem"></div>
+    {% if segment %}
+    <div class="status-stack">
+      <div class="status-line"><span>Competition</span><strong>{{ competition.name if competition else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Kind</span><strong>{{ segment.kind }}</strong></div>
+      <div class="status-line"><span>Status</span><strong>{{ segment.status }}</strong></div>
+      <div class="status-line"><span>Episode</span><strong>{{ segment.episode_number or "Unassigned" }}</strong></div>
+      <div class="status-line"><span>Air date</span><strong>{{ segment.air_date or "Unknown" }}</strong></div>
+    </div>
+    <p class="helper-text"><strong>File:</strong> {{ segment.source_path.split("/")[-1] }}</p>
+    <p class="helper-text"><strong>Path:</strong> {{ segment.source_path }}</p>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Quick Actions</h2>
+    </div>
+    <div class="action-stack">
+      <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task.id) }}">
+        <input type="hidden" name="publish_as_special" value="1" />
+        <button type="submit" class="secondary">Publish As Season 0 Special</button>
+      </form>
+      <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task.id) }}">
+        <button type="submit" class="secondary">Ignore File</button>
+      </form>
+    </div>
+    <p class="helper-text">
+      Use <strong>Ignore File</strong> for bad captures or duplicates. Use <strong>Season 0 Special</strong> for content
+      that belongs in the library but does not map to a standard event.
+    </p>
+  </article>
 </section>
 
-<form method="post" action="{{ request.url_for('resolve_review_task', task_id=task.id) }}">
-  <input type="hidden" name="publish_as_special" value="1" />
-  <button type="submit" class="secondary">Publish As Season 0 Special</button>
-</form>
+<section class="panel">
+  <div class="panel-header">
+    <h2>Automatic Candidates</h2>
+    <span class="pill">{{ task.candidates|length }} candidate{% if task.candidates|length != 1 %}s{% endif %}</span>
+  </div>
+  <div class="card-grid">
+    {% for candidate in task.candidates %}
+    <article class="candidate-card">
+      <div>
+        <strong>{{ candidate.name or candidate["name"] }}</strong>
+        <p class="helper-text">Confidence {{ candidate.confidence or candidate["confidence"] }}</p>
+      </div>
+      <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task.id) }}">
+        <input type="hidden" name="event_id" value="{{ candidate.event_id or candidate['event_id'] }}" />
+        <button type="submit">Use This Event</button>
+      </form>
+    </article>
+    {% else %}
+    <p class="empty-state">No automatic candidates were confident enough to auto-publish.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Search For Another Event</h2>
+  </div>
+  <p class="helper-text">
+    Search cached events first, then load a fresh TheSportsDB event directly into the review flow if needed.
+  </p>
+  <form
+    class="search-form"
+    hx-get="{{ request.url_for('search_events_for_review', task_id=task.id) }}"
+    hx-target="#event-search-results"
+    hx-swap="innerHTML"
+    hx-trigger="submit, input changed delay:300ms from:input[name='q']"
+  >
+    <label>
+      Competition, event name, or date
+      <input name="q" value="{{ suggested_query }}" placeholder="e.g. Formula 1 Monaco Grand Prix 2025-05-25" />
+    </label>
+    <button type="submit" class="secondary">Search</button>
+  </form>
+  <div id="event-search-results" class="search-results"></div>
+</section>
 {% endblock %}

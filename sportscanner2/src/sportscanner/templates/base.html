@@ -11,9 +11,9 @@
   </head>
   <body>
     <main class="container">
-      <nav>
+      <nav class="topnav">
         <ul>
-          <li><strong>SportScanner 2</strong></li>
+          <li><a href="{{ request.url_for('dashboard') }}" class="brand">SportScanner 2</a></li>
         </ul>
         <ul>
           <li><a href="{{ request.url_for('dashboard') }}">Dashboard</a></li>

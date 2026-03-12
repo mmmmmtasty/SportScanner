@@ -1,20 +1,141 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<header>
-  <h1>Dashboard</h1>
-  <p>TheSportsDB mode: <strong>{{ api_mode }}</strong></p>
-</header>
-<section class="grid cards">
-  <article><h2>{{ stats.competitions }}</h2><p>Competitions</p></article>
-  <article><h2>{{ stats.seasons }}</h2><p>Seasons</p></article>
-  <article><h2>{{ stats.published_segments }}</h2><p>Published Segments</p></article>
-  <article><h2>{{ stats.review_tasks }}</h2><p>Open Review Tasks</p></article>
+<section class="hero">
+  <div>
+    <p class="eyebrow">Control Room</p>
+    <h1>SportScanner Dashboard</h1>
+    <p class="hero-copy">
+      Track ingest health, pending review work, and Plex connectivity without bouncing between screens.
+    </p>
+  </div>
+  <article class="hero-card">
+    <div class="status-line">
+      <span>TheSportsDB mode</span>
+      <strong>{{ api_mode }}</strong>
+    </div>
+    <div class="status-line">
+      <span>Provider URL</span>
+      <strong>{{ values.provider_public_url or "Not set" }}</strong>
+    </div>
+    <div class="status-line">
+      <span>Plex</span>
+      <strong>
+        {% if plex_status.reachable %}
+        Connected
+        {% elif plex_status.configured %}
+        Configured but unreachable
+        {% else %}
+        Not configured
+        {% endif %}
+      </strong>
+    </div>
+  </article>
 </section>
+
+<section class="stat-grid">
+  <article class="metric-card"><h2>{{ stats.competitions }}</h2><p>Competitions</p></article>
+  <article class="metric-card"><h2>{{ stats.seasons }}</h2><p>Seasons</p></article>
+  <article class="metric-card"><h2>{{ stats.published_segments }}</h2><p>Published</p></article>
+  <article class="metric-card"><h2>{{ stats.review_tasks }}</h2><p>Open Review Tasks</p></article>
+  <article class="metric-card"><h2>{{ stats.review_segments }}</h2><p>Queued For Review</p></article>
+  <article class="metric-card"><h2>{{ plex_status.show_library_count }}</h2><p>Plex Show Libraries</p></article>
+</section>
+
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>System Status</h2>
+    </div>
+    <div class="status-stack">
+      <div class="status-line">
+        <span>Plex connection</span>
+        <strong>
+          {% if plex_status.reachable %}
+          Connected
+          {% elif plex_status.configured %}
+          Needs attention
+          {% else %}
+          Missing credentials
+          {% endif %}
+        </strong>
+      </div>
+      <div class="status-line">
+        <span>Total library sections</span>
+        <strong>{{ plex_status.library_count }}</strong>
+      </div>
+      <div class="status-line">
+        <span>Open review tasks</span>
+        <strong>{{ stats.review_tasks }}</strong>
+      </div>
+      <div class="status-line">
+        <span>Staged segments</span>
+        <strong>{{ stats.staged_segments }}</strong>
+      </div>
+    </div>
+    {% if plex_status.error %}
+    <p class="helper-text">Plex status error: {{ plex_status.error }}</p>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Next Steps</h2>
+    </div>
+    <ul class="plain-list">
+      {% for step in next_steps %}
+      <li>{{ step }}</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Open Review Tasks</h2>
+      <a href="{{ request.url_for('review_queue') }}">Open queue</a>
+    </div>
+    <ul class="record-list">
+      {% for task in recent_tasks %}
+      <li>
+        <div>
+          <strong>{{ task.segment.title if task.segment else task.segment_id }}</strong>
+          <p>#{{ task.id }}{% if task.segment and task.segment.air_date %} · {{ task.segment.air_date }}{% endif %}</p>
+        </div>
+        <a href="{{ request.url_for('review_task_detail', task_id=task.id) }}">Review</a>
+      </li>
+      {% else %}
+      <li class="empty-state">No review work is waiting right now.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Recently Published</h2>
+      <a href="{{ request.url_for('competitions') }}">Browse competitions</a>
+    </div>
+    <ul class="record-list">
+      {% for row in recent_segments %}
+      <li>
+        <div>
+          <strong>{{ row.segment.title }}</strong>
+          <p>{{ row.competition }} · Season {{ row.season }}{% if row.segment.episode_number %} · E{{ row.segment.episode_number }}{% endif %}</p>
+        </div>
+        <a href="{{ request.url_for('segment_detail', segment_id=row.segment.id) }}">Open</a>
+      </li>
+      {% else %}
+      <li class="empty-state">No published segments yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+
 <section class="actions">
   <form method="post" action="{{ request.url_for('rescan') }}">
     <button type="submit">Rescan Incoming</button>
   </form>
+  <a href="{{ request.url_for('settings_page') }}" role="button" class="secondary">Review Settings</a>
 </section>
 {% endblock %}
-

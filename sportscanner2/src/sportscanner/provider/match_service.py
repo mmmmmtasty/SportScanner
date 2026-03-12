@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sportscanner.db.models import Competition, CompetitionSeason, Event, Segment, SegmentStatus
 from sportscanner.provider.items import (
     dedupe_metadata,
+    episode_display_title,
     episode_metadata,
     season_metadata,
     segment_event_dates,
@@ -325,12 +326,16 @@ class ProviderMatchService:
                     if segment_date != payload.date:
                         continue
                     score = min(100, score + 20)
+                event = session.get(Event, segment.event_id) if segment.event_id else None
                 if payload.title:
-                    title_score = sequence_score(payload.title, segment.title)
+                    display_title = episode_display_title(segment, event, competition.name)
+                    title_score = max(
+                        sequence_score(payload.title, segment.title),
+                        sequence_score(payload.title, display_title),
+                    )
                     if title_score < 60 and payload.index is None and payload.date is None:
                         continue
                     score = max(score, min(100, title_score))
-                event = session.get(Event, segment.event_id) if segment.event_id else None
                 items.append((score, segment, season, competition, event))
 
         items.sort(

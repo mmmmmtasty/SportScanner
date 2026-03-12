@@ -301,10 +301,22 @@ Use these examples:
 
 ### Configure Plex
 
-SportScanner can register the metadata provider for you, but you still create or edit the TV library
-inside Plex yourself.
+SportScanner can now both register the metadata provider and create a Plex TV library using Plex's
+current `Plex TV Series` scanner/agent pair plus the registered SportScanner provider group. If the
+automation fails against your PMS build, use the manual fallback below.
 
 #### New Plex Library
+
+Recommended automated path:
+
+1. Open `Settings`.
+2. Save the Plex connection values.
+3. Click `Register Provider And Group`.
+4. On the `Plex Registration` page, use `Create Plex Test Library`.
+5. Enter the absolute managed library path as Plex sees it.
+6. Submit the form.
+
+Manual fallback:
 
 1. Open the Plex Web App.
 2. Click `+ Add Library`.
@@ -314,12 +326,13 @@ inside Plex yourself.
 6. Click `Browse For Media Folder`.
 7. Select the managed `library` folder created by SportScanner.
 8. Click `Advanced`.
-9. Set `Agent` to `SportScanner 2` or the custom provider group name you saved earlier.
-10. Leave `Use season titles when available` checked.
-11. Click `Add Library`.
-12. Open the library's `...` menu.
-13. Click `Manage Library`.
-14. Click `Refresh All Metadata`.
+9. Leave the scanner on `Plex TV Series`.
+10. Set `Agent` to `SportScanner 2` or the custom provider group name you saved earlier.
+11. Leave `Use season titles when available` checked.
+12. Click `Add Library`.
+13. Open the library's `...` menu.
+14. Click `Manage Library`.
+15. Click `Refresh All Metadata`.
 
 #### Existing Plex Library
 
@@ -351,6 +364,8 @@ Examples that the parser understands:
 ```text
 Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv
 English Premier League 2024.12.14 Arsenal vs Bournemouth.mkv
+EPL 2025 Aston Villa vs Manchester United 21 12 1080pEN60fps Peacock.mkv
+NHL 14-01-2026 RS Philadelphia Flyers vs Buffalo Sabres 1080p60_EN_TNT.mkv
 Formula1-2025-20250629-Austrian-Grand-Prix.mp4
 ```
 
@@ -477,10 +492,19 @@ media file:
 season_pattern: "cross_year"
 season_split_month: 7
 season_split_day: 1
+event_order: "weekend"
 ```
 
 Cross-year labels must stay in full `YYYY-YYYY` form, for example `2024-2025`. That is the label
 SportScanner uses when it asks TheSportsDB for league and cup schedules.
+
+`event_order` controls how upstream events are sequenced into Plex episode numbers:
+
+- `official`: default chronological ordering
+- `weekend`: all sessions from the same event weekend share the same event sequence
+- `round`: order by explicit upstream round number
+
+For Formula 1, `event_order: "weekend"` is usually the right choice.
 
 ## How Sports Map To Plex
 
@@ -537,6 +561,9 @@ Usually one of these is true:
 - the competition name does not match a real competition well enough
 - the upstream season data is incomplete
 - the file needs a `.sportscanner.yml` sidecar
+
+The `Review` screen now searches both cached events and live TheSportsDB matches. If you find the
+correct upstream event there, you can load it directly into the review flow without leaving the app.
 
 ## Schedule Changes And Uncertain Calendars
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from difflib import SequenceMatcher
 
@@ -48,22 +49,32 @@ PRIMARY_EVENT_KINDS = {
     "sprint",
     "sprint_qualifying",
 }
+_YEAR_PREFIX_RE = re.compile(r"^\d{4}(?:/\d{2,4})?\s+")
 
 
 def normalize_title(value: str) -> str:
     return "".join(char.lower() if char.isalnum() else " " for char in value).split()
 
 
-def episode_display_title(segment: Segment, event: Event | None) -> str:
+def _strip_event_name_prefixes(event_name: str, competition_name: str) -> str:
+    text = _YEAR_PREFIX_RE.sub("", event_name).strip()
+    competition = competition_name.strip()
+    if competition and text.lower().startswith(competition.lower()):
+        text = text[len(competition):].lstrip(" -–").strip()
+    return text or event_name
+
+
+def episode_display_title(segment: Segment, event: Event | None, competition_name: str = "") -> str:
     if event is None or not event.name:
         return segment.title
+    stripped_event = _strip_event_name_prefixes(event.name, competition_name)
     if segment.kind in PRIMARY_EVENT_KINDS:
-        return event.name
-    event_tokens = normalize_title(event.name)
+        return stripped_event
+    event_tokens = normalize_title(stripped_event)
     segment_tokens = normalize_title(segment.title)
     if segment_tokens[: len(event_tokens)] == event_tokens:
         return segment.title
-    return f"{event.name} {segment.title}".strip()
+    return f"{stripped_event} {segment.title}".strip()
 
 
 def first_event_date(session, competition_id: str, season_number: int | None = None) -> date | None:
@@ -93,7 +104,7 @@ def episode_metadata(
         guid=make_episode_guid(segment.id, provider_identifier),
         key=f"/library/metadata/{rating_key}",
         type="episode",
-        title=episode_display_title(segment, event),
+        title=episode_display_title(segment, event, competition.name),
         summary=segment.summary or (event.description if event is not None else None),
         year=aired_at.year if aired_at is not None else None,
         index=segment.episode_number,

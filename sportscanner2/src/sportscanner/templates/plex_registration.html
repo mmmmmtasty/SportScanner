@@ -1,48 +1,85 @@
 {% extends "base.html" %}
 {% block title %}Plex Registration{% endblock %}
 {% block content %}
-<h1>Plex Registration</h1>
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Plex Setup</p>
+    <h1>Plex Registration</h1>
+    <p class="hero-copy">
+      Register the provider group, then create a TV library that uses Plex TV Series plus the SportScanner metadata
+      provider group.
+    </p>
+  </div>
+</section>
+
 {% if error %}
-<article>
-  <header>Action failed</header>
+<article class="panel">
+  <div class="panel-header">
+    <h2>Action Failed</h2>
+  </div>
   <p>{{ error }}</p>
   <p><a href="{{ request.url_for('settings_page') }}">Back to Settings</a></p>
 </article>
 {% endif %}
 
 {% if result %}
-<article>
-  <header>Provider registered</header>
-  <p><strong>Provider Identifier:</strong> {{ result.provider_identifier }}</p>
-  <p><strong>Provider URI:</strong> {{ result.provider_uri }}</p>
-  <p><strong>Provider Group ID:</strong> {{ result.provider_group_id }}</p>
+<article class="panel">
+  <div class="panel-header">
+    <h2>Provider Registered</h2>
+  </div>
+  <div class="status-stack">
+    <div class="status-line"><span>Provider identifier</span><strong>{{ result.provider_identifier }}</strong></div>
+    <div class="status-line"><span>Provider URI</span><strong>{{ result.provider_uri }}</strong></div>
+    <div class="status-line"><span>Provider group ID</span><strong>{{ result.provider_group_id }}</strong></div>
+  </div>
 </article>
 {% endif %}
 
 {% if library_name and library_section_id %}
-<article>
-  <header>Library created</header>
-  <p><strong>Library Name:</strong> {{ library_name }}</p>
-  <p><strong>Section ID:</strong> {{ library_section_id }}</p>
+<article class="panel">
+  <div class="panel-header">
+    <h2>Library Created</h2>
+  </div>
+  <p><strong>{{ library_name }}</strong> was created as Plex section {{ library_section_id }}.</p>
 </article>
 {% endif %}
 
-<section>
-  <h2>Create Plex Test Library</h2>
-  <p>Create a TV Shows library in Plex pointing at your SportScanner managed library path.</p>
-  <form method="post" action="{{ request.url_for('create_plex_library') }}">
-    <label>
-      Library Name
-      <input name="library_name" value="Sport_Test" placeholder="Sport_Test" required />
-      <small>The name shown in Plex for this library.</small>
-    </label>
-    <label>
-      Media Location (on Plex host)
-      <input name="library_location" value="/sport/sportscanner2-dev" placeholder="/sport/sportscanner2-dev" required />
-      <small>Absolute path on the machine running Plex Media Server.</small>
-    </label>
-    <button type="submit">Create Library in Plex</button>
-  </form>
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Create Plex Test Library</h2>
+    </div>
+    <p>
+      This automation now creates a TV library with Plex's current <code>Plex TV Series</code> scanner/agent pair and
+      attaches the SportScanner provider group via <code>metadataAgentProviderGroupId</code>.
+    </p>
+    <form method="post" action="{{ request.url_for('create_plex_library') }}">
+      <label>
+        Library Name
+        <input name="library_name" value="Sport_Test" placeholder="Sport_Test" required />
+        <small>The name shown in Plex for this library.</small>
+      </label>
+      <label>
+        Media Location (on Plex host)
+        <input name="library_location" value="/sport/sportscanner2-dev" placeholder="/sport/sportscanner2-dev" required />
+        <small>Absolute path on the machine running Plex Media Server.</small>
+      </label>
+      <button type="submit">Create Library In Plex</button>
+    </form>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Manual Fallback</h2>
+    </div>
+    <ol class="plain-list">
+      <li>Open Plex and add a new <strong>TV Shows</strong> library.</li>
+      <li>Point it at the managed SportScanner library path, not the incoming folder.</li>
+      <li>On the advanced screen, leave the scanner as <strong>Plex TV Series</strong>.</li>
+      <li>Select the SportScanner provider group as the library agent.</li>
+      <li>Finish library creation, then use the libraries page here to force refresh if metadata stays local.</li>
+    </ol>
+  </article>
 </section>
 
 <p>

@@ -122,3 +122,26 @@ def test_extract_group_id_accepts_object_or_list() -> None:
     assert PlexPmsClient._extract_group_id({"MediaContainer": {"MetadataAgentProviderGroup": {"id": 7}}}) == 7
     assert PlexPmsClient._extract_group_id({"MediaContainer": {"MetadataAgentProviderGroup": [{"id": 8}]}}) == 8
     assert PlexPmsClient._extract_group_id({"MediaContainer": {"MetadataAgentProviderGroup": []}}) is None
+
+
+@respx.mock
+def test_create_tv_shows_library_uses_current_plex_series_pair_and_provider_group() -> None:
+    client = PlexPmsClient(base_url="http://plex:32400", token="abc123")
+    route = respx.post("http://plex:32400/library/sections").mock(
+        return_value=httpx.Response(
+            200,
+            json={"MediaContainer": {"Directory": [{"key": "17"}]}},
+        )
+    )
+
+    section_id = client.create_tv_shows_library(
+        name="Sport_Test",
+        location="/sport/sportscanner2-dev",
+        provider_group_id=42,
+    )
+
+    assert section_id == 17
+    assert route.called
+    assert route.calls[0].request.url.params["agent"] == "tv.plex.agents.series"
+    assert route.calls[0].request.url.params["scanner"] == "Plex TV Series"
+    assert route.calls[0].request.url.params["metadataAgentProviderGroupId"] == "42"

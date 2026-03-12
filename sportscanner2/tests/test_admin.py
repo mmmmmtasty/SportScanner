@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 import httpx
 from fastapi.testclient import TestClient
 
+from sportscanner.db.models import ReviewTask
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.plex import PlexRegistrationResult
+from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
 
 
 def test_settings_page_explains_plex_fields(provider_app) -> None:
@@ -130,8 +133,150 @@ def test_register_plex_failure_renders_html_error(provider_app) -> None:
     response = client.post("/admin/register-plex", follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Action failed" in response.text
+    assert "Action Failed" in response.text
     assert "Plex returned 400 Bad Request." in response.text
+
+
+def test_dashboard_shows_connected_plex_state(provider_app) -> None:
+    class FakePlex:
+        def with_credentials(self, base_url, token):
+            return self
+
+        def list_library_sections(self):
+            return [
+                {"key": 1, "title": "Sport_Test", "type": "show", "agent": "tv.plex.agents.series", "scanner": "Plex TV Series"},
+                {"key": 2, "title": "Movies", "type": "movie", "agent": "", "scanner": ""},
+            ]
+
+    provider_app.state.services.plex = FakePlex()
+    client = TestClient(provider_app)
+    client.post(
+        "/admin/settings",
+        data={
+            "pms_url": "http://plex:32400",
+            "pms_token": "abc123",
+            "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_identifier": "tv.plex.agents.custom.sportscanner.metadata.local",
+            "plex_provider_group_name": "SportScanner 2",
+        },
+        follow_redirects=False,
+    )
+
+    response = client.get("/admin/")
+
+    assert response.status_code == 200
+    assert "Plex Show Libraries" in response.text
+    assert "Connected" in response.text
+
+
+def test_create_plex_library_registers_provider_group_before_creation(provider_app) -> None:
+    class FakePlex:
+        def __init__(self) -> None:
+            self.created_with = None
+            self.registered_with = None
+
+        def with_credentials(self, base_url, token):
+            return self
+
+        def register_provider_and_group(self, *, provider_uri, provider_identifier, provider_group_name):
+            self.registered_with = (provider_uri, provider_identifier, provider_group_name)
+            return PlexRegistrationResult(
+                provider_identifier=provider_identifier,
+                provider_uri=provider_uri,
+                provider_group_id=42,
+            )
+
+        def create_tv_shows_library(self, *, name, location, provider_group_id):
+            self.created_with = (name, location, provider_group_id)
+            return 17
+
+    fake = FakePlex()
+    provider_app.state.services.plex = fake
+    client = TestClient(provider_app)
+    client.post(
+        "/admin/settings",
+        data={
+            "pms_url": "http://plex:32400",
+            "pms_token": "abc123",
+            "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_identifier": "tv.plex.agents.custom.sportscanner.metadata.local",
+            "plex_provider_group_name": "SportScanner 2",
+        },
+        follow_redirects=False,
+    )
+
+    response = client.post(
+        "/admin/create-plex-library",
+        data={"library_name": "Sport_Test", "library_location": "/sport/sportscanner2-dev"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert fake.registered_with is not None
+    assert fake.created_with == ("Sport_Test", "/sport/sportscanner2-dev", 42)
+
+
+def test_review_task_detail_shows_queue_position_and_ignore_action(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        session.add_all(
+            [
+                ReviewTask(segment_id="seg_primary", task_type="match_review"),
+                ReviewTask(segment_id="seg_primary", task_type="match_review"),
+            ]
+        )
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.get("/admin/review/1")
+
+    assert response.status_code == 200
+    assert "Queue item 1 of 2" in response.text
+    assert "Ignore File" in response.text
+
+
+def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
+    class SearchMetadataSource:
+        name = "fake"
+
+        def probe(self) -> str:
+            return "v1"
+
+        def all_competitions(self) -> list[UpstreamCompetition]:
+            return []
+
+        def search_filename(self, query: str) -> list[UpstreamEvent]:
+            if "Australian" not in query:
+                return []
+            return [
+                UpstreamEvent(
+                    id="tsdb_2001",
+                    tsdb_id=2001,
+                    name="Australian Grand Prix Qualifying",
+                    competition_name="Formula 1",
+                    date=date(2025, 6, 28),
+                )
+            ]
+
+        def events_on_day(self, competition_name: str, event_date: date) -> list[UpstreamEvent]:
+            return []
+
+        def season_events(self, competition: UpstreamCompetition, season_label: str) -> tuple[list[UpstreamEvent], bool]:
+            return ([], False)
+
+        def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
+            return None
+
+    provider_app.state.services.metadata_source = SearchMetadataSource()
+    with provider_app.state.services.session_factory() as session:
+        session.add(ReviewTask(segment_id="seg_primary", task_type="match_review"))
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.get("/admin/review/1/search?q=Australian")
+
+    assert response.status_code == 200
+    assert "Load From TheSportsDB" in response.text
+    assert "TheSportsDB" in response.text
 
 
 def test_stats_json_returns_counts(provider_app) -> None:

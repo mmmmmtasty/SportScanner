@@ -9,6 +9,13 @@ from typing import Iterable
 MAX_RANGE_SIZE = 10
 _LATE_DATE = date.max
 _LATE_TIME = time.max
+_YEAR_PREFIX_RE = re.compile(r"^\d{4}(?:/\d{2,4})?\s+")
+_DASH_SESSION_SUFFIX_RE = re.compile(
+    r"\s*[-–]\s*\b(?:free\s+practice\s*\d*|fp\d+|practice\s*\d*|"
+    r"sprint\s+qualifying|sprint\s+race|sprint|qualifying|qual|race|"
+    r"pregame|postgame|highlights|analysis|condensed)\b.*$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(slots=True)
@@ -34,9 +41,13 @@ def normalize_title(value: str) -> str:
 
 
 def derive_weekend_group(name: str) -> str:
-    normalized = normalize_title(name)
+    text = _YEAR_PREFIX_RE.sub("", name).strip()
+    text = _DASH_SESSION_SUFFIX_RE.sub("", text).strip()
+    normalized = normalize_title(text)
     normalized = re.sub(
-        r"\b(practice\s*\d+|fp\d+|qualifying|sprint qualifying|sprint|race|pregame|postgame|highlights|analysis|condensed)\b",
+        r"\b(free\s+practice\s*\d*|fp\d+|practice\s*\d+|practice|"
+        r"sprint\s+qualifying|sprint\s+race|sprint|qualifying|qual|race|"
+        r"pregame|postgame|highlights|analysis|condensed)\b",
         "",
         normalized,
     )
@@ -57,14 +68,6 @@ def compute_event_sequences(events: Iterable[EventSequenceInput], event_order: s
             normalize_title(item.name),
         )
 
-    def weekend_key(item: EventSequenceInput) -> tuple:
-        return (
-            normalize_title(item.weekend_group or derive_weekend_group(item.name)),
-            item.event_date or _LATE_DATE,
-            item.event_time or _LATE_TIME,
-            normalize_title(item.name),
-        )
-
     def round_key(item: EventSequenceInput) -> tuple:
         return (
             item.round_number if item.round_number is not None else 10**9,
@@ -73,9 +76,25 @@ def compute_event_sequences(events: Iterable[EventSequenceInput], event_order: s
             normalize_title(item.name),
         )
 
+    if event_order == "weekend":
+        grouped: dict[str, list[EventSequenceInput]] = {}
+        for item in items:
+            grouped.setdefault(
+                normalize_title(item.weekend_group or derive_weekend_group(item.name)),
+                [],
+            ).append(item)
+        ordered_groups = sorted(
+            grouped.items(),
+            key=lambda item: min(official_key(event) for event in item[1]),
+        )
+        sequence_map: dict[str, int] = {}
+        for index, (_, group_items) in enumerate(ordered_groups, start=1):
+            for item in group_items:
+                sequence_map[item.event_id] = index
+        return sequence_map
+
     key_fn = {
         "official": official_key,
-        "weekend": weekend_key,
         "round": round_key,
     }[event_order]
 
@@ -156,4 +175,3 @@ def compute_segment_codes(segments: Iterable[SegmentCodeInput]) -> dict[str, int
 
 def episode_number(event_sequence: int, segment_code: int) -> int:
     return event_sequence * 100 + segment_code
-

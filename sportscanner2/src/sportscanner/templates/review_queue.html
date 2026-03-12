@@ -1,35 +1,72 @@
 {% extends "base.html" %}
 {% block title %}Review Queue{% endblock %}
 {% block content %}
-<h1>Review Queue</h1>
-<table>
-  <thead>
-    <tr>
-      <th>ID</th>
-      <th>Title</th>
-      <th>Kind</th>
-      <th>Air Date</th>
-      <th>Source File</th>
-      <th>Type</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for task in tasks %}
-    <tr>
-      <td>{{ task.id }}</td>
-      <td>{{ task.segment.title if task.segment else task.segment_id }}</td>
-      <td>{{ task.segment.kind if task.segment else "" }}</td>
-      <td>{{ task.segment.air_date if task.segment else "" }}</td>
-      <td style="font-size:0.8em;color:var(--pico-muted-color)">{{ task.segment.source_path.split("/")[-1] if task.segment else "" }}</td>
-      <td>{{ task.task_type }}</td>
-      <td><a href="{{ request.url_for('review_task_detail', task_id=task.id) }}">Open</a></td>
-    </tr>
-    {% else %}
-    <tr>
-      <td colspan="7">No review tasks.</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Manual Review</p>
+    <h1>Review Queue</h1>
+    <p class="hero-copy">Resolve ambiguous matches, search cached or upstream events, and move edge cases forward cleanly.</p>
+  </div>
+  <article class="hero-card queue-card">
+    <div class="status-line">
+      <span>Open tasks</span>
+      <strong>{{ summary.open_tasks }}</strong>
+    </div>
+    <div class="status-line">
+      <span>Resolved tasks</span>
+      <strong>{{ summary.resolved_tasks }}</strong>
+    </div>
+    <div class="status-line">
+      <span>Segments in review</span>
+      <strong>{{ summary.review_segments }}</strong>
+    </div>
+  </article>
+</section>
+
+<section class="stat-grid compact-grid">
+  <article class="metric-card"><h2>{{ summary.open_tasks }}</h2><p>Open Tasks</p></article>
+  <article class="metric-card"><h2>{{ summary.resolved_tasks }}</h2><p>Resolved Tasks</p></article>
+  <article class="metric-card"><h2>{{ summary.review_segments }}</h2><p>Review Segments</p></article>
+  <article class="metric-card"><h2>{{ summary.staged_segments }}</h2><p>Staged Segments</p></article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Queue</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Competition</th>
+          <th>Title</th>
+          <th>Kind</th>
+          <th>Air Date</th>
+          <th>Source File</th>
+          <th>Candidates</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in tasks %}
+        <tr>
+          <td>{{ row.task.id }}</td>
+          <td>{{ row.competition.name if row.competition else "Unknown" }}</td>
+          <td>{{ row.segment.title if row.segment else row.task.segment_id }}</td>
+          <td>{{ row.segment.kind if row.segment else "" }}</td>
+          <td>{{ row.segment.air_date if row.segment else "" }}</td>
+          <td class="muted-cell">{{ row.segment.source_path.split("/")[-1] if row.segment else "" }}</td>
+          <td>{{ row.task.candidates|length }}</td>
+          <td><a href="{{ request.url_for('review_task_detail', task_id=row.task.id) }}">Review</a></td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" class="empty-state">No review tasks.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

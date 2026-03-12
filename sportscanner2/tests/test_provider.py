@@ -224,10 +224,11 @@ def test_provider_episode_metadata_prefers_upstream_event_fields(provider_app) -
         segment = event.segments[0]
         competition.poster_url = "https://example.com/show.jpg"
         competition.formed_year = 1950
-        event.name = "Austrian Grand Prix Qualifying"
+        event.name = "2025 Formula 1 Australian Grand Prix - Qualifying"
         event.description = "Upstream summary"
         event.thumb_url = "https://example.com/event.jpg"
-        segment.title = "Custom Local Suffix"
+        segment.kind = "qualifying"
+        segment.title = "Qualifying"
         segment.summary = None
         segment.thumb_url = None
         session.commit()
@@ -237,13 +238,39 @@ def test_provider_episode_metadata_prefers_upstream_event_fields(provider_app) -
 
     assert response.status_code == 200
     metadata = response.json()["MediaContainer"]["Metadata"][0]
-    assert metadata["title"] == "Austrian Grand Prix Qualifying"
+    assert metadata["title"] == "Australian Grand Prix - Qualifying"
     assert metadata["summary"] == "Upstream summary"
     assert metadata["thumb"] == "https://example.com/event.jpg"
     assert metadata["parentThumb"] == "https://example.com/show.jpg"
     assert metadata["grandparentType"] == "show"
     assert metadata["grandparentThumb"] == "https://example.com/show.jpg"
     assert metadata["year"] == 2025
+
+
+def test_provider_episode_match_uses_display_title_similarity(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
+        assert event is not None
+        segment = event.segments[0]
+        event.name = "2025 Formula 1 Australian Grand Prix - Qualifying"
+        segment.kind = "qualifying"
+        segment.title = "Qualifying"
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.post(
+        "/provider/tv/library/metadata/matches",
+        json={
+            "type": 4,
+            "title": "Australian Grand Prix - Qualifying",
+            "grandparentTitle": "Formula 1",
+        },
+    )
+
+    assert response.status_code == 200
+    results = response.json()["MediaContainer"]["Metadata"]
+    assert len(results) == 1
+    assert results[0]["title"] == "Australian Grand Prix - Qualifying"
 
 
 def test_provider_invalid_rating_key_returns_404(provider_app) -> None:

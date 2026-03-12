@@ -32,7 +32,7 @@ class _Handler(FileSystemEventHandler):  # pragma: no cover - thin watchdog wrap
         existing = self._timers.get(event.src_path)
         if existing is not None:
             existing.cancel()
-        timer = threading.Timer(self.debounce_seconds, self.organizer.ingest_path, args=(path,))
+        timer = threading.Timer(self.debounce_seconds, self.organizer.ingest_path_if_parseable, args=(path,))
         timer.daemon = True
         timer.start()
         self._timers[event.src_path] = timer

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from difflib import SequenceMatcher
@@ -12,6 +13,17 @@ from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
 
 def similarity(left: str, right: str) -> float:
     return SequenceMatcher(None, left.lower(), right.lower()).ratio()
+
+
+_COMPETITION_NOISE_SUFFIXES = re.compile(
+    r"\b(?:world\s+championship|championship|series)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_competition_name(name: str) -> str:
+    normalized = _COMPETITION_NOISE_SUFFIXES.sub("", name).strip()
+    return normalized or name
 
 
 @dataclass(slots=True)
@@ -31,12 +43,15 @@ class EventMatch:
     candidates: list[dict]
 
 
-def best_db_competition_match(query: str, competitions: Iterable[Competition], threshold: float = 0.8) -> Competition | None:
+def best_db_competition_match(query: str, competitions: Iterable[Competition], threshold: float = 0.75) -> Competition | None:
+    normalized_query = _normalize_competition_name(query)
     best_score = 0.0
     best_competition: Competition | None = None
     for competition in competitions:
         for name in competition.all_names():
-            score = similarity(query, name)
+            raw_score = similarity(query, name)
+            norm_score = similarity(normalized_query, _normalize_competition_name(name))
+            score = max(raw_score, norm_score)
             if score > best_score:
                 best_score = score
                 best_competition = competition
@@ -48,11 +63,18 @@ def best_db_competition_match(query: str, competitions: Iterable[Competition], t
 def best_upstream_competition_match(
     query: str,
     competitions: Iterable[UpstreamCompetition],
-    threshold: float = 0.8,
+    threshold: float = 0.75,
 ) -> CompetitionMatch | None:
+    normalized_query = _normalize_competition_name(query)
     best: CompetitionMatch | None = None
     for competition in competitions:
-        score = max(similarity(query, name) for name in [competition.name, *competition.alternate_names] if name)
+        names = [name for name in [competition.name, *competition.alternate_names] if name]
+        if not names:
+            continue
+        score = max(
+            max(similarity(query, name) for name in names),
+            max(similarity(normalized_query, _normalize_competition_name(name)) for name in names),
+        )
         if best is None or score > best.confidence:
             best = CompetitionMatch(
                 name=competition.name,
@@ -85,9 +107,13 @@ def match_event(
     season_events: Iterable[UpstreamEvent],
 ) -> EventMatch:
     normalized_show = parsed.show.lower()
+    normalized_show_n = _normalize_competition_name(parsed.show).lower()
     filtered_search = [
         item for item in search_results
-        if not item.competition_name or similarity(normalized_show, item.competition_name.lower()) >= 0.7
+        if not item.competition_name or max(
+            similarity(normalized_show, item.competition_name.lower()),
+            similarity(normalized_show_n, _normalize_competition_name(item.competition_name).lower()),
+        ) >= 0.6
     ]
     if filtered_search:
         best_search = max(filtered_search, key=lambda item: similarity(parsed.title, item.name))

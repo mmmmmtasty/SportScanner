@@ -11,10 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from sportscanner.config import Settings
-from sportscanner.db.models import Competition, CompetitionSeason, Event, EventOrigin, ReviewTask, ReviewTaskStatus, Segment, SegmentStatus
+from sportscanner.db.models import Competition, CompetitionSeason, Event, EventOrder, EventOrigin, ReviewTask, ReviewTaskStatus, Segment, SegmentStatus
 from sportscanner.db.queries import get_or_create_competition_season, get_segment_by_source_path
 from sportscanner.organizer.matcher import best_db_competition_match, best_upstream_competition_match, match_event, season_for_date
-from sportscanner.organizer.numbering import EventSequenceInput, SegmentCodeInput, compute_event_sequences, compute_segment_codes, episode_number
+from sportscanner.organizer.numbering import EventSequenceInput, SegmentCodeInput, compute_event_sequences, compute_segment_codes, derive_weekend_group, episode_number
 from sportscanner.organizer.parser import ParsedFile, is_media_file, parse_filename
 from sportscanner.organizer.placer import build_managed_filename, place_file, season_directory_name
 from sportscanner.organizer.plexmatch import render_season_plexmatch, render_show_plexmatch, write_atomic_if_changed
@@ -112,10 +112,17 @@ class OrganizerService:
             logger.info("rescan_started incoming_dir=%s", incoming)
             for path in sorted(incoming.rglob("*")):
                 if path.is_file() and is_media_file(path):
-                    self.ingest_path(path)
-                    processed.append(str(path))
+                    if self.ingest_path_if_parseable(path) is not None:
+                        processed.append(str(path))
             logger.info("rescan_completed processed_count=%s", len(processed))
             return processed
+
+    def ingest_path_if_parseable(self, source_path: str | Path) -> Segment | None:
+        try:
+            return self.ingest_path(source_path)
+        except ValueError as exc:
+            logger.warning("ingest_skipped_unparsable source_path=%s error=%s", source_path, exc)
+            return None
 
     def ingest_path(self, source_path: str | Path) -> Segment:
         with self._ingest_lock:
@@ -144,6 +151,7 @@ class OrganizerService:
         task_id: int,
         *,
         event_id: str | None = None,
+        tsdb_event_id: int | None = None,
         publish_as_special: bool = False,
     ) -> Segment:
         with self.session_factory() as session:
@@ -157,19 +165,25 @@ class OrganizerService:
             if publish_as_special:
                 segment = self._publish_as_special(session, segment)
                 task.resolution = {"type": "special", "event_id": segment.event_id}
+            elif tsdb_event_id is not None:
+                event = self._resolve_review_lookup_event(session, segment, tsdb_event_id)
+                segment = self._assign_segment_to_event(
+                    session,
+                    segment,
+                    event,
+                    match_method="manual_lookup_event_id",
+                )
+                task.resolution = {"type": "tsdb_event", "event_id": event.id, "tsdb_event_id": tsdb_event_id}
             elif event_id:
                 event = session.get(Event, event_id)
                 if event is None:
                     raise KeyError(f"Unknown event: {event_id}")
-                segment.event_id = event.id
-                segment.competition_season_id = event.competition_season_id
-                segment.status = SegmentStatus.PUBLISHED.value
-                segment.match_confidence = 1.0
-                segment.match_method = "manual_resolution"
-                session.flush()
-                self._recompute_sequences_for_season(session, event.competition_season_id)
-                self._recompute_segments_for_event(session, event.id)
-                self._publish_segment(session, segment)
+                segment = self._assign_segment_to_event(
+                    session,
+                    segment,
+                    event,
+                    match_method="manual_resolution",
+                )
                 task.resolution = {"type": "event", "event_id": event.id}
             else:
                 segment.status = SegmentStatus.IGNORED.value
@@ -187,6 +201,64 @@ class OrganizerService:
                 segment.event_id,
             )
             return refreshed
+
+    def _assign_segment_to_event(
+        self,
+        session: Session,
+        segment: Segment,
+        event: Event,
+        *,
+        match_method: str,
+    ) -> Segment:
+        segment.event_id = event.id
+        segment.competition_season_id = event.competition_season_id
+        segment.status = SegmentStatus.PUBLISHED.value
+        segment.match_confidence = 1.0
+        segment.match_method = match_method
+        session.flush()
+        self._recompute_sequences_for_season(session, event.competition_season_id)
+        self._recompute_segments_for_event(session, event.id)
+        self._publish_segment(session, segment)
+        return segment
+
+    def _resolve_review_lookup_event(self, session: Session, segment: Segment, tsdb_event_id: int) -> Event:
+        if self.metadata_source is None:
+            raise ValueError("Metadata source is not configured")
+        upstream = self.metadata_source.lookup_event(tsdb_event_id)
+        if upstream is None:
+            raise KeyError(f"Unknown upstream event: {tsdb_event_id}")
+
+        current_season = session.get(CompetitionSeason, segment.competition_season_id)
+        current_competition = session.get(Competition, current_season.competition_id) if current_season else None
+        if current_competition is not None and (
+            not upstream.competition_name
+            or best_db_competition_match(
+                upstream.competition_name,
+                [current_competition],
+                threshold=0.6,
+            )
+            is not None
+        ):
+            competition = current_competition
+        else:
+            competition_name = upstream.competition_name or (current_competition.name if current_competition else "")
+            competition = self._resolve_competition(session, competition_name)
+
+        if upstream.date is not None:
+            season_number, season_label = season_for_date(upstream.date, competition)
+            season = get_or_create_competition_season(
+                session,
+                competition=competition,
+                season_number=season_number,
+                label=season_label,
+                is_complete=True,
+            )
+            session.flush()
+        elif current_season is not None and current_season.competition_id == competition.id:
+            season = current_season
+        else:
+            raise KeyError(f"Could not resolve season for upstream event: {tsdb_event_id}")
+        return self._upsert_event(session, season.id, upstream)
 
     def _upsert_segment_from_path(self, session: Session, parsed: ParsedFile, sidecar: SidecarMetadata) -> Segment:
         # Pre-fetch upstream search results before any session.flush() to avoid a
@@ -336,6 +408,18 @@ class OrganizerService:
             competition.season_split_month = int(config["season_split_month"])
         if config.get("season_split_day"):
             competition.season_split_day = int(config["season_split_day"])
+        if config.get("event_order"):
+            raw = config["event_order"].lower()
+            valid_orders = {item.value for item in EventOrder}
+            if raw in valid_orders:
+                competition.event_order = raw
+            else:
+                logger.warning(
+                    "competition_config_invalid_event_order competition=%s value=%s valid=%s",
+                    competition.name,
+                    raw,
+                    sorted(valid_orders),
+                )
 
     def _resolve_season(self, parsed: ParsedFile, competition: Competition, sidecar: SidecarMetadata) -> tuple[int, str]:
         if sidecar.season is not None:
@@ -414,7 +498,7 @@ class OrganizerService:
         event.away_score = upstream.away_score
         event.description = upstream.description
         event.thumb_url = upstream.thumb_url
-        event.weekend_group = upstream.weekend_group
+        event.weekend_group = upstream.weekend_group or derive_weekend_group(upstream.name)
         session.flush()
         return event
 
