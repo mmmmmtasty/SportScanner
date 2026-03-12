@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sportscanner.config import Settings
 from sportscanner.db.models import Competition, CompetitionSeason, Event, EventOrder, EventOrigin, ReviewTask, ReviewTaskStatus, Segment, SegmentStatus
 from sportscanner.db.queries import get_or_create_competition_season, get_segment_by_source_path
+from sportscanner.metadata_snapshot import clear_segment_metadata_snapshot, sync_segment_metadata_snapshot
 from sportscanner.organizer.matcher import best_db_competition_match, best_upstream_competition_match, match_event, season_for_date
 from sportscanner.organizer.numbering import EventSequenceInput, SegmentCodeInput, compute_event_sequences, compute_segment_codes, derive_weekend_group, episode_number
 from sportscanner.organizer.parser import ParsedFile, is_media_file, parse_filename
@@ -187,6 +188,7 @@ class OrganizerService:
                 task.resolution = {"type": "event", "event_id": event.id}
             else:
                 segment.status = SegmentStatus.IGNORED.value
+                clear_segment_metadata_snapshot(segment)
                 task.resolution = {"type": "ignored"}
 
             task.status = ReviewTaskStatus.RESOLVED.value
@@ -299,6 +301,7 @@ class OrganizerService:
         segment.air_date = parsed.event_date
         segment.source_path = str(parsed.source_path)
         segment.status = SegmentStatus.STAGED.value
+        clear_segment_metadata_snapshot(segment)
         if existing is None:
             session.add(segment)
         session.flush()
@@ -376,15 +379,26 @@ class OrganizerService:
         competitions = list(session.scalars(select(Competition)))
         matched = best_db_competition_match(show_name, competitions)
         if matched is not None:
+            self._refresh_competition_images(matched)
             return matched
 
         if self.metadata_source is not None:
             upstream_match = best_upstream_competition_match(show_name, self.metadata_source.all_competitions())
             if upstream_match is not None:
+                rich = None
+                if upstream_match.tsdb_id is not None:
+                    try:
+                        rich = self.metadata_source.lookup_competition(upstream_match.tsdb_id)
+                    except Exception:
+                        pass
                 competition = Competition(
                     id=upstream_match.competition_id or f"manual_{slugify(show_name)}",
                     tsdb_id=upstream_match.tsdb_id,
                     name=upstream_match.name,
+                    description=rich.description if rich else None,
+                    poster_url=rich.poster_url if rich else None,
+                    banner_url=rich.banner_url if rich else None,
+                    fanart_url=rich.fanart_url if rich else None,
                 )
                 session.add(competition)
                 session.flush()
@@ -397,6 +411,28 @@ class OrganizerService:
             session.add(competition)
             session.flush()
         return competition
+
+    def _refresh_competition_images(self, competition: Competition) -> None:
+        if self.metadata_source is None:
+            return
+        if competition.tsdb_id is None:
+            return
+        if competition.poster_url or competition.fanart_url:
+            return
+        try:
+            rich = self.metadata_source.lookup_competition(competition.tsdb_id)
+        except Exception:
+            return
+        if rich is None:
+            return
+        if rich.poster_url:
+            competition.poster_url = rich.poster_url
+        if rich.banner_url:
+            competition.banner_url = rich.banner_url
+        if rich.fanart_url:
+            competition.fanart_url = rich.fanart_url
+        if rich.description and not competition.description:
+            competition.description = rich.description
 
     def _apply_competition_config(self, competition: Competition, source_path: Path) -> None:
         config = read_competition_config(source_path)
@@ -606,13 +642,16 @@ class OrganizerService:
 
     def _publish_segment(self, session: Session, segment: Segment) -> None:
         if segment.event_id is None:
+            clear_segment_metadata_snapshot(segment)
             return
         event = session.get(Event, segment.event_id)
         season = session.get(CompetitionSeason, segment.competition_season_id)
         if event is None or season is None:
+            clear_segment_metadata_snapshot(segment)
             return
         competition = session.get(Competition, season.competition_id)
         if competition is None:
+            clear_segment_metadata_snapshot(segment)
             return
 
         show_dir = self.settings.library_dir / competition.name
@@ -624,6 +663,11 @@ class OrganizerService:
             source_path=segment.source_path,
         )
         segment.managed_path = place_file(segment.source_path, destination)
+        sync_segment_metadata_snapshot(
+            session,
+            segment=segment,
+            metadata_source_name=getattr(self.metadata_source, "name", None),
+        )
         published_segments = list(
             session.scalars(
                 select(Segment).where(

@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Segment{% endblock %}
 {% block content %}
+{% set cached = segment.metadata_record or {} %}
+{% set cached_event = cached.get("event") or {} %}
+{% set cached_season = cached.get("season") or {} %}
+{% set cached_competition = cached.get("competition") or {} %}
 <section class="page-header">
   <div>
     <p class="eyebrow">Segment {{ segment.id }}</p>
@@ -58,6 +62,57 @@
       </label>
       <button type="submit">Save</button>
     </form>
+  </article>
+</section>
+
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Cached Item Metadata</h2>
+      {% if segment.metadata_refreshed_at %}
+      <span class="pill">{{ segment.metadata_refreshed_at.strftime("%Y-%m-%d %H:%M UTC") }}</span>
+      {% endif %}
+    </div>
+    {% if cached %}
+    <div class="status-stack">
+      <div class="status-line"><span>Source</span><strong>{{ segment.metadata_source or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Cached Title</span><strong>{{ cached.get("title") or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Air Date</span><strong>{{ cached.get("originallyAvailableAt") or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Episode</span><strong>{{ cached.get("index") or "Unassigned" }}</strong></div>
+      <div class="status-line"><span>Matched Event ID</span><strong>{{ cached_event.get("id") or "Unknown" }}</strong></div>
+      <div class="status-line"><span>TheSportsDB Event ID</span><strong>{{ cached_event.get("tsdbId") or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Season</span><strong>{{ cached_season.get("title") or season.label if season else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Competition</span><strong>{{ cached_competition.get("title") or competition.name if competition else "Unknown" }}</strong></div>
+    </div>
+    <p class="helper-text"><strong>Summary:</strong> {{ cached.get("summary") or "No cached summary." }}</p>
+    <details class="metadata-details">
+      <summary>Raw metadata record</summary>
+      <pre class="metadata-pre">{{ cached | tojson(indent=2) }}</pre>
+    </details>
+    {% else %}
+    <p class="empty-state">No cached item metadata has been recorded for this segment yet.</p>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Cached Images</h2>
+    </div>
+    {% if segment.metadata_images %}
+    <div class="metadata-gallery">
+      {% for image in segment.metadata_images %}
+      <figure class="metadata-image-card">
+        <img src="{{ image.url }}" alt="{{ image.alt or image.type }}" loading="lazy" />
+        <figcaption>
+          <strong>{{ image.type }}</strong>
+          <small>{{ image.url }}</small>
+        </figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty-state">No cached images were stored for this segment.</p>
+    {% endif %}
   </article>
 </section>
 {% endblock %}

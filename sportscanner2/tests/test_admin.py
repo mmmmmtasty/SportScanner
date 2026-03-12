@@ -5,8 +5,9 @@ from datetime import date
 
 import httpx
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
-from sportscanner.db.models import ReviewTask
+from sportscanner.db.models import Competition, Event, ReviewTask, Segment
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.plex import PlexRegistrationResult
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
@@ -336,6 +337,39 @@ def test_segment_detail_shows_matched_event_context(provider_app) -> None:
     assert "Current Mapping" in response.text
     assert "Matched Event" in response.text
     assert "Austrian Grand Prix Race" in response.text
+
+
+def test_segment_detail_persists_and_shows_cached_item_metadata(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        competition = session.scalar(select(Competition).where(Competition.id == "tsdb_4370"))
+        event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
+        segment = session.get(Segment, "seg_primary")
+        assert competition is not None
+        assert event is not None
+        assert segment is not None
+        competition.poster_url = "https://example.com/show-poster.jpg"
+        competition.fanart_url = "https://example.com/show-fanart.jpg"
+        event.description = "Upstream summary for the cached record"
+        event.thumb_url = "https://example.com/event-thumb.jpg"
+        segment.duration_ms = 5_400_000
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.get("/admin/segments/seg_primary")
+
+    assert response.status_code == 200
+    assert "Cached Item Metadata" in response.text
+    assert "Upstream summary for the cached record" in response.text
+    assert "https://example.com/event-thumb.jpg" in response.text
+    assert "https://example.com/show-poster.jpg" in response.text
+
+    with provider_app.state.services.session_factory() as session:
+        segment = session.get(Segment, "seg_primary")
+        assert segment is not None
+        assert segment.metadata_source == "fake"
+        assert segment.metadata_record is not None
+        assert segment.metadata_record["event"]["tsdbId"] == 1001
+        assert any(image["url"] == "https://example.com/event-thumb.jpg" for image in segment.metadata_images or [])
 
 
 def test_stats_json_returns_counts(provider_app) -> None:

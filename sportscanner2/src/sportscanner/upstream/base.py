@@ -59,6 +59,9 @@ class MetadataSource(Protocol):
     def season_events(self, competition: UpstreamCompetition, season_label: str) -> tuple[list[UpstreamEvent], bool]:
         ...
 
+    def lookup_competition(self, tsdb_id: int) -> UpstreamCompetition | None:
+        ...
+
     def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
         ...
 

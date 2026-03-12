@@ -391,6 +391,56 @@ main.container {
   font-size: 0.9rem;
 }
 
+.metadata-details {
+  margin-top: 1rem;
+}
+
+.metadata-details summary {
+  cursor: pointer;
+  color: var(--ink-strong);
+  font-weight: 700;
+}
+
+.metadata-pre {
+  margin-top: 0.75rem;
+  padding: 0.9rem;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: rgba(16, 32, 50, 0.05);
+  font-size: 0.82rem;
+}
+
+.metadata-gallery {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+.metadata-image-card {
+  margin: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.metadata-image-card img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.metadata-image-card figcaption {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.6rem;
+}
+
+.metadata-image-card small {
+  overflow-wrap: anywhere;
+}
+
 .table-wrap {
   overflow-x: auto;
 }

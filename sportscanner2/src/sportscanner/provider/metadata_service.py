@@ -5,6 +5,7 @@ from sqlalchemy import select
 from fastapi import HTTPException
 
 from sportscanner.db.models import Competition, CompetitionSeason, Event, Segment, SegmentStatus
+from sportscanner.metadata_snapshot import effective_episode_thumb
 from sportscanner.provider.items import episode_metadata, season_episode_items, season_metadata, show_episode_items, show_metadata, show_season_items
 from sportscanner.provider.rating_keys import parse_rating_key
 from sportscanner.provider.schemas import ImageModel, MetadataItemModel
@@ -140,4 +141,6 @@ class ProviderMetadataService:
             )
             if segment is None:
                 raise HTTPException(status_code=404, detail="Unknown episode")
-            return [ImageModel(type="snapshot", url=segment.thumb_url, alt=segment.title)] if segment.thumb_url else []
+            event = session.get(Event, segment.event_id) if segment.event_id else None
+            thumb = effective_episode_thumb(segment, event)
+            return [ImageModel(type="snapshot", url=thumb, alt=segment.title)] if thumb else []

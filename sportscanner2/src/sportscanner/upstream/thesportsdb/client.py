@@ -74,6 +74,13 @@ class TheSportsDbClient(MetadataSource):
         events = [adapt_event(item, competition_name=competition.name) for item in payload.get("events", []) or []]
         return (events, bool(events))
 
+    def lookup_competition(self, tsdb_id: int) -> UpstreamCompetition | None:
+        payload = self._get_json("lookupleague.php", params={"id": tsdb_id})
+        leagues = payload.get("leagues", []) or []
+        if not leagues:
+            return None
+        return adapt_competition(leagues[0])
+
     def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
         payload = self._get_json("lookupevent.php", params={"id": tsdb_event_id})
         events = payload.get("events", []) or []

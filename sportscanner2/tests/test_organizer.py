@@ -15,7 +15,13 @@ class MutableMetadataSource:
     name = "fake"
 
     def __init__(self, *, complete: bool, events: list[UpstreamEvent] | None = None) -> None:
-        self._competition = UpstreamCompetition(id="tsdb_4370", tsdb_id=4370, name="Formula 1")
+        self._competition = UpstreamCompetition(
+            id="tsdb_4370",
+            tsdb_id=4370,
+            name="Formula 1",
+            poster_url="https://example.com/f1_poster.jpg",
+            fanart_url="https://example.com/f1_fanart.jpg",
+        )
         self.complete = complete
         self.events = events or []
 
@@ -41,6 +47,11 @@ class MutableMetadataSource:
             return (self.events, self.complete)
         return ([], False)
 
+    def lookup_competition(self, tsdb_id: int) -> UpstreamCompetition | None:
+        if tsdb_id == self._competition.tsdb_id:
+            return self._competition
+        return None
+
     def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
         return next((event for event in self.events if event.tsdb_id == tsdb_event_id), None)
 
@@ -62,6 +73,10 @@ def test_ingest_publishes_matched_file(settings, organizer, session_factory) -> 
         stored = session.get(Segment, segment.id)
         assert stored is not None
         assert stored.episode_number == 150
+        assert stored.metadata_source == "fake"
+        assert stored.metadata_record is not None
+        assert stored.metadata_record["event"]["tsdbId"] == 1001
+        assert any(image["url"] == "https://example.com/f1_poster.jpg" for image in stored.metadata_images or [])
         competition = session.scalar(select(Competition).where(Competition.name == "Formula 1"))
         assert competition is not None
 

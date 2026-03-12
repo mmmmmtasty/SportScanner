@@ -11,6 +11,7 @@ from sqlalchemy.orm import joinedload
 
 from sportscanner.config import validate_plex_provider_identifier
 from sportscanner.db.models import AppSetting, Competition, CompetitionSeason, Event, ReviewTask, Segment, SegmentStatus
+from sportscanner.metadata_snapshot import sync_segment_metadata_snapshot
 from sportscanner.organizer.matcher import season_for_date, similarity
 from sportscanner.plex import PlexRegistrationResult
 
@@ -431,6 +432,22 @@ def competition_refresh_images(request: Request, competition_id: str) -> Redirec
                     competition.fanart_url = rich.fanart_url or competition.fanart_url
                     if rich.description and not competition.description:
                         competition.description = rich.description
+                    segments = list(
+                        session.scalars(
+                            select(Segment)
+                            .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
+                            .where(
+                                CompetitionSeason.competition_id == competition_id,
+                                Segment.event_id.is_not(None),
+                            )
+                        )
+                    )
+                    for segment in segments:
+                        sync_segment_metadata_snapshot(
+                            session,
+                            segment=segment,
+                            metadata_source_name=getattr(metadata_source, "name", None),
+                        )
                     session.commit()
     return RedirectResponse(
         url=str(request.url_for("competition_detail", competition_id=competition_id)),
@@ -468,6 +485,7 @@ def competition_detail(request: Request, competition_id: str) -> HTMLResponse:
 
 @router.get("/segments/{segment_id}", response_class=HTMLResponse)
 def segment_detail(request: Request, segment_id: str) -> HTMLResponse:
+    services = request.app.state.services
     with _session_factory(request)() as session:
         segment = session.get(Segment, segment_id)
         if segment is None:
@@ -475,6 +493,19 @@ def segment_detail(request: Request, segment_id: str) -> HTMLResponse:
         event = session.get(Event, segment.event_id) if segment.event_id else None
         season = session.get(CompetitionSeason, segment.competition_season_id)
         competition = session.get(Competition, season.competition_id) if season is not None else None
+        if (
+            segment.status == SegmentStatus.PUBLISHED.value
+            and segment.metadata_record is None
+            and event is not None
+            and season is not None
+            and competition is not None
+        ):
+            sync_segment_metadata_snapshot(
+                session,
+                segment=segment,
+                metadata_source_name=getattr(services.metadata_source, "name", None),
+            )
+            session.commit()
     return _render(
         request,
         "segment_detail.html",
@@ -494,12 +525,19 @@ def update_segment(
     title: str = Form(...),
     kind: str = Form(...),
 ) -> RedirectResponse:
+    services = request.app.state.services
     with _session_factory(request)() as session:
         segment = session.get(Segment, segment_id)
         if segment is None:
             raise HTTPException(status_code=404, detail="Unknown segment")
         segment.title = title
         segment.kind = kind
+        if segment.event_id is not None:
+            sync_segment_metadata_snapshot(
+                session,
+                segment=segment,
+                metadata_source_name=getattr(services.metadata_source, "name", None),
+            )
         session.commit()
     return RedirectResponse(url=f"{request.url_for('segment_detail', segment_id=segment_id)}", status_code=303)
 
