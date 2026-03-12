@@ -17,7 +17,7 @@ from sportscanner.metadata_snapshot import clear_segment_metadata_snapshot, sync
 from sportscanner.organizer.matcher import best_db_competition_match, best_upstream_competition_match, match_event, season_for_date
 from sportscanner.organizer.numbering import EventSequenceInput, SegmentCodeInput, compute_event_sequences, compute_segment_codes, derive_weekend_group, episode_number
 from sportscanner.organizer.parser import ParsedFile, is_media_file, parse_filename
-from sportscanner.organizer.placer import build_managed_filename, place_file, season_directory_name
+from sportscanner.organizer.placer import build_managed_filename, move_managed_file, place_file, season_directory_name
 from sportscanner.organizer.plexmatch import render_season_plexmatch, render_show_plexmatch, write_atomic_if_changed
 from sportscanner.upstream.base import MetadataSource, UpstreamCompetition, UpstreamEvent
 
@@ -929,9 +929,9 @@ class OrganizerService:
             segment.managed_path = str(destination)
         elif existing_managed is not None and existing_managed.exists():
             if existing_managed != destination:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                existing_managed.replace(destination)
-            segment.managed_path = str(destination)
+                segment.managed_path = move_managed_file(existing_managed, destination)
+            else:
+                segment.managed_path = str(destination)
         elif source_path.exists():
             segment.managed_path = place_file(segment.source_path, destination)
         else:

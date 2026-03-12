@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import errno
 import logging
 from datetime import date
+from pathlib import Path
 
 import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+import sportscanner.organizer.placer as placer
 from sportscanner.db.models import Competition, Event, ReviewTask, Segment
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.plex import PlexRegistrationResult
@@ -415,6 +418,41 @@ def test_competition_refresh_route_updates_competition_and_segment_metadata(prov
             image["url"] == "https://example.com/f1-updated-poster.jpg"
             for image in segment.metadata_images or []
         )
+
+
+def test_competition_refresh_route_handles_cross_device_managed_file_moves(provider_app, monkeypatch) -> None:
+    settings = provider_app.state.services.settings
+    old_managed = settings.db_path.parent / "old-library" / "Formula 1.mkv"
+    old_managed.parent.mkdir(parents=True, exist_ok=True)
+    old_managed.write_text("managed file", encoding="utf-8")
+
+    with provider_app.state.services.session_factory() as session:
+        segment = session.get(Segment, "seg_primary")
+        assert segment is not None
+        segment.managed_path = str(old_managed)
+        session.commit()
+
+    original_replace = placer.os.replace
+
+    def flaky_replace(source: str | Path, target: str | Path) -> None:
+        if Path(source) == old_managed:
+            raise OSError(errno.EXDEV, "Cross-device link")
+        original_replace(source, target)
+
+    monkeypatch.setattr(placer.os, "replace", flaky_replace)
+
+    client = TestClient(provider_app)
+    response = client.post("/admin/competitions/tsdb_4370/refresh-metadata", follow_redirects=False)
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        segment = session.get(Segment, "seg_primary")
+        assert segment is not None
+        assert segment.managed_path is not None
+        destination = Path(segment.managed_path)
+        assert destination.exists()
+        assert destination.read_text(encoding="utf-8") == "managed file"
+    assert not old_managed.exists()
 
 
 def test_segment_refresh_route_retries_item_metadata(provider_app) -> None:

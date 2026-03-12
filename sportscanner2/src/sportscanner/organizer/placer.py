@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 import tempfile
@@ -47,4 +48,33 @@ def place_file(source_path: str | Path, destination_path: str | Path) -> str:
     os.close(fd)
     shutil.copy2(source, temp_name)
     os.replace(temp_name, destination)
+    return str(destination)
+
+
+def move_managed_file(source_path: str | Path, destination_path: str | Path) -> str:
+    source = Path(source_path)
+    destination = Path(destination_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    if source == destination:
+        return str(destination)
+
+    try:
+        os.replace(source, destination)
+        return str(destination)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+
+    fd, temp_name = tempfile.mkstemp(prefix=".sportscanner-move-", dir=destination.parent)
+    os.close(fd)
+    try:
+        shutil.copy2(source, temp_name)
+        os.replace(temp_name, destination)
+        source.unlink()
+    except Exception:
+        temp_path = Path(temp_name)
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
     return str(destination)
