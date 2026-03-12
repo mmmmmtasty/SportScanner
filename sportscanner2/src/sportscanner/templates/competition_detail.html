@@ -9,6 +9,9 @@
       {{ competition.description or "Inspect seasons, published segments, and the current episode ordering for this competition." }}
     </p>
   </div>
+  <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
+    <button type="submit" class="secondary">Refresh Metadata</button>
+  </form>
 </section>
 
 {% if competition.poster_url or competition.fanart_url %}
@@ -16,23 +19,15 @@
   <article class="guide-card">
     <div class="panel-header">
       <h2>Upstream Artwork</h2>
-      {% if competition.tsdb_id %}
-      <form method="post" action="{{ request.url_for('competition_refresh_images', competition_id=competition.id) }}">
-        <button type="submit" class="secondary compact-button">Refresh Images from TheSportsDB</button>
+      <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
+        <button type="submit" class="secondary compact-button">Refresh From Upstream</button>
       </form>
-      {% endif %}
     </div>
     <p>
       {% if competition.poster_url %}<img src="{{ competition.poster_url }}" alt="poster" style="height:80px;margin-right:8px;">{% endif %}
       {% if competition.fanart_url %}<img src="{{ competition.fanart_url }}" alt="fanart" style="height:80px;">{% endif %}
     </p>
   </article>
-</section>
-{% elif competition.tsdb_id %}
-<section class="actions">
-  <form method="post" action="{{ request.url_for('competition_refresh_images', competition_id=competition.id) }}">
-    <button type="submit" class="secondary">Refresh Images from TheSportsDB</button>
-  </form>
 </section>
 {% endif %}
 
@@ -43,12 +38,13 @@
       <span
         class="tooltip-chip"
         tabindex="0"
-        title="Episode numbers reflect SportScanner's current event ordering. Titles and dates shown in Plex come from the matched event after metadata refresh."
+        title="Competition refresh repulls upstream schedule and artwork, updates episode numbering for imported items, and retries unresolved matches in this competition."
       >Metadata tip</span>
     </div>
     <p>
-      Use this page to verify the current local organization. If upstream schedules change, rescan
-      first so episode numbers update here, then refresh Plex metadata so the Plex UI catches up.
+      Use this page to verify the current local organization. If upstream schedules move after import,
+      refresh this competition to recompute episode numbers and item metadata here before asking Plex
+      to refresh its copy.
     </p>
   </article>
 </section>
@@ -85,6 +81,7 @@
             <th>Kind</th>
             <th>Air Date</th>
             <th>Status</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -95,10 +92,15 @@
             <td>{{ segment.kind }}</td>
             <td>{{ segment.air_date or "" }}</td>
             <td>{{ segment.status }}</td>
+            <td>
+              <form method="post" action="{{ request.url_for('refresh_segment_metadata', segment_id=segment.id) }}">
+                <button type="submit" class="secondary compact-button">Refresh Item</button>
+              </form>
+            </td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="5">No segments.</td>
+            <td colspan="6">No segments.</td>
           </tr>
           {% endfor %}
         </tbody>

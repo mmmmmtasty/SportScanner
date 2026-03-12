@@ -504,10 +504,11 @@ table th {
 table td {
   color: var(--ink);
   border-top: 1px solid var(--line);
+  background: rgba(255, 250, 242, 0.96);
 }
 
-table tbody tr:nth-child(even) td {
-  background: rgba(244, 248, 252, 0.72);
+table tbody tr {
+  background: transparent;
 }
 
 .muted-cell {

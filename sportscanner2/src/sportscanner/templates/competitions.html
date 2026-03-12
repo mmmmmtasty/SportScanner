@@ -19,12 +19,12 @@
       <span
         class="tooltip-chip"
         tabindex="0"
-        title="Rescan updates SportScanner's season ordering. Plex still needs a metadata refresh to display new titles or dates."
+        title="Competition refresh pulls the latest upstream schedule and metadata for one show. Rescan is still useful for brand-new files."
       >Schedule tip</span>
     </div>
     <p>
-      If TheSportsDB changes event dates or order, rescan first so these tables recompute. Then
-      refresh Plex metadata so the Plex UI shows the same updated titles and dates.
+      Use Refresh Metadata on a competition when upstream dates, event titles, or artwork change
+      after import, or when a prior lookup failed and you want SportScanner to retry just that show.
     </p>
   </article>
 </section>
@@ -36,7 +36,7 @@
         <tr>
           <th>Name</th>
           <th>Sport</th>
-          <th></th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -44,7 +44,12 @@
         <tr>
           <td>{{ competition.name }}</td>
           <td>{{ competition.sport or "" }}</td>
-          <td><a href="{{ request.url_for('competition_detail', competition_id=competition.id) }}">Open</a></td>
+          <td>
+            <a href="{{ request.url_for('competition_detail', competition_id=competition.id) }}">Open</a>
+            <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}" style="display:inline;">
+              <button type="submit" class="secondary compact-button">Refresh Metadata</button>
+            </form>
+          </td>
         </tr>
         {% else %}
         <tr>

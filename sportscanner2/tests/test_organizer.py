@@ -174,6 +174,95 @@ def test_reschedule_reorders_published_segments(settings, session_factory) -> No
         assert refreshed_second.episode_number == 150
 
 
+def test_refresh_segment_metadata_reorders_affected_published_items(settings, session_factory) -> None:
+    source = MutableMetadataSource(
+        complete=True,
+        events=[
+            UpstreamEvent(
+                id="tsdb_1001",
+                tsdb_id=1001,
+                name="Austrian Grand Prix",
+                competition_name="Formula 1",
+                date=date(2025, 6, 29),
+            ),
+            UpstreamEvent(
+                id="tsdb_1002",
+                tsdb_id=1002,
+                name="British Grand Prix",
+                competition_name="Formula 1",
+                date=date(2025, 7, 6),
+            ),
+        ],
+    )
+    organizer = OrganizerService(settings, session_factory, metadata_source=source)
+    first = settings.incoming_dir / "Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv"
+    second = settings.incoming_dir / "Formula 1 2025-07-06 British Grand Prix - Race.mkv"
+    first.write_text("video", encoding="utf-8")
+    second.write_text("video", encoding="utf-8")
+
+    first_segment = organizer.ingest_path(first)
+    second_segment = organizer.ingest_path(second)
+
+    source.events[1] = UpstreamEvent(
+        id="tsdb_1002",
+        tsdb_id=1002,
+        name="British Grand Prix Updated",
+        competition_name="Formula 1",
+        date=date(2025, 6, 15),
+    )
+
+    organizer.refresh_segment_metadata(second_segment.id)
+
+    with session_factory() as session:
+        refreshed_first = session.get(Segment, first_segment.id)
+        refreshed_second = session.get(Segment, second_segment.id)
+        updated_event = session.scalar(select(Event).where(Event.tsdb_id == 1002))
+        assert refreshed_first is not None
+        assert refreshed_second is not None
+        assert updated_event is not None
+        assert refreshed_first.episode_number == 250
+        assert refreshed_second.episode_number == 150
+        assert updated_event.name == "British Grand Prix Updated"
+        assert refreshed_second.metadata_record is not None
+        assert refreshed_second.metadata_record["event"]["date"] == "2025-06-15"
+
+
+def test_refresh_competition_metadata_retries_unmatched_segments(settings, session_factory) -> None:
+    source = MutableMetadataSource(
+        complete=False,
+        events=[
+            UpstreamEvent(
+                id="tsdb_1001",
+                tsdb_id=1001,
+                name="Austrian Grand Prix",
+                competition_name="Formula 1",
+                date=date(2025, 6, 29),
+            ),
+        ],
+    )
+    organizer = OrganizerService(settings, session_factory, metadata_source=source)
+    path = settings.incoming_dir / "Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv"
+    path.write_text("video", encoding="utf-8")
+
+    staged = organizer.ingest_path(path)
+    assert staged.status == SegmentStatus.STAGED.value
+
+    with session_factory() as session:
+        competition = session.scalar(select(Competition).where(Competition.name == "Formula 1"))
+        assert competition is not None
+        competition_id = competition.id
+
+    source.complete = True
+    organizer.refresh_competition_metadata(competition_id)
+
+    with session_factory() as session:
+        refreshed = session.get(Segment, staged.id)
+        assert refreshed is not None
+        assert refreshed.status == SegmentStatus.PUBLISHED.value
+        assert refreshed.event_id == "tsdb_1001"
+        assert refreshed.episode_number == 150
+
+
 def test_replayed_event_is_published_as_distinct_episode(settings, session_factory) -> None:
     source = MutableMetadataSource(
         complete=True,

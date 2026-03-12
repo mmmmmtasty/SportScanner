@@ -14,6 +14,9 @@
       title, date, summary, and artwork come from the matched event when one is attached.
     </p>
   </div>
+  <form method="post" action="{{ request.url_for('refresh_segment_metadata', segment_id=segment.id) }}">
+    <button type="submit" class="secondary">Refresh Item Metadata</button>
+  </form>
 </section>
 
 <section class="split-grid">
@@ -32,8 +35,8 @@
     <p class="helper-text"><strong>Source:</strong> {{ segment.source_path }}</p>
     <p class="helper-text"><strong>Managed:</strong> {{ segment.managed_path or "Not published yet" }}</p>
     <p class="helper-text">
-      If TheSportsDB changes the event title or date, rescan first. That updates SportScanner's
-      ordering and provider metadata. Plex still needs a metadata refresh to display the new values.
+      Refresh Item Metadata retries upstream lookup for this file and updates the cached provider
+      payload for just this item. Use it after schedule changes, artwork changes, or transient API failures.
     </p>
   </article>
 

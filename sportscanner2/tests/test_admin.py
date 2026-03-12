@@ -202,7 +202,7 @@ def test_create_plex_library_registers_provider_group_before_creation(provider_a
                 provider_group_id=42,
             )
 
-        def create_tv_shows_library(self, *, name, location, provider_group_id):
+        def create_tv_shows_library(self, *, name, location, provider_group_id, agent=None):
             self.created_with = (name, location, provider_group_id)
             return 17
 
@@ -337,6 +337,7 @@ def test_segment_detail_shows_matched_event_context(provider_app) -> None:
     assert "Current Mapping" in response.text
     assert "Matched Event" in response.text
     assert "Austrian Grand Prix Race" in response.text
+    assert "Refresh Item Metadata" in response.text
 
 
 def test_segment_detail_persists_and_shows_cached_item_metadata(provider_app) -> None:
@@ -370,6 +371,75 @@ def test_segment_detail_persists_and_shows_cached_item_metadata(provider_app) ->
         assert segment.metadata_record is not None
         assert segment.metadata_record["event"]["tsdbId"] == 1001
         assert any(image["url"] == "https://example.com/event-thumb.jpg" for image in segment.metadata_images or [])
+
+
+def test_competitions_page_shows_row_refresh_actions(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/competitions")
+
+    assert response.status_code == 200
+    assert "Refresh Metadata" in response.text
+    assert "/admin/competitions/tsdb_4370/refresh-metadata" in response.text
+
+
+def test_competition_refresh_route_updates_competition_and_segment_metadata(provider_app) -> None:
+    metadata = provider_app.state.services.metadata_source
+    metadata._f1.poster_url = "https://example.com/f1-updated-poster.jpg"
+    metadata._f1.fanart_url = "https://example.com/f1-updated-fanart.jpg"
+    metadata._f1_event = UpstreamEvent(
+        id="tsdb_1001",
+        tsdb_id=1001,
+        name="Austrian Grand Prix Updated",
+        competition_name="Formula 1",
+        date=date(2025, 6, 30),
+    )
+    client = TestClient(provider_app)
+
+    response = client.post("/admin/competitions/tsdb_4370/refresh-metadata", follow_redirects=False)
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        competition = session.scalar(select(Competition).where(Competition.id == "tsdb_4370"))
+        event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
+        segment = session.get(Segment, "seg_primary")
+        assert competition is not None
+        assert event is not None
+        assert segment is not None
+        assert competition.poster_url == "https://example.com/f1-updated-poster.jpg"
+        assert event.name == "Austrian Grand Prix Updated"
+        assert event.date == date(2025, 6, 30)
+        assert segment.metadata_record is not None
+        assert segment.metadata_record["event"]["date"] == "2025-06-30"
+        assert any(
+            image["url"] == "https://example.com/f1-updated-poster.jpg"
+            for image in segment.metadata_images or []
+        )
+
+
+def test_segment_refresh_route_retries_item_metadata(provider_app) -> None:
+    metadata = provider_app.state.services.metadata_source
+    metadata._f1_event = UpstreamEvent(
+        id="tsdb_1001",
+        tsdb_id=1001,
+        name="Austrian Grand Prix Revised",
+        competition_name="Formula 1",
+        date=date(2025, 6, 28),
+    )
+    client = TestClient(provider_app)
+
+    response = client.post("/admin/segments/seg_primary/refresh-metadata", follow_redirects=False)
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
+        segment = session.get(Segment, "seg_primary")
+        assert event is not None
+        assert segment is not None
+        assert event.name == "Austrian Grand Prix Revised"
+        assert event.date == date(2025, 6, 28)
+        assert segment.metadata_record is not None
+        assert segment.metadata_record["event"]["date"] == "2025-06-28"
 
 
 def test_stats_json_returns_counts(provider_app) -> None:

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from sportscanner.config import Settings
@@ -117,6 +117,30 @@ class OrganizerService:
                         processed.append(str(path))
             logger.info("rescan_completed processed_count=%s", len(processed))
             return processed
+
+    def refresh_competition_metadata(self, competition_id: str) -> Competition:
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                competition = session.get(Competition, competition_id)
+                if competition is None:
+                    raise KeyError(f"Unknown competition: {competition_id}")
+                self._refresh_competition_metadata(session, competition)
+                session.commit()
+                refreshed = session.get(Competition, competition_id)
+                assert refreshed is not None
+                return refreshed
+
+    def refresh_segment_metadata(self, segment_id: str) -> Segment:
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                segment = session.get(Segment, segment_id)
+                if segment is None:
+                    raise KeyError(f"Unknown segment: {segment_id}")
+                self._refresh_segment_metadata(session, segment)
+                session.commit()
+                refreshed = session.get(Segment, segment_id)
+                assert refreshed is not None
+                return refreshed
 
     def ingest_path_if_parseable(self, source_path: str | Path) -> Segment | None:
         try:
@@ -271,7 +295,11 @@ class OrganizerService:
             if self.metadata_source is not None
             else []
         )
-        competition = self._resolve_competition(session, sidecar.competition or parsed.show)
+        competition = self._resolve_competition(
+            session,
+            sidecar.competition or parsed.show,
+            search_hints=prefetched_search_results,
+        )
         self._apply_competition_config(competition, parsed.source_path)
         season_number, season_label = self._resolve_season(parsed, competition, sidecar)
 
@@ -375,11 +403,20 @@ class OrganizerService:
         )
         return segment
 
-    def _resolve_competition(self, session: Session, show_name: str) -> Competition:
+    def _resolve_competition(
+        self,
+        session: Session,
+        show_name: str,
+        *,
+        search_hints: list[UpstreamEvent] | None = None,
+    ) -> Competition:
         competitions = list(session.scalars(select(Competition)))
         matched = best_db_competition_match(show_name, competitions)
         if matched is not None:
-            self._refresh_competition_images(matched)
+            if matched.tsdb_id is None and search_hints and self.metadata_source is not None:
+                self._try_upgrade_competition(session, matched, search_hints)
+            else:
+                self._refresh_competition_details(matched)
             return matched
 
         if self.metadata_source is not None:
@@ -404,6 +441,36 @@ class OrganizerService:
                 session.flush()
                 return competition
 
+            # all_competitions() didn't cover this sport (e.g. free API tier limited to
+            # soccer leagues).  Fall back to the competition_tsdb_id carried by search
+            # results — each event row from searchfilename.php includes idLeague.
+            if search_hints:
+                hint_ids = {h.competition_tsdb_id for h in search_hints if h.competition_tsdb_id is not None}
+                if len(hint_ids) == 1:
+                    tsdb_id = next(iter(hint_ids))
+                    existing = session.scalar(select(Competition).where(Competition.tsdb_id == tsdb_id))
+                    if existing is not None:
+                        self._refresh_competition_details(existing)
+                        return existing
+                    rich = None
+                    try:
+                        rich = self.metadata_source.lookup_competition(tsdb_id)
+                    except Exception:
+                        pass
+                    if rich is not None:
+                        competition = Competition(
+                            id=f"tsdb_{tsdb_id}",
+                            tsdb_id=tsdb_id,
+                            name=rich.name,
+                            description=rich.description,
+                            poster_url=rich.poster_url,
+                            banner_url=rich.banner_url,
+                            fanart_url=rich.fanart_url,
+                        )
+                        session.add(competition)
+                        session.flush()
+                        return competition
+
         manual_id = f"manual_{slugify(show_name)}"
         competition = session.get(Competition, manual_id)
         if competition is None:
@@ -412,27 +479,221 @@ class OrganizerService:
             session.flush()
         return competition
 
-    def _refresh_competition_images(self, competition: Competition) -> None:
+    def _try_upgrade_competition(
+        self,
+        session: Session,
+        competition: Competition,
+        search_hints: list[UpstreamEvent],
+    ) -> None:
+        """Upgrade a manual (no-tsdb_id) competition in-place using idLeague from search results."""
         if self.metadata_source is None:
             return
-        if competition.tsdb_id is None:
+        hint_ids = {h.competition_tsdb_id for h in search_hints if h.competition_tsdb_id is not None}
+        if len(hint_ids) != 1:
             return
-        if competition.poster_url or competition.fanart_url:
+        tsdb_id = next(iter(hint_ids))
+        # Don't clobber another competition that already owns this tsdb_id.
+        conflict = session.scalar(select(Competition).where(Competition.tsdb_id == tsdb_id))
+        if conflict is not None and conflict.id != competition.id:
             return
+        rich = None
         try:
-            rich = self.metadata_source.lookup_competition(competition.tsdb_id)
+            rich = self.metadata_source.lookup_competition(tsdb_id)
         except Exception:
             return
         if rich is None:
             return
+        competition.tsdb_id = tsdb_id
+        if not competition.poster_url and rich.poster_url:
+            competition.poster_url = rich.poster_url
+        if not competition.banner_url and rich.banner_url:
+            competition.banner_url = rich.banner_url
+        if not competition.fanart_url and rich.fanart_url:
+            competition.fanart_url = rich.fanart_url
+        if not competition.description and rich.description:
+            competition.description = rich.description
+        logger.info(
+            "competition_upgraded competition=%s tsdb_id=%s",
+            competition.name,
+            tsdb_id,
+        )
+
+    def _refresh_competition_details(self, competition: Competition, *, overwrite: bool = False) -> bool:
+        if self.metadata_source is None:
+            return False
+        if competition.tsdb_id is None:
+            return False
+        if not overwrite and (competition.poster_url or competition.fanart_url):
+            return False
+        try:
+            rich = self.metadata_source.lookup_competition(competition.tsdb_id)
+        except Exception as exc:
+            logger.warning(
+                "competition_refresh_lookup_failed competition=%s tsdb_id=%s error=%s",
+                competition.name,
+                competition.tsdb_id,
+                exc,
+            )
+            return False
+        if rich is None:
+            return False
+        if rich.sport:
+            competition.sport = rich.sport
+        if rich.country:
+            competition.country = rich.country
+        if rich.formed_year is not None:
+            competition.formed_year = rich.formed_year
         if rich.poster_url:
             competition.poster_url = rich.poster_url
         if rich.banner_url:
             competition.banner_url = rich.banner_url
         if rich.fanart_url:
             competition.fanart_url = rich.fanart_url
-        if rich.description and not competition.description:
+        if rich.description and (overwrite or not competition.description):
             competition.description = rich.description
+        return True
+
+    def _refresh_competition_metadata(self, session: Session, competition: Competition) -> None:
+        self._refresh_competition_details(competition, overwrite=True)
+        seasons = list(
+            session.scalars(
+                select(CompetitionSeason)
+                .where(CompetitionSeason.competition_id == competition.id)
+                .order_by(CompetitionSeason.season_number.asc())
+            )
+        )
+        if self.metadata_source is not None and competition.tsdb_id is not None:
+            upstream_competition = UpstreamCompetition(
+                id=competition.id,
+                name=competition.name,
+                tsdb_id=competition.tsdb_id,
+                alternate_names=competition.alternate_names,
+            )
+            for season in seasons:
+                if season.season_number == 0:
+                    continue
+                try:
+                    events, is_complete = self.metadata_source.season_events(upstream_competition, season.label)
+                except Exception as exc:
+                    logger.warning(
+                        "competition_refresh_season_failed competition=%s season=%s error=%s",
+                        competition.name,
+                        season.label,
+                        exc,
+                    )
+                    continue
+                season.is_complete = is_complete
+                for event in events:
+                    self._upsert_event(session, season.id, event)
+                self._recompute_sequences_for_season(session, season.id)
+                self._refresh_published_segments_for_season(session, season.id)
+
+        retry_segments = list(
+            session.scalars(
+                select(Segment)
+                .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
+                .where(
+                    CompetitionSeason.competition_id == competition.id,
+                    or_(
+                        Segment.event_id.is_(None),
+                        Segment.status != SegmentStatus.PUBLISHED.value,
+                    ),
+                )
+                .order_by(Segment.created_at.asc(), Segment.id.asc())
+            )
+        )
+        for segment in retry_segments:
+            self._retry_segment_match(session, segment)
+
+        published_segments = list(
+            session.scalars(
+                select(Segment)
+                .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
+                .where(
+                    CompetitionSeason.competition_id == competition.id,
+                    Segment.status == SegmentStatus.PUBLISHED.value,
+                )
+            )
+        )
+        for segment in published_segments:
+            sync_segment_metadata_snapshot(
+                session,
+                segment=segment,
+                metadata_source_name=getattr(self.metadata_source, "name", None),
+            )
+        logger.info(
+            "competition_metadata_refreshed competition=%s season_count=%s retried_segments=%s",
+            competition.name,
+            len(seasons),
+            len(retry_segments),
+        )
+
+    def _refresh_segment_metadata(self, session: Session, segment: Segment) -> Segment:
+        event = session.get(Event, segment.event_id) if segment.event_id else None
+        current_season_id = segment.competition_season_id
+        if self.metadata_source is not None and event is not None and event.tsdb_id is not None:
+            try:
+                refreshed_event = self._resolve_review_lookup_event(session, segment, event.tsdb_id)
+            except Exception as exc:
+                logger.warning(
+                    "segment_refresh_lookup_failed segment_id=%s tsdb_id=%s error=%s",
+                    segment.id,
+                    event.tsdb_id,
+                    exc,
+                )
+            else:
+                segment.event_id = refreshed_event.id
+                segment.competition_season_id = refreshed_event.competition_season_id
+                segment.status = SegmentStatus.PUBLISHED.value
+                session.flush()
+
+                affected_seasons = {current_season_id, refreshed_event.competition_season_id}
+                for season_id in sorted(affected_seasons):
+                    self._recompute_sequences_for_season(session, season_id)
+                    self._refresh_published_segments_for_season(session, season_id)
+
+                refreshed_season = session.get(CompetitionSeason, segment.competition_season_id)
+                refreshed_competition = (
+                    session.get(Competition, refreshed_season.competition_id) if refreshed_season is not None else None
+                )
+                if refreshed_competition is not None:
+                    self._refresh_competition_details(refreshed_competition, overwrite=True)
+                sync_segment_metadata_snapshot(
+                    session,
+                    segment=segment,
+                    metadata_source_name=getattr(self.metadata_source, "name", None),
+                )
+                logger.info(
+                    "segment_metadata_refreshed segment_id=%s method=lookup_event event_id=%s",
+                    segment.id,
+                    segment.event_id,
+                )
+                return segment
+
+        refreshed = self._retry_segment_match(session, segment)
+        logger.info(
+            "segment_metadata_refreshed segment_id=%s method=reingest event_id=%s status=%s",
+            refreshed.id,
+            refreshed.event_id,
+            refreshed.status,
+        )
+        return refreshed
+
+    def _retry_segment_match(self, session: Session, segment: Segment) -> Segment:
+        parsed = parse_filename(segment.source_path)
+        sidecar = read_sidecar(parsed.source_path)
+        refreshed = self._upsert_segment_from_path(session, parsed, sidecar)
+        competition_season = session.get(CompetitionSeason, refreshed.competition_season_id)
+        competition = session.get(Competition, competition_season.competition_id) if competition_season else None
+        if competition is not None:
+            self._refresh_competition_details(competition, overwrite=True)
+            if refreshed.status == SegmentStatus.PUBLISHED.value:
+                sync_segment_metadata_snapshot(
+                    session,
+                    segment=refreshed,
+                    metadata_source_name=getattr(self.metadata_source, "name", None),
+                )
+        return refreshed
 
     def _apply_competition_config(self, competition: Competition, source_path: Path) -> None:
         config = read_competition_config(source_path)
@@ -662,7 +923,25 @@ class OrganizerService:
             title=segment.title,
             source_path=segment.source_path,
         )
-        segment.managed_path = place_file(segment.source_path, destination)
+        existing_managed = Path(segment.managed_path) if segment.managed_path else None
+        source_path = Path(segment.source_path)
+        if destination.exists():
+            segment.managed_path = str(destination)
+        elif existing_managed is not None and existing_managed.exists():
+            if existing_managed != destination:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                existing_managed.replace(destination)
+            segment.managed_path = str(destination)
+        elif source_path.exists():
+            segment.managed_path = place_file(segment.source_path, destination)
+        else:
+            logger.warning(
+                "segment_publish_source_missing segment_id=%s source_path=%s managed_path=%s",
+                segment.id,
+                segment.source_path,
+                segment.managed_path,
+            )
+            segment.managed_path = segment.managed_path or str(destination)
         sync_segment_metadata_snapshot(
             session,
             segment=segment,

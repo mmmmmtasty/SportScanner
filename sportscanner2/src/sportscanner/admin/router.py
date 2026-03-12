@@ -53,6 +53,13 @@ def _settings_values(request: Request) -> dict[str, str | None]:
         }
 
 
+def _redirect_target(request: Request, fallback: str) -> str:
+    referer = request.headers.get("referer")
+    if referer and referer.startswith(str(request.base_url)):
+        return referer
+    return fallback
+
+
 def _review_search_score(
     query: str,
     event_name: str,
@@ -414,43 +421,15 @@ def competitions(request: Request) -> HTMLResponse:
     return _render(request, "competitions.html", {"competitions": rows})
 
 
-@router.post("/competitions/{competition_id}/refresh-images")
-def competition_refresh_images(request: Request, competition_id: str) -> RedirectResponse:
+@router.post("/competitions/{competition_id}/refresh-metadata")
+def competition_refresh_metadata(request: Request, competition_id: str) -> RedirectResponse:
     services = request.app.state.services
-    metadata_source = getattr(services, "metadata_source", None)
-    if metadata_source is not None:
-        with _session_factory(request)() as session:
-            competition = session.get(Competition, competition_id)
-            if competition is not None and competition.tsdb_id is not None:
-                try:
-                    rich = metadata_source.lookup_competition(competition.tsdb_id)
-                except Exception:
-                    rich = None
-                if rich is not None:
-                    competition.poster_url = rich.poster_url or competition.poster_url
-                    competition.banner_url = rich.banner_url or competition.banner_url
-                    competition.fanart_url = rich.fanart_url or competition.fanart_url
-                    if rich.description and not competition.description:
-                        competition.description = rich.description
-                    segments = list(
-                        session.scalars(
-                            select(Segment)
-                            .join(CompetitionSeason, CompetitionSeason.id == Segment.competition_season_id)
-                            .where(
-                                CompetitionSeason.competition_id == competition_id,
-                                Segment.event_id.is_not(None),
-                            )
-                        )
-                    )
-                    for segment in segments:
-                        sync_segment_metadata_snapshot(
-                            session,
-                            segment=segment,
-                            metadata_source_name=getattr(metadata_source, "name", None),
-                        )
-                    session.commit()
+    try:
+        services.organizer.refresh_competition_metadata(competition_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return RedirectResponse(
-        url=str(request.url_for("competition_detail", competition_id=competition_id)),
+        url=_redirect_target(request, str(request.url_for("competition_detail", competition_id=competition_id))),
         status_code=303,
     )
 
@@ -515,6 +494,19 @@ def segment_detail(request: Request, segment_id: str) -> HTMLResponse:
             "season": season,
             "competition": competition,
         },
+    )
+
+
+@router.post("/segments/{segment_id}/refresh-metadata")
+def refresh_segment_metadata(request: Request, segment_id: str) -> RedirectResponse:
+    services = request.app.state.services
+    try:
+        services.organizer.refresh_segment_metadata(segment_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return RedirectResponse(
+        url=_redirect_target(request, str(request.url_for("segment_detail", segment_id=segment_id))),
+        status_code=303,
     )
 
 
@@ -738,6 +730,7 @@ def create_plex_library(
             name=library_name,
             location=library_location,
             provider_group_id=registration.provider_group_id,
+            agent=registration.provider_identifier,
         )
     except ValueError as exc:
         return _render(
