@@ -398,6 +398,11 @@ def test_plex_libraries_page_explains_refresh_vs_scan(provider_app) -> None:
 
 
 def test_segment_detail_shows_matched_event_context(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        segment = session.get(Recording, "seg_primary")
+        segment.match_method = "auto_high_confidence"
+        session.commit()
+
     client = TestClient(provider_app)
 
     response = client.get("/admin/recordings/seg_primary")
@@ -408,6 +413,8 @@ def test_segment_detail_shows_matched_event_context(provider_app) -> None:
     assert "Current Mapping" in response.text
     assert "Manual Override" in response.text
     assert "Matched event" in response.text
+    assert "Match method" in response.text
+    assert "Automatic" in response.text
     assert "Austrian Grand Prix Race" in response.text
     assert "Refresh Event Metadata" in response.text
     assert "Refresh File Metadata" in response.text

@@ -5,6 +5,15 @@
 {% set cached_event = cached.get("event") or {} %}
 {% set cached_season = cached.get("season") or {} %}
 {% set cached_competition = cached.get("competition") or {} %}
+{% if recording.match_method and recording.match_method.startswith("auto_") %}
+{% set match_method_label = "Automatic" %}
+{% elif recording.match_method in ("manual_resolution", "manual_lookup_event_id", "rematch", "reassigned") %}
+{% set match_method_label = "Manual / Reassigned" %}
+{% elif recording.match_method in ("special_requires_review", "season_incomplete") %}
+{% set match_method_label = "Needs Review" %}
+{% else %}
+{% set match_method_label = none %}
+{% endif %}
 <section class="page-header">
   <div>
     <p class="eyebrow">File {{ recording.id }}</p>
@@ -111,6 +120,9 @@
       <div class="status-line"><span>Status</span><strong>{{ status.label }}</strong></div>
       <div class="status-line"><span>Mapped season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
       <div class="status-line"><span>Manual event date</span><strong>{{ recording.air_date or "Unknown" }}</strong></div>
+      {% if match_method_label %}
+      <div class="status-line"><span>Match method</span><strong>{{ match_method_label }}</strong></div>
+      {% endif %}
       <div class="status-line"><span>Episode</span><strong>{{ format_episode_code(recording) }}</strong></div>
       <div class="status-line"><span>Metadata refreshed</span><strong>{{ recording.metadata_refreshed_at.strftime("%Y-%m-%d %H:%M UTC") if recording.metadata_refreshed_at else "Never" }}</strong></div>
     </div>
