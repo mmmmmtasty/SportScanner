@@ -23,7 +23,7 @@
       {% for season in seasons %}
       <li>
         <div>
-          <strong>{{ season.label }}</strong>
+          <strong><a href="{{ request.url_for('library_season_detail', competition_id=competition.id, season_id=season.id) }}">{{ season.label }}</a></strong>
           <p>{% if season.is_complete %}Schedule imported and ready{% else %}Schedule still incomplete upstream{% endif %}</p>
         </div>
       </li>

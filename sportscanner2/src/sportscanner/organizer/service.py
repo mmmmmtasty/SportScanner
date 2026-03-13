@@ -23,9 +23,23 @@ from sportscanner.db.models import (
     ReviewTask,
     ReviewTaskStatus,
 )
-from sportscanner.db.queries import get_or_create_competition_season, get_recording_by_source_path
+from sportscanner.db.queries import (
+    create_alias,
+    create_refresh_job,
+    get_alias_for_text,
+    get_or_create_competition_season,
+    get_recording_by_fingerprint,
+    get_recording_by_source_path,
+)
 from sportscanner.metadata_snapshot import clear_recording_metadata_snapshot, sync_recording_metadata_snapshot
-from sportscanner.organizer.matcher import best_db_competition_match, best_upstream_competition_match, match_event, season_for_date
+from sportscanner.organizer.fingerprint import compute_fingerprint
+from sportscanner.organizer.matcher import (
+    best_db_competition_match,
+    best_upstream_competition_match,
+    build_match_explanation,
+    match_event,
+    season_for_date,
+)
 from sportscanner.organizer.numbering import EventSequenceInput, RecordingCodeInput, compute_event_sequences, compute_recording_codes, derive_weekend_group, episode_number
 from sportscanner.organizer.parser import ParsedFile, is_media_file, parse_filename
 from sportscanner.organizer.placer import build_managed_filename, move_managed_file, place_file, season_directory_name
@@ -269,6 +283,124 @@ class OrganizerService:
             )
             return refreshed
 
+    def rematch_recording(
+        self,
+        recording_id: str,
+        *,
+        event_id: str | None = None,
+        tsdb_event_id: int | None = None,
+    ) -> Recording:
+        """Re-match an already-published (or review) recording to a different event.
+
+        Works the same as resolving a review task but does not require an open
+        ReviewTask to exist — useful for correcting a previously auto-published file.
+        Any open review tasks for this recording are closed as a side-effect.
+        """
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                recording = session.get(Recording, recording_id)
+                if recording is None:
+                    raise KeyError(f"Unknown recording: {recording_id}")
+                old_event_id = recording.event_id
+
+                if tsdb_event_id is not None:
+                    event = self._resolve_review_lookup_event(session, recording, tsdb_event_id)
+                elif event_id is not None:
+                    event = session.get(Event, event_id)
+                    if event is None:
+                        raise KeyError(f"Unknown event: {event_id}")
+                else:
+                    raise ValueError("event_id or tsdb_event_id is required")
+
+                # Stash old season so _assign_recording_to_event can recompute it
+                old_explanation = recording.match_explanation or {}
+                old_explanation["_old_season_id"] = recording.competition_season_id
+
+                recording.match_explanation = old_explanation
+                self._assign_recording_to_event(
+                    session,
+                    recording,
+                    event,
+                    match_method="manual_resolution",
+                    old_event_id=old_event_id,
+                )
+
+                # Close any open review tasks
+                open_tasks = list(
+                    session.scalars(
+                        select(ReviewTask).where(
+                            ReviewTask.recording_id == recording_id,
+                            ReviewTask.status == ReviewTaskStatus.OPEN.value,
+                        )
+                    )
+                )
+                for task in open_tasks:
+                    task.status = ReviewTaskStatus.RESOLVED.value
+                    task.resolution = {"type": "rematch", "event_id": event.id}
+
+                session.commit()
+                result = session.get(Recording, recording_id)
+                assert result is not None
+                logger.info(
+                    "recording_rematched recording_id=%s old_event_id=%s new_event_id=%s",
+                    recording_id,
+                    old_event_id,
+                    event.id,
+                )
+                return result
+
+    def resolve_high_confidence_recordings(self, *, threshold: float = 0.70) -> list[str]:
+        """Auto-publish REVIEW recordings that have a matched event_id and confidence >= threshold.
+
+        Returns the list of recording IDs that were published.
+        """
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                candidates = list(
+                    session.scalars(
+                        select(Recording).where(
+                            Recording.status == RecordingStatus.REVIEW.value,
+                            Recording.event_id.is_not(None),
+                            Recording.match_confidence >= threshold,
+                        )
+                    )
+                )
+                resolved_ids: list[str] = []
+                for recording in candidates:
+                    event = session.get(Event, recording.event_id)
+                    if event is None:
+                        continue
+                    old_event_id = recording.event_id
+                    old_explanation = recording.match_explanation or {}
+                    old_explanation["_old_season_id"] = recording.competition_season_id
+                    recording.match_explanation = old_explanation
+                    self._assign_recording_to_event(
+                        session,
+                        recording,
+                        event,
+                        match_method="auto_high_confidence",
+                        old_event_id=old_event_id,
+                    )
+                    open_tasks = list(
+                        session.scalars(
+                            select(ReviewTask).where(
+                                ReviewTask.recording_id == recording.id,
+                                ReviewTask.status == ReviewTaskStatus.OPEN.value,
+                            )
+                        )
+                    )
+                    for task in open_tasks:
+                        task.status = ReviewTaskStatus.RESOLVED.value
+                        task.resolution = {"type": "auto_high_confidence", "event_id": event.id}
+                    resolved_ids.append(recording.id)
+                session.commit()
+                logger.info(
+                    "resolve_high_confidence_completed threshold=%s resolved_count=%s",
+                    threshold,
+                    len(resolved_ids),
+                )
+                return resolved_ids
+
     def _assign_recording_to_event(
         self,
         session: Session,
@@ -276,13 +408,44 @@ class OrganizerService:
         event: Event,
         *,
         match_method: str,
+        old_event_id: str | None = None,
     ) -> Recording:
+        season = session.get(CompetitionSeason, event.competition_season_id)
+        competition = session.get(Competition, season.competition_id) if season else None
+
+        # Preserve audit trail of previous matches
+        existing_explanation = recording.match_explanation or {}
+        history = list(existing_explanation.get("history", []))
+        if old_event_id and old_event_id != event.id:
+            history.append({"event_id": old_event_id, "method": recording.match_method})
+
         recording.event_id = event.id
         recording.competition_season_id = event.competition_season_id
         recording.status = RecordingStatus.PUBLISHED.value
         recording.match_confidence = 1.0
         recording.match_method = match_method
+        explanation = build_match_explanation(
+            method=match_method,
+            confidence=1.0,
+            event_name=event.name,
+            competition_name=competition.name if competition else None,
+        )
+        explanation["history"] = history
+        recording.match_explanation = explanation
+
+        # Create alias for manual assignments so future files auto-match
+        if match_method in ("manual_resolution", "manual_lookup_event_id", "rematch") and competition is not None:
+            try:
+                parsed = parse_filename(recording.source_path)
+                if parsed and parsed.show:
+                    create_alias(session, competition.id, parsed.show, source="auto")
+            except Exception:
+                pass
+
         session.flush()
+        old_season_id = existing_explanation.get("_old_season_id")
+        if old_season_id and old_season_id != event.competition_season_id:
+            self._recompute_sequences_for_season(session, old_season_id)
         self._recompute_sequences_for_season(session, event.competition_season_id)
         self._recompute_recordings_for_event(session, event.id)
         self._publish_recording(session, recording)
@@ -358,6 +521,29 @@ class OrganizerService:
         )
         session.flush()
 
+        # Fingerprint deduplication: if we've seen this file content before under a
+        # different path AND the old path no longer exists (rename), update the path
+        # rather than create a duplicate.
+        fingerprint = compute_fingerprint(parsed.source_path)
+        if fingerprint:
+            fp_match = get_recording_by_fingerprint(session, fingerprint)
+            # Only consider it a rename if the old recording isn't published (published files
+            # are moved to the library, so their incoming source_path naturally doesn't exist).
+            if (
+                fp_match is not None
+                and fp_match.source_path != str(parsed.source_path)
+                and fp_match.status != RecordingStatus.PUBLISHED.value
+                and not Path(fp_match.source_path).exists()
+            ):
+                logger.info(
+                    "recording_fingerprint_match_rename old_path=%s new_path=%s recording_id=%s",
+                    fp_match.source_path,
+                    parsed.source_path,
+                    fp_match.id,
+                )
+                fp_match.source_path = str(parsed.source_path)
+                return fp_match
+
         existing = get_recording_by_source_path(session, str(parsed.source_path))
         title = parsed.title
         if sidecar.title_suffix:
@@ -369,6 +555,7 @@ class OrganizerService:
         recording.title = title
         recording.air_date = parsed.event_date
         recording.source_path = str(parsed.source_path)
+        recording.file_fingerprint = fingerprint
         recording.status = RecordingStatus.STAGED.value
         clear_recording_metadata_snapshot(recording)
         if existing is None:
@@ -381,6 +568,11 @@ class OrganizerService:
             recording.status = RecordingStatus.PUBLISHED.value
             recording.match_confidence = 1.0
             recording.match_method = "sidecar_event_id"
+            recording.match_explanation = build_match_explanation(
+                method="sidecar_event_id",
+                confidence=1.0,
+                event_name=direct_match.name,
+            )
             session.flush()
             self._recompute_sequences_for_season(session, season.id)
             self._recompute_recordings_for_event(session, direct_match.id)
@@ -415,6 +607,12 @@ class OrganizerService:
             recording.event_id = matched_event.id
             recording.match_confidence = event_match.confidence
             recording.match_method = event_match.method
+            recording.match_explanation = build_match_explanation(
+                method=event_match.method,
+                confidence=event_match.confidence,
+                event_name=matched_event.name,
+                competition_name=competition.name,
+            )
             if event_match.confidence >= 0.8:
                 recording.status = RecordingStatus.PUBLISHED.value
                 session.flush()
@@ -434,6 +632,11 @@ class OrganizerService:
 
         recording.match_confidence = event_match.confidence
         recording.match_method = event_match.method
+        recording.match_explanation = build_match_explanation(
+            method=event_match.method,
+            confidence=event_match.confidence,
+            competition_name=competition.name,
+        )
         recording.status = RecordingStatus.REVIEW.value
         self._ensure_review_task(session, recording, event_match.candidates)
         logger.info(
@@ -451,6 +654,19 @@ class OrganizerService:
         *,
         search_hints: list[UpstreamEvent] | None = None,
     ) -> Competition:
+        # Check learned aliases first — exact (case-insensitive) match wins immediately.
+        alias = get_alias_for_text(session, show_name)
+        if alias is not None:
+            competition = session.get(Competition, alias.competition_id)
+            if competition is not None:
+                logger.info(
+                    "competition_resolved_via_alias show_name=%r alias=%r competition=%s",
+                    show_name,
+                    alias.alias_text,
+                    competition.name,
+                )
+                return competition
+
         competitions = list(session.scalars(select(Competition)))
         matched = best_db_competition_match(show_name, competitions)
         if matched is not None:

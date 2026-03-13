@@ -2,6 +2,11 @@
 {% block title %}Logs{% endblock %}
 {% block content %}
 <style>
+  .log-controls { margin-bottom: 1rem; }
+  .log-controls form { display: flex; gap: 1rem; flex-wrap: wrap; align-items: end; }
+  .log-controls label { margin-bottom: 0; min-width: 220px; }
+  .log-controls select, .log-controls button { margin-bottom: 0; }
+  .log-controls p { margin: 0; color: var(--pico-muted-color); }
   .log-filter-bar { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1rem; }
   .log-filter-bar label { margin-bottom: 0; flex: 1; min-width: 140px; }
   .log-filter-bar select, .log-filter-bar input { margin-bottom: 0; }
@@ -10,6 +15,9 @@
   #log-table { width: 100%; font-size: 0.8rem; border-collapse: collapse; }
   #log-table th, #log-table td { padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--pico-table-border-color); vertical-align: top; white-space: nowrap; }
   #log-table td.log-msg { white-space: pre-wrap; word-break: break-all; min-width: 300px; }
+  .log-payload { margin-top: 0.5rem; }
+  .log-payload summary { cursor: pointer; color: var(--pico-primary); }
+  .log-payload pre { margin-top: 0.5rem; max-height: 24rem; overflow: auto; background: rgba(0, 0, 0, 0.04); padding: 0.75rem; border-radius: 0.5rem; }
   tr.log-error td { color: var(--pico-del-color, #c0392b); }
   tr.log-warning td { color: #e67e22; }
   tr.log-debug td { color: var(--pico-muted-color); }
@@ -20,7 +28,26 @@
 
 <header>
   <h1>Logs</h1>
+  <p>Use `DEBUG` when you want upstream request details and structured API payloads such as raw TheSportsDB responses.</p>
 </header>
+
+<section class="panel log-controls">
+  <div class="panel-header">
+    <h2>Logging Level</h2>
+  </div>
+  <form method="post" action="{{ request.url_for('configure_logs') }}">
+    <label>
+      Active level
+      <select name="level">
+        {% for level in log_level_options %}
+          <option value="{{ level }}" {% if current_log_level == level %}selected{% endif %}>{{ level }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Save Logging Level</button>
+    <p>Current level: <strong>{{ current_log_level }}</strong></p>
+  </form>
+</section>
 
 <form id="log-filter-form" class="log-filter-bar"
       hx-get="{{ request.url_for('logs_entries') }}"

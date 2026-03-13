@@ -20,7 +20,7 @@
           <li><a href="{{ request.url_for('library_page') }}" title="Browse competitions, seasons, and published recordings">Library</a></li>
           <li><a href="{{ request.url_for('plex_page') }}" title="Check Plex connection, refresh jobs, and library actions">Plex</a></li>
           <li><a href="{{ request.url_for('settings_page') }}" title="Save Plex settings and register the SportScanner provider">Settings</a></li>
-          <li><a href="{{ request.url_for('advanced_page') }}" title="Inspect logs, debug output, and advanced tools">Advanced</a></li>
+          <li><a href="{{ request.url_for('logs_page') }}" title="Inspect logs, debug output, and upstream API payloads">Logs</a></li>
         </ul>
       </nav>
       <section class="workflow-banner" aria-label="Expected workflow">
@@ -42,15 +42,15 @@
             title="Watch Plex refresh status and trigger library refreshes when needed"
           >3. Plex</a>
           <a
-            href="{{ request.url_for('advanced_page') }}"
+            href="{{ request.url_for('logs_page') }}"
             class="workflow-step"
-            title="Use Advanced for logs, raw metadata, and debugging views"
-          >4. Advanced</a>
+            title="Use Logs for debug output, upstream API payloads, and troubleshooting views"
+          >4. Logs</a>
         </div>
         <span
           class="tooltip-chip"
           tabindex="0"
-          title="Inbox is the primary workflow. Library, Plex, and Advanced are supporting views for browsing, refreshes, and debugging."
+          title="Inbox is the primary workflow. Library, Plex, and Logs are supporting views for browsing, refreshes, and debugging."
         >Workflow guide</span>
       </section>
       <div id="toast-container" aria-live="polite" aria-atomic="true"></div>

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ season.label }} — {{ competition.name }}{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow"><a href="{{ request.url_for('library_competition_detail', competition_id=competition.id) }}">{{ competition.name }}</a></p>
+    <h1>{{ season.label }}</h1>
+    <p class="hero-copy">
+      Event timeline for this season.
+      {% if season.is_complete %}Schedule is complete.{% else %}Schedule is still incomplete upstream — some events may be missing.{% endif %}
+    </p>
+  </div>
+  <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
+    <button type="submit" class="secondary">Refresh Schedule</button>
+  </form>
+</section>
+
+<section>
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Events</h2>
+      <span class="pill">{{ rows | length }} events</span>
+    </div>
+    {% if rows %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Round</th>
+            <th>Date</th>
+            <th>Event</th>
+            <th>Status</th>
+            <th>Episode</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr class="{% if row.recordings %}event-row-has-recording{% else %}event-row-missing{% endif %}">
+            <td>{{ row.event.round or "—" }}</td>
+            <td>{{ row.event.date or "—" }}</td>
+            <td>{{ row.event.name }}</td>
+            <td>
+              {% if row.recordings %}
+                {% for r in row.recordings %}
+                <span class="status-chip {{ status_meta(r.status).class_name }}">{{ status_meta(r.status).label }}</span>
+                {% endfor %}
+              {% else %}
+                <span class="status-chip status-missing">Missing</span>
+              {% endif %}
+            </td>
+            <td>
+              {% for r in row.recordings %}
+              {{ format_episode_code(r) }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            </td>
+            <td>
+              {% for r in row.recordings %}
+              <a href="{{ request.url_for('file_detail', recording_id=r.id) }}" class="secondary compact-button">View</a>
+              {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No events found for this season.</p>
+    {% endif %}
+  </article>
+</section>
+
+{% if aliases %}
+<section>
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Learned Aliases</h2>
+    </div>
+    <p class="helper-text">Filename patterns that have been automatically mapped to {{ competition.name }}.</p>
+    <ul class="record-list">
+      {% for alias in aliases %}
+      <li>
+        <div>
+          <strong>{{ alias.alias_text }}</strong>
+          <p>Added {{ alias.created_at.strftime("%Y-%m-%d") if alias.created_at else "unknown" }} · {{ alias.source }}</p>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+{% endif %}
+{% endblock %}

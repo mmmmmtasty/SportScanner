@@ -17,7 +17,11 @@
         {% if r.home_team and r.away_team %} · {{ r.home_team }} vs {{ r.away_team }}{% endif %}
       </p>
     </div>
+    {% if recording_id %}
+    <form method="post" action="{{ request.url_for('rematch_recording', recording_id=recording_id) }}">
+    {% else %}
     <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task_id) }}">
+    {% endif %}
       {% if r.event_id %}
       <input type="hidden" name="event_id" value="{{ r.event_id }}" />
       {% elif r.tsdb_event_id %}

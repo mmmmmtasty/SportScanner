@@ -13,7 +13,7 @@
       {% for event in events %}
       <tr>
         <td>{{ event.date or "—" }}</td>
-        <td>{{ event.round_number or "—" }}</td>
+        <td>{{ event.round or "—" }}</td>
         <td>{{ event.name }}</td>
         <td>
           <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task_id) }}">

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 import sportscanner.organizer.placer as placer
-from sportscanner.db.models import Competition, Event, ReviewTask, Recording
+from sportscanner.db.models import AppSetting, Competition, Event, ReviewTask, Recording
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.plex import PlexRegistrationResult
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
@@ -512,9 +512,38 @@ def test_logs_page_renders(provider_app) -> None:
 
         assert response.status_code == 200
         assert "Logs" in response.text
+        assert "Save Logging Level" in response.text
         assert "persisted log entry" in response.text
     finally:
         logger.removeHandler(buf)
+
+
+def test_advanced_page_redirects_to_logs(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/advanced", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"].endswith("/admin/logs")
+
+
+def test_configure_logs_persists_level(provider_app) -> None:
+    client = TestClient(provider_app)
+    sport_logger = logging.getLogger("sportscanner")
+    original_level = sport_logger.level
+
+    try:
+        response = client.post("/admin/logs/configure", data={"level": "DEBUG"}, follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"].endswith("/admin/logs")
+        assert sport_logger.getEffectiveLevel() == logging.DEBUG
+        with provider_app.state.services.session_factory() as session:
+            setting = session.get(AppSetting, "log_level")
+            assert setting is not None
+            assert setting.value == "DEBUG"
+    finally:
+        sport_logger.setLevel(original_level)
 
 
 def test_logs_entries_returns_filtered_rows(provider_app) -> None:
@@ -542,5 +571,29 @@ def test_logs_entries_returns_filtered_rows(provider_app) -> None:
         response = client.get("/admin/logs/entries?keyword=wrong")
         assert "something went wrong" in response.text
         assert "hello from info" not in response.text
+    finally:
+        logger.removeHandler(buf)
+
+
+def test_logs_page_renders_structured_payload(provider_app) -> None:
+    buf = LogBuffer(session_factory=provider_app.state.services.session_factory)
+    buf.setFormatter(logging.Formatter("%(message)s"))
+    logger = logging.getLogger("sportscanner.test_logs_payload")
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(buf)
+    provider_app.state.log_buffer = buf
+    try:
+        logger.debug(
+            "received upstream payload",
+            extra={"structured_data": {"source": "live", "payload": {"events": [{"idEvent": "1234"}]}}},
+        )
+        client = TestClient(provider_app)
+
+        response = client.get("/admin/logs")
+
+        assert response.status_code == 200
+        assert "View JSON payload" in response.text
+        assert "idEvent" in response.text
+        assert "1234" in response.text
     finally:
         logger.removeHandler(buf)

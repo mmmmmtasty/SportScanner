@@ -53,6 +53,36 @@
   </article>
 </section>
 
+<section>
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Find Different Event</h2>
+    </div>
+    <form
+      hx-get="{{ request.url_for('search_events_for_file', recording_id=recording.id) }}"
+      hx-target="#file-search-results"
+      hx-trigger="input changed delay:300ms from:#file-search-q, change from:[name='date_from'], change from:[name='date_to']"
+      class="inline-search-form"
+    >
+      <input
+        id="file-search-q"
+        name="q"
+        type="search"
+        placeholder="Search events, competition name, or date…"
+        value="{{ event.name if event else '' }}"
+        autocomplete="off"
+      />
+      <div class="date-range-row">
+        <label>From <input type="date" name="date_from" /></label>
+        <label>To <input type="date" name="date_to" /></label>
+      </div>
+    </form>
+    <div id="file-search-results">
+      <p class="empty-state helper-text">Start typing to search cached events and TheSportsDB.</p>
+    </div>
+  </article>
+</section>
+
 <section class="split-grid">
   <article class="panel">
     <div class="panel-header">

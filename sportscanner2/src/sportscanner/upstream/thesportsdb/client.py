@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
+import logging
+import re
 from datetime import UTC, date, datetime, timedelta
 from urllib.parse import urlencode
 
@@ -12,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sportscanner.config import Settings
 from sportscanner.db.models import ApiCache
 from sportscanner.upstream.base import MetadataSource, UpstreamCompetition, UpstreamEvent
-from sportscanner.upstream.thesportsdb.adapter import adapt_competition, adapt_event
+from sportscanner.upstream.thesportsdb.adapter import adapt_competition, adapt_event, adapt_event_csv
 
 
 CACHE_TTLS = {
@@ -22,7 +26,10 @@ CACHE_TTLS = {
     "eventsday.php": timedelta(hours=1),
     "eventsseason.php": timedelta(hours=4),
     "lookupevent.php": timedelta(hours=12),
+    "season_csv": timedelta(hours=4),
 }
+
+logger = logging.getLogger("sportscanner.upstream.thesportsdb")
 
 
 class TheSportsDbClient(MetadataSource):
@@ -67,6 +74,9 @@ class TheSportsDbClient(MetadataSource):
     def season_events(self, competition: UpstreamCompetition, season_label: str) -> tuple[list[UpstreamEvent], bool]:
         if competition.tsdb_id is None:
             return ([], False)
+        csv_events = self._fetch_season_csv(competition.tsdb_id, season_label, competition.name)
+        if csv_events:
+            return (csv_events, True)
         payload = self._get_json(
             "eventsseason.php",
             params={"id": competition.tsdb_id, "s": season_label},
@@ -88,6 +98,68 @@ class TheSportsDbClient(MetadataSource):
             return None
         return adapt_event(events[0])
 
+    def _fetch_season_csv(self, tsdb_id: int, season_label: str, competition_name: str) -> list[UpstreamEvent]:
+        """Fetch all season events via the TheSportsDB website CSV export.
+
+        This bypasses the free-tier API cap (15 events) by downloading the full
+        season schedule from the website's CSV endpoint.
+        """
+        cache_key = f"season_csv:{tsdb_id}:{season_label}"
+        now = datetime.now(UTC)
+        try:
+            with self.session_factory() as session:
+                cached = session.get(ApiCache, cache_key)
+                expires_at = self._as_utc(cached.expires_at) if cached is not None else None
+                if cached is not None and expires_at is not None and expires_at >= now:
+                    return self._parse_csv_events(cached.response_body, competition_name, tsdb_id)
+        except OperationalError:
+            pass
+
+        slug = re.sub(r"[^a-z0-9]+", "-", competition_name.lower()).strip("-")
+        url = f"https://www.thesportsdb.com/season/{tsdb_id}-{slug}/{season_label}?csv=1&all=1"
+        try:
+            response = httpx.get(url, timeout=20.0, follow_redirects=True)
+            response.raise_for_status()
+        except httpx.HTTPError:
+            return []
+
+        match = re.search(r"<textarea[^>]*>(.*?)</textarea>", response.text, re.DOTALL | re.IGNORECASE)
+        if not match:
+            return []
+        csv_content = match.group(1).strip()
+        if not csv_content:
+            return []
+
+        try:
+            ttl = CACHE_TTLS["season_csv"]
+            with self.session_factory() as session:
+                entry = ApiCache(
+                    cache_key=cache_key,
+                    response_body=csv_content,
+                    fetched_at=now,
+                    expires_at=now + ttl,
+                )
+                existing = session.get(ApiCache, cache_key)
+                if existing is None:
+                    session.add(entry)
+                else:
+                    existing.response_body = entry.response_body
+                    existing.fetched_at = entry.fetched_at
+                    existing.expires_at = entry.expires_at
+                session.commit()
+        except OperationalError:
+            pass
+
+        return self._parse_csv_events(csv_content, competition_name, tsdb_id)
+
+    def _parse_csv_events(self, csv_content: str, competition_name: str, competition_tsdb_id: int) -> list[UpstreamEvent]:
+        events = []
+        for row in csv.DictReader(io.StringIO(csv_content)):
+            event = adapt_event_csv(row, competition_name=competition_name, competition_tsdb_id=competition_tsdb_id)
+            if event is not None:
+                events.append(event)
+        return events
+
     def _get_json(
         self,
         endpoint: str,
@@ -105,16 +177,91 @@ class TheSportsDbClient(MetadataSource):
                     cached = session.get(ApiCache, cache_key)
                     expires_at = self._as_utc(cached.expires_at) if cached is not None else None
                     if cached is not None and expires_at is not None and expires_at >= now:
-                        return json.loads(cached.response_body)
+                        payload = json.loads(cached.response_body)
+                        logger.debug(
+                            "thesportsdb_cache_hit endpoint=%s version=%s",
+                            endpoint,
+                            version,
+                            extra={
+                                "structured_data": {
+                                    "source": "cache",
+                                    "endpoint": endpoint,
+                                    "version": version,
+                                    "params": params,
+                                    "cache_key": cache_key,
+                                    "payload": payload,
+                                }
+                            },
+                        )
+                        return payload
             except OperationalError:
                 # SQLite write contention should not break live metadata fetches.
                 pass
 
         base_url = self.base_v2_url if version == "v2" else self.base_v1_url
         url = f"{base_url}/{endpoint.lstrip('/')}"
-        response = httpx.get(url, params=params, timeout=20.0)
-        response.raise_for_status()
-        payload = response.json()
+        logger.info(
+            "thesportsdb_request endpoint=%s version=%s cache=%s",
+            endpoint,
+            version,
+            "enabled" if cache else "disabled",
+        )
+        try:
+            response = httpx.get(url, params=params, timeout=20.0)
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "thesportsdb_http_error endpoint=%s version=%s status_code=%s",
+                endpoint,
+                version,
+                exc.response.status_code,
+                extra={
+                    "structured_data": {
+                        "source": "live",
+                        "endpoint": endpoint,
+                        "version": version,
+                        "params": params,
+                        "status_code": exc.response.status_code,
+                        "response_text": exc.response.text,
+                    }
+                },
+            )
+            raise
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "thesportsdb_request_failed endpoint=%s version=%s error=%s",
+                endpoint,
+                version,
+                exc,
+                extra={
+                    "structured_data": {
+                        "source": "live",
+                        "endpoint": endpoint,
+                        "version": version,
+                        "params": params,
+                        "error": str(exc),
+                    }
+                },
+            )
+            raise
+
+        logger.debug(
+            "thesportsdb_response endpoint=%s version=%s status_code=%s",
+            endpoint,
+            version,
+            response.status_code,
+            extra={
+                "structured_data": {
+                    "source": "live",
+                    "endpoint": endpoint,
+                    "version": version,
+                    "params": params,
+                    "status_code": response.status_code,
+                    "payload": payload,
+                }
+            },
+        )
 
         if cache:
             ttl = CACHE_TTLS.get(endpoint, timedelta(hours=1))

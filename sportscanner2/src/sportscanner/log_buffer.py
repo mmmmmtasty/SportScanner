@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import json
 import logging
 import threading
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from sportscanner.db.models import LogRecord
 
+_STRUCTURED_PAYLOAD_MARKER = "\n[SPORTSCANNER_STRUCTURED_PAYLOAD]\n"
+
 
 @dataclass(slots=True)
 class LogEntry:
@@ -19,6 +22,7 @@ class LogEntry:
     level: str
     logger_name: str
     message: str
+    payload_json: str | None = None
 
 
 class LogBuffer(logging.Handler):
@@ -44,13 +48,14 @@ class LogBuffer(logging.Handler):
             msg = self.format(record)
         except Exception:
             msg = record.getMessage()
+        payload_json = _serialize_structured_payload(getattr(record, "structured_data", None))
         created_at = datetime.fromtimestamp(record.created, tz=timezone.utc)
         ts = created_at.strftime("%Y-%m-%dT%H:%M:%S")
         entry_id = self._append_persistent_entry(
             created_at=created_at,
             level=record.levelname,
             logger_name=record.name,
-            message=msg,
+            message=_pack_message(msg, payload_json),
         )
         with self._lock:
             if entry_id is None:
@@ -63,6 +68,7 @@ class LogBuffer(logging.Handler):
                     level=record.levelname,
                     logger_name=record.name,
                     message=msg,
+                    payload_json=payload_json,
                 )
             )
 
@@ -144,7 +150,10 @@ class LogBuffer(logging.Handler):
                     continue
             if component and not entry.logger_name.startswith(component):
                 continue
-            if keyword and keyword.lower() not in entry.message.lower():
+            search_text = entry.message
+            if entry.payload_json:
+                search_text = f"{search_text}\n{entry.payload_json}"
+            if keyword and keyword.lower() not in search_text.lower():
                 continue
             out.append(entry)
         return list(reversed(out[-limit:]))
@@ -172,7 +181,11 @@ class LogBuffer(logging.Handler):
                     continue
             if component and not row.logger_name.startswith(component):
                 continue
-            if keyword and keyword.lower() not in row.message.lower():
+            message, payload_json = _unpack_message(row.message)
+            search_text = message
+            if payload_json:
+                search_text = f"{search_text}\n{payload_json}"
+            if keyword and keyword.lower() not in search_text.lower():
                 continue
             out.append(
                 LogEntry(
@@ -184,9 +197,33 @@ class LogBuffer(logging.Handler):
                     ).strftime("%Y-%m-%dT%H:%M:%S"),
                     level=row.level,
                     logger_name=row.logger_name,
-                    message=row.message,
+                    message=message,
+                    payload_json=payload_json,
                 )
             )
             if len(out) >= limit:
                 break
         return out
+
+
+def _serialize_structured_payload(payload: object | None) -> str | None:
+    if payload is None:
+        return None
+    try:
+        return json.dumps(payload, indent=2, sort_keys=True, default=str)
+    except TypeError:
+        return json.dumps({"value": str(payload)}, indent=2, sort_keys=True)
+
+
+def _pack_message(message: str, payload_json: str | None) -> str:
+    if not payload_json:
+        return message
+    return f"{message}{_STRUCTURED_PAYLOAD_MARKER}{payload_json}"
+
+
+def _unpack_message(message: str) -> tuple[str, str | None]:
+    if _STRUCTURED_PAYLOAD_MARKER not in message:
+        return message, None
+    plain_message, payload_json = message.split(_STRUCTURED_PAYLOAD_MARKER, 1)
+    payload_json = payload_json.strip() or None
+    return plain_message, payload_json

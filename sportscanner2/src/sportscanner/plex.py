@@ -185,6 +185,14 @@ class PlexPmsClient:
             response.raise_for_status()
         logger.info("plex_library_refresh_triggered section_id=%s", section_id)
 
+    def find_show_section_ids(self) -> list[int]:
+        """Return the IDs of all Plex library sections with type 'show'."""
+        try:
+            sections = self.list_library_sections()
+        except Exception:
+            return []
+        return [s["key"] for s in sections if s.get("type") == "show"]
+
     def library_uses_group(self, section_id: int, group_id: int) -> bool:
         if not self.configured():
             raise ValueError("Plex PMS URL and token are required")

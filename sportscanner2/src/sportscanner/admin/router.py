@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import logging
 from pathlib import Path
 
 import httpx
@@ -21,12 +22,19 @@ from sportscanner.db.models import (
     RecordingStatus,
     ReviewTask,
 )
-from sportscanner.db.queries import get_or_create_competition_season
+from sportscanner.db.queries import (
+    create_alias,
+    create_refresh_job,
+    get_or_create_competition_season,
+    get_season_with_events_and_recordings,
+    list_competition_aliases,
+)
 from sportscanner.metadata_snapshot import sync_recording_metadata_snapshot
 from sportscanner.organizer.matcher import season_for_date, similarity
 from sportscanner.plex import PlexRegistrationResult
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+_LOG_LEVEL_OPTIONS = ("DEBUG", "INFO", "WARNING", "ERROR")
 
 
 def _render(request: Request, template_name: str, context: dict) -> HTMLResponse:
@@ -66,6 +74,7 @@ def _settings_values(request: Request) -> dict[str, str | None]:
                 "plex_provider_group_name",
                 services.settings.plex_provider_group_name,
             ),
+            "log_level": _setting(session, "log_level", services.settings.log_level),
         }
 
 
@@ -74,6 +83,29 @@ def _redirect_target(request: Request, fallback: str) -> str:
     if referer and referer.startswith(str(request.base_url)):
         return referer
     return fallback
+
+
+def _current_log_level(request: Request) -> str:
+    with _session_factory(request)() as session:
+        configured = _setting(session, "log_level", request.app.state.services.settings.log_level)
+    level = configured.strip().upper()
+    if level not in _LOG_LEVEL_OPTIONS:
+        return "INFO"
+    return level
+
+
+def _persist_log_level(request: Request, level: str) -> None:
+    normalized = level.strip().upper()
+    if normalized not in _LOG_LEVEL_OPTIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported log level: {level}")
+    with _session_factory(request)() as session:
+        existing = session.get(AppSetting, "log_level")
+        if existing is None:
+            session.add(AppSetting(key="log_level", value=normalized))
+        else:
+            existing.value = normalized
+        session.commit()
+    logging.getLogger("sportscanner").setLevel(normalized)
 
 
 def _review_search_score(
@@ -641,7 +673,7 @@ def search_events_for_review(
     return _render(
         request,
         "review_event_search.html",
-        {"task_id": task_id, "results": results, "query": q.strip()},
+        {"task_id": task_id, "recording_id": None, "results": results, "query": q.strip()},
     )
 
 
@@ -955,13 +987,26 @@ def plex_registration_page(
 @router.get("/logs", response_class=HTMLResponse, name="logs_page")
 def logs_page(request: Request) -> HTMLResponse:
     entries = request.app.state.log_buffer.entries()
-    return _render(request, "logs.html", {"entries": entries})
+    return _render(
+        request,
+        "logs.html",
+        {
+            "entries": entries,
+            "current_log_level": _current_log_level(request),
+            "log_level_options": _LOG_LEVEL_OPTIONS,
+        },
+    )
 
 
 @router.get("/advanced", response_class=HTMLResponse, name="advanced_page")
 def advanced_page(request: Request) -> HTMLResponse:
-    entries = request.app.state.log_buffer.entries()
-    return _render(request, "advanced.html", {"entries": entries})
+    return RedirectResponse(url=str(request.url_for("logs_page")), status_code=307)
+
+
+@router.post("/logs/configure", name="configure_logs")
+def configure_logs(request: Request, level: str = Form(...)) -> RedirectResponse:
+    _persist_log_level(request, level)
+    return RedirectResponse(url=str(request.url_for("logs_page")), status_code=303)
 
 
 @router.get("/logs/entries", response_class=HTMLResponse)
@@ -1121,3 +1166,256 @@ def plex_refresh_section(request: Request, section_id: int) -> RedirectResponse:
     except (ValueError, httpx.HTTPError):
         pass
     return RedirectResponse(url=str(request.url_for("plex_page")), status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# File re-match endpoints (A5)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/files/{recording_id}/match", name="rematch_recording")
+def rematch_recording_endpoint(
+    request: Request,
+    recording_id: str,
+    event_id: str | None = Form(default=None),
+    tsdb_event_id: int | None = Form(default=None),
+) -> RedirectResponse:
+    services = request.app.state.services
+    try:
+        services.organizer.rematch_recording(
+            recording_id,
+            event_id=event_id or None,
+            tsdb_event_id=tsdb_event_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # Queue a Plex refresh for all show sections
+    with _session_factory(request)() as session:
+        pms_url = _setting(session, "pms_url", services.settings.pms_url)
+        pms_token = _setting(session, "pms_token", services.settings.pms_token)
+        plex = services.plex.with_credentials(pms_url, pms_token)
+        for section_id in plex.find_show_section_ids():
+            create_refresh_job(session, section_id=section_id, recording_id=recording_id)
+        session.commit()
+    return RedirectResponse(
+        url=str(request.url_for("file_detail", recording_id=recording_id)),
+        status_code=303,
+    )
+
+
+@router.get("/files/{recording_id}/search", response_class=HTMLResponse, name="search_events_for_file")
+def search_events_for_file(
+    request: Request,
+    recording_id: str,
+    q: str = "",
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> HTMLResponse:
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        recording = session.get(Recording, recording_id)
+        if recording is None:
+            raise HTTPException(status_code=404, detail="Unknown recording")
+        season = session.get(CompetitionSeason, recording.competition_season_id)
+        competition = session.get(Competition, season.competition_id) if season else None
+        results = []
+        query = q.strip()
+        seen: set[tuple[str, str | None]] = set()
+        if query:
+            rows = list(
+                session.scalars(
+                    select(Event)
+                    .join(CompetitionSeason, CompetitionSeason.id == Event.competition_season_id)
+                    .join(Competition, Competition.id == CompetitionSeason.competition_id)
+                    .where(or_(Event.name.ilike(f"%{query}%"), Competition.name.ilike(f"%{query}%")))
+                    .order_by(Event.date.desc())
+                    .limit(40)
+                )
+            )
+            ranked_rows = []
+            for ev in rows:
+                row_season = session.get(CompetitionSeason, ev.competition_season_id)
+                row_comp = session.get(Competition, row_season.competition_id) if row_season else None
+                score = _review_search_score(
+                    query,
+                    ev.name,
+                    row_comp.name if row_comp else "",
+                    preferred_competition=competition.name if competition else None,
+                    preferred_date=recording.air_date if recording else None,
+                    event_date=ev.date,
+                )
+                ranked_rows.append(
+                    (
+                        score,
+                        {
+                            "event_id": ev.id,
+                            "tsdb_event_id": None,
+                            "name": ev.name,
+                            "date": ev.date,
+                            "round": ev.round,
+                            "home_team": ev.home_team,
+                            "away_team": ev.away_team,
+                            "competition": row_comp.name if row_comp else "Unknown",
+                            "season": row_season.label if row_season else "Unknown",
+                            "source": "Cached event",
+                            "action_label": "Use This Event",
+                            "score_pct": round(score * 100),
+                            "confidence_class": _confidence_class(score),
+                        },
+                    )
+                )
+            for _raw_score, item in sorted(ranked_rows, key=lambda r: (r[0], r[1]["date"] or date.min), reverse=True):
+                if date_from is not None and item["date"] is not None and item["date"] < date_from:
+                    continue
+                if date_to is not None and item["date"] is not None and item["date"] > date_to:
+                    continue
+                dedupe_key = (item["name"], item["date"].isoformat() if item["date"] else None)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                results.append(item)
+                if len(results) >= 12:
+                    break
+
+            if services.metadata_source is not None:
+                upstream_rows = services.metadata_source.search_filename(query)
+                ranked_upstream = []
+                for upstream in upstream_rows:
+                    existing = (
+                        session.scalar(select(Event).where(Event.tsdb_id == upstream.tsdb_id))
+                        if upstream.tsdb_id is not None
+                        else None
+                    )
+                    if existing is not None:
+                        dedupe_key = (upstream.name, upstream.date.isoformat() if upstream.date else None)
+                        if dedupe_key in seen:
+                            continue
+                        existing_season = session.get(CompetitionSeason, existing.competition_season_id)
+                        existing_comp = session.get(Competition, existing_season.competition_id) if existing_season else None
+                        season_label = existing_season.label if existing_season else "Unknown"
+                        source_label = "Cached event"
+                        action_label = "Use Cached Event"
+                        event_id = existing.id
+                        tsdb_lookup_id = None
+                    else:
+                        season_label = "Unknown"
+                        if upstream.date is not None:
+                            if competition is not None and (
+                                not upstream.competition_name
+                                or similarity(competition.name, upstream.competition_name) >= 0.6
+                            ):
+                                _, season_label = season_for_date(upstream.date, competition)
+                            else:
+                                season_label = str(upstream.date.year)
+                        source_label = "TheSportsDB"
+                        action_label = "Load From TheSportsDB"
+                        event_id = None
+                        tsdb_lookup_id = upstream.tsdb_id
+                    score = _review_search_score(
+                        query,
+                        upstream.name,
+                        upstream.competition_name,
+                        preferred_competition=competition.name if competition else None,
+                        preferred_date=recording.air_date if recording else None,
+                        event_date=upstream.date,
+                    )
+                    ranked_upstream.append(
+                        (
+                            score,
+                            {
+                                "event_id": event_id,
+                                "tsdb_event_id": tsdb_lookup_id,
+                                "name": upstream.name,
+                                "date": upstream.date,
+                                "round": getattr(upstream, "round", None),
+                                "home_team": upstream.home_team,
+                                "away_team": upstream.away_team,
+                                "competition": upstream.competition_name or (competition.name if competition else "Unknown"),
+                                "season": season_label,
+                                "source": source_label,
+                                "action_label": action_label,
+                                "score_pct": round(score * 100),
+                                "confidence_class": _confidence_class(score),
+                            },
+                        )
+                    )
+                for _raw_score, item in sorted(
+                    ranked_upstream,
+                    key=lambda r: (r[0], r[1]["date"] or date.min),
+                    reverse=True,
+                ):
+                    if date_from is not None and item["date"] is not None and item["date"] < date_from:
+                        continue
+                    if date_to is not None and item["date"] is not None and item["date"] > date_to:
+                        continue
+                    dedupe_key = (item["name"], item["date"].isoformat() if item["date"] else None)
+                    if dedupe_key in seen:
+                        continue
+                    seen.add(dedupe_key)
+                    results.append(item)
+                    if len(results) >= 18:
+                        break
+    return _render(
+        request,
+        "review_event_search.html",
+        {"recording_id": recording_id, "task_id": None, "results": results, "query": q.strip()},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bulk auto-resolve endpoint (A8)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/inbox/resolve-high-confidence", name="resolve_high_confidence")
+def resolve_high_confidence(request: Request) -> RedirectResponse:
+    services = request.app.state.services
+    resolved_ids = services.organizer.resolve_high_confidence_recordings(threshold=0.70)
+    if resolved_ids:
+        with _session_factory(request)() as session:
+            pms_url = _setting(session, "pms_url", services.settings.pms_url)
+            pms_token = _setting(session, "pms_token", services.settings.pms_token)
+            plex = services.plex.with_credentials(pms_url, pms_token)
+            for section_id in plex.find_show_section_ids():
+                create_refresh_job(session, section_id=section_id)
+            session.commit()
+    return RedirectResponse(url=str(request.url_for("inbox")), status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Season detail page (D1 / A7)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/library/{competition_id}/seasons/{season_id}", response_class=HTMLResponse, name="library_season_detail")
+def library_season_detail(request: Request, competition_id: str, season_id: str) -> HTMLResponse:
+    with _session_factory(request)() as session:
+        competition = session.get(Competition, competition_id)
+        if competition is None:
+            raise HTTPException(status_code=404, detail="Unknown competition")
+        season, events, recordings_by_event_id = get_season_with_events_and_recordings(session, season_id)
+        if season is None:
+            raise HTTPException(status_code=404, detail="Unknown season")
+        aliases = list_competition_aliases(session, competition_id)
+        rows = []
+        for event in events:
+            event_recordings = recordings_by_event_id.get(event.id, [])
+            rows.append(
+                {
+                    "event": event,
+                    "recordings": event_recordings,
+                    "status": (
+                        _status_meta(event_recordings[0].status) if event_recordings else None
+                    ),
+                }
+            )
+    return _render(
+        request,
+        "library_season.html",
+        {
+            "competition": competition,
+            "season": season,
+            "rows": rows,
+            "aliases": aliases,
+        },
+    )

@@ -70,6 +70,10 @@
   <form method="post" action="{{ request.url_for('rescan') }}">
     <button type="submit">Rescan Incoming</button>
   </form>
+  <form method="post" action="{{ request.url_for('resolve_high_confidence') }}"
+        onsubmit="return confirm('Accept all Needs Match files with confidence ≥ 70%?')">
+    <button type="submit" class="secondary">Resolve High-Confidence</button>
+  </form>
   <a href="{{ request.url_for('review_queue') }}" role="button" class="secondary">Open Review Queue</a>
 </section>
 

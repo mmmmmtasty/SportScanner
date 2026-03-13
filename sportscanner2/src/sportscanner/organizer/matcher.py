@@ -100,6 +100,67 @@ def season_for_date(event_date: date, competition: Competition) -> tuple[int, st
     return (event_date.year, str(event_date.year))
 
 
+def build_match_explanation(
+    *,
+    method: str,
+    confidence: float,
+    event_name: str | None = None,
+    competition_name: str | None = None,
+    via_alias: str | None = None,
+) -> dict:
+    """Return a structured match explanation dict stored on Recording.match_explanation."""
+    signals: list[str] = []
+
+    if method == "sidecar_event_id":
+        signals.append("direct event ID from sidecar file")
+    elif method == "searchfilename":
+        signals.append("filename search match")
+        if confidence >= 0.9:
+            signals.append("high title similarity")
+    elif method == "eventsday_title":
+        signals.append("exact date match")
+        if confidence >= 0.8:
+            signals.append("high title similarity")
+        else:
+            signals.append("moderate title similarity")
+    elif method == "single_event_on_date":
+        signals.append("only event on this date")
+    elif method == "eventsday_ambiguous":
+        signals.append("multiple events on date – ambiguous")
+    elif method == "manual_resolution":
+        signals.append("manually matched by user")
+    elif method == "manual_lookup_event_id":
+        signals.append("imported from TheSportsDB by user")
+    elif method == "reassigned":
+        signals.append("competition reassigned by user")
+    elif method == "season_incomplete":
+        signals.append("season schedule not yet complete")
+    elif method == "competition_unknown":
+        signals.append("competition could not be identified")
+    elif method == "special_requires_review":
+        signals.append("flagged as Season 0 special")
+
+    if via_alias:
+        signals.append(f"competition matched via alias '{via_alias}'")
+
+    conf_pct = round(confidence * 100)
+    if signals:
+        summary = f"{', '.join(signals).capitalize()} ({conf_pct}%)"
+    else:
+        summary = f"Matched via {method.replace('_', ' ')} ({conf_pct}%)"
+
+    return {
+        "method": method,
+        "confidence": confidence,
+        "event_name": event_name,
+        "competition": competition_name,
+        "via_alias": via_alias,
+        "signals": signals,
+        "summary": summary,
+        "history": [],
+    }
+
+
 def match_event(
     parsed: ParsedFile,
     *,
