@@ -179,6 +179,7 @@ class Recording(Base):
 
     event: Mapped[Event | None] = relationship(back_populates="recordings")
     competition_season: Mapped[CompetitionSeason] = relationship(back_populates="recordings")
+    overrides: Mapped[list["Override"]] = relationship(back_populates="recording", cascade="all, delete-orphan")
     review_tasks: Mapped[list["ReviewTask"]] = relationship(back_populates="recording")
     refresh_jobs: Mapped[list["PlexRefreshJob"]] = relationship(back_populates="recording")
 
@@ -224,6 +225,8 @@ class Override(Base):
     new_value: Mapped[str | None] = mapped_column(Text)
     reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+
+    recording: Mapped[Recording] = relationship(back_populates="overrides")
 
 
 class ReviewTask(Base):

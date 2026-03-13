@@ -6,7 +6,7 @@
     <p class="eyebrow">Published Library</p>
     <h1>Library</h1>
     <p class="hero-copy">
-      Browse competitions, seasons, and recordings that SportScanner already knows about, then refresh one competition when upstream schedules move.
+      Browse competitions, seasons, and events that SportScanner already knows about, then refresh one competition when upstream schedules move.
     </p>
   </div>
 </section>
@@ -19,7 +19,7 @@
           <th>Competition</th>
           <th>Sport</th>
           <th>Seasons</th>
-          <th>Recordings</th>
+          <th>Events</th>
           <th>Last Refreshed</th>
           <th></th>
         </tr>
@@ -34,7 +34,7 @@
           <td>{{ row.last_refreshed.strftime("%Y-%m-%d %H:%M") if row.last_refreshed else "Never" }}</td>
           <td>
             <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=row.competition.id) }}">
-              <button type="submit" class="secondary compact-button">Refresh Schedule</button>
+              <button type="submit" class="secondary compact-button" data-loading-label="Refreshing...">Refresh Schedule</button>
             </form>
           </td>
         </tr>

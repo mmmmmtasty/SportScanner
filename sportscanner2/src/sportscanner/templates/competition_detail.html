@@ -6,7 +6,7 @@
     <p class="eyebrow">{{ competition.sport or "Competition" }}</p>
     <h1>{{ competition.name }}</h1>
     <p class="hero-copy">
-      {{ competition.description or "Inspect seasons, published recordings, and the current episode ordering for this competition." }}
+      {{ competition.description or "Inspect seasons, published events, and the current episode ordering for this competition." }}
     </p>
   </div>
   <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
@@ -70,7 +70,7 @@
 
   <article class="panel">
     <div class="panel-header">
-      <h2>Recordings</h2>
+      <h2>Events</h2>
     </div>
     <div class="table-wrap">
       <table>
@@ -100,7 +100,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="6">No recordings.</td>
+            <td colspan="6">No events.</td>
           </tr>
           {% endfor %}
         </tbody>

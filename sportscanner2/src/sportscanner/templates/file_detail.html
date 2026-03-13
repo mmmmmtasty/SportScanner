@@ -10,27 +10,46 @@
     <p class="eyebrow">File {{ recording.id }}</p>
     <h1>{{ recording.title }}</h1>
     <p class="hero-copy">
-      Review the parsed file context, current match, and local overrides in one place. Use the review queue for ranked alternatives when SportScanner still needs a decision.
+      Review the parsed file context, current match, downloaded artwork, and manual overrides in one place. Use the review queue for ranked alternatives when SportScanner still needs a decision.
     </p>
   </div>
-  <div class="action-stack">
-    <span class="status-chip {{ status.class_name }}">{{ status.label }}</span>
-    <form method="post" action="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}">
-      <button type="submit" class="secondary">Refresh Item Metadata</button>
-    </form>
-  </div>
+  <aside class="hero-side-panel">
+    <div class="action-stack">
+      <span class="status-chip {{ status.class_name }}">{{ status.label }}</span>
+      {% if event %}
+      <form method="post" action="{{ request.url_for('event_refresh_metadata', event_id=event.id) }}">
+        <button type="submit" class="secondary" data-loading-label="Refreshing Event...">Refresh Event Metadata</button>
+      </form>
+      {% endif %}
+      <form method="post" action="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}">
+        <button type="submit" class="secondary" data-loading-label="Refreshing File...">Refresh File Metadata</button>
+      </form>
+    </div>
+    {% if artwork_cards %}
+    <div class="hero-art-grid">
+      {% for card in artwork_cards %}
+      <figure class="hero-art-card">
+        <img src="{{ card.url }}" alt="{{ card.alt }}" loading="lazy" />
+        <figcaption>{{ card.label }}</figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="helper-text">No downloaded artwork has been cached for this file yet.</p>
+    {% endif %}
+  </aside>
 </section>
 
 <section class="split-grid">
   <article class="panel">
     <div class="panel-header">
-      <h2>What We Found</h2>
+      <h2>File Details</h2>
     </div>
     <div class="status-stack">
       <div class="status-line"><span>Source file</span><strong>{{ recording.source_path.split("/")[-1] }}</strong></div>
       <div class="status-line"><span>Kind</span><strong>{{ recording.kind }}</strong></div>
-      <div class="status-line"><span>Air date</span><strong>{{ recording.air_date or "Unknown" }}</strong></div>
-      <div class="status-line"><span>Season guess</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Event date</span><strong>{{ recording.air_date or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
       <div class="status-line"><span>Managed path</span><strong>{{ recording.managed_path or "Not published yet" }}</strong></div>
     </div>
   </article>
@@ -42,7 +61,7 @@
     <div class="status-stack">
       <div class="status-line"><span>Competition</span><strong>{{ competition.name if competition else "Unknown" }}</strong></div>
       <div class="status-line"><span>Matched event</span><strong>{{ event.name if event else "Unmatched" }}</strong></div>
-      <div class="status-line"><span>Event date</span><strong>{{ event.date if event and event.date else "Unknown" }}</strong></div>
+      <div class="status-line"><span>TheSportsDB Event ID</span><strong>{{ event.tsdb_id if event and event.tsdb_id else "Unknown" }}</strong></div>
       <div class="status-line"><span>Episode</span><strong>{{ format_episode_code(recording) }}</strong></div>
       <div class="status-line"><span>Confidence</span><strong>{{ ((recording.match_confidence or 0) * 100) | round | int }}%</strong></div>
     </div>
@@ -68,7 +87,7 @@
         id="file-search-q"
         name="q"
         type="search"
-        placeholder="Search events, competition name, or date…"
+        placeholder="Search events, competition name, or date..."
         value="{{ event.name if event else '' }}"
         autocomplete="off"
       />
@@ -89,17 +108,19 @@
       <h2>Current Mapping</h2>
     </div>
     <div class="status-stack">
-      <div class="status-line"><span>Competition</span><strong>{{ competition.name if competition else "Unknown" }}</strong></div>
-      <div class="status-line"><span>Season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
-      <div class="status-line"><span>Matched Event</span><strong>{{ event.name if event else "Unmatched" }}</strong></div>
-      <div class="status-line"><span>TheSportsDB Event ID</span><strong>{{ event.tsdb_id if event and event.tsdb_id else "Unknown" }}</strong></div>
       <div class="status-line"><span>Status</span><strong>{{ status.label }}</strong></div>
+      <div class="status-line"><span>Mapped season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Manual event date</span><strong>{{ recording.air_date or "Unknown" }}</strong></div>
+      <div class="status-line"><span>Episode</span><strong>{{ format_episode_code(recording) }}</strong></div>
+      <div class="status-line"><span>Metadata refreshed</span><strong>{{ recording.metadata_refreshed_at.strftime("%Y-%m-%d %H:%M UTC") if recording.metadata_refreshed_at else "Never" }}</strong></div>
     </div>
+    <p class="helper-text"><strong>Source:</strong> {{ recording.source_path }}</p>
+    <p class="helper-text"><strong>Managed:</strong> {{ recording.managed_path or "Not published yet" }}</p>
   </article>
 
   <article class="panel">
     <div class="panel-header">
-      <h2>Advanced Overrides</h2>
+      <h2>Manual Override</h2>
     </div>
     <form method="post" action="{{ request.url_for('update_recording', recording_id=recording.id) }}">
       <label>
@@ -110,7 +131,27 @@
         Kind
         <input name="kind" value="{{ recording.kind }}" />
       </label>
-      <button type="submit">Save</button>
+      <label>
+        Description
+        <textarea name="summary" rows="4">{{ recording.summary or "" }}</textarea>
+      </label>
+      <label>
+        Season
+        <select name="competition_season_id">
+          {% for option in season_options %}
+          <option value="{{ option.id }}" {% if option.id == recording.competition_season_id %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Event Date
+        <input type="date" name="air_date" value="{{ recording.air_date.isoformat() if recording.air_date else '' }}" />
+      </label>
+      <label>
+        Episode
+        <input type="number" name="episode_number" min="0" value="{{ recording.episode_number if recording.episode_number is not none else '' }}" />
+      </label>
+      <button type="submit">Save Manual Override</button>
     </form>
   </article>
 </section>
@@ -145,7 +186,7 @@
 
   <article class="panel">
     <div class="panel-header">
-      <h2>Cached Images</h2>
+      <h2>Downloaded Artwork</h2>
     </div>
     {% if recording.metadata_images %}
     <div class="metadata-gallery">

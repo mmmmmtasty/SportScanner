@@ -47,7 +47,7 @@
           <td>
             <a href="{{ request.url_for('competition_detail', competition_id=competition.id) }}">Open</a>
             <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}" style="display:inline;">
-              <button type="submit" class="secondary compact-button">Refresh Metadata</button>
+              <button type="submit" class="secondary compact-button" data-loading-label="Refreshing...">Refresh Metadata</button>
             </form>
           </td>
         </tr>

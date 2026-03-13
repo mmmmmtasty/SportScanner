@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 import sportscanner.organizer.placer as placer
-from sportscanner.db.models import AppSetting, Competition, Event, ReviewTask, Recording
+from sportscanner.db.models import AppSetting, Competition, CompetitionSeason, Event, ReviewTask, Recording
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.plex import PlexRegistrationResult
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
@@ -233,7 +233,7 @@ def test_dashboard_shows_connected_plex_state(provider_app) -> None:
     response = client.get("/admin/")
 
     assert response.status_code == 200
-    assert "Inbox-first flow" in response.text
+    assert "Inbox-first flow" not in response.text
     assert "Inbox" in response.text
     assert "Plex connection" in response.text
     assert "Connected" in response.text
@@ -402,12 +402,66 @@ def test_segment_detail_shows_matched_event_context(provider_app) -> None:
     response = client.get("/admin/recordings/seg_primary")
 
     assert response.status_code == 200
-    assert "What We Found" in response.text
+    assert "File Details" in response.text
     assert "Best Match" in response.text
     assert "Current Mapping" in response.text
-    assert "Matched Event" in response.text
+    assert "Manual Override" in response.text
+    assert "Matched event" in response.text
     assert "Austrian Grand Prix Race" in response.text
-    assert "Refresh Item Metadata" in response.text
+    assert "Refresh Event Metadata" in response.text
+    assert "Refresh File Metadata" in response.text
+    assert "Event" in response.text
+    assert "Season 2025" in response.text
+
+
+def test_segment_detail_persists_manual_overrides(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        session.add(
+            CompetitionSeason(
+                id="season_tsdb_4370_2026",
+                competition_id="tsdb_4370",
+                season_number=2026,
+                label="2026",
+                is_complete=True,
+            )
+        )
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.post(
+        "/admin/recordings/seg_primary",
+        data={
+            "title": "Austria GP Main Event",
+            "kind": "race",
+            "summary": "Manual summary override",
+            "competition_season_id": "season_tsdb_4370_2026",
+            "air_date": "2025-07-01",
+            "episode_number": "1301",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        segment = session.get(Recording, "seg_primary")
+        assert segment is not None
+        assert segment.title == "Austria GP Main Event"
+        assert segment.summary == "Manual summary override"
+        assert segment.competition_season_id == "season_tsdb_4370_2026"
+        assert segment.air_date == date(2025, 7, 1)
+        assert segment.episode_number == 1301
+        expected_path = (
+            provider_app.state.services.settings.library_dir
+            / "Formula 1"
+            / "Season 2026"
+            / "Formula 1 - 2025-07-01 - Austria GP Main Event.mkv"
+        )
+        assert segment.managed_path == str(expected_path)
+        assert segment.metadata_record is not None
+        assert segment.metadata_record["title"] == "Austria GP Main Event"
+        assert segment.metadata_record["summary"] == "Manual summary override"
+        assert segment.metadata_record["originallyAvailableAt"] == "2025-07-01"
+        assert segment.metadata_record["season"]["title"] == "2026"
 
 
 def test_segment_detail_persists_and_shows_cached_item_metadata(provider_app) -> None:
@@ -546,6 +600,55 @@ def test_segment_refresh_route_retries_item_metadata(provider_app) -> None:
         assert event.date == date(2025, 6, 28)
         assert segment.metadata_record is not None
         assert segment.metadata_record["event"]["date"] == "2025-06-28"
+
+
+def test_season_refresh_route_updates_only_the_requested_season(provider_app) -> None:
+    metadata = provider_app.state.services.metadata_source
+    metadata._f1_event = UpstreamEvent(
+        id="tsdb_1001",
+        tsdb_id=1001,
+        name="Austrian Grand Prix Season Refresh",
+        competition_name="Formula 1",
+        date=date(2025, 6, 27),
+    )
+    client = TestClient(provider_app)
+
+    response = client.post(
+        "/admin/library/tsdb_4370/seasons/season_tsdb_4370_2025/refresh-metadata",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
+        assert event is not None
+        assert event.name == "Austrian Grand Prix Season Refresh"
+        assert event.date == date(2025, 6, 27)
+
+
+def test_event_refresh_route_updates_attached_recording_metadata(provider_app) -> None:
+    metadata = provider_app.state.services.metadata_source
+    metadata._f1_event = UpstreamEvent(
+        id="tsdb_1001",
+        tsdb_id=1001,
+        name="Austrian Grand Prix Event Refresh",
+        competition_name="Formula 1",
+        date=date(2025, 7, 2),
+    )
+    client = TestClient(provider_app)
+
+    response = client.post("/admin/events/tsdb_1001/refresh-metadata", follow_redirects=False)
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        event = session.scalar(select(Event).where(Event.id == "tsdb_1001"))
+        segment = session.get(Recording, "seg_primary")
+        assert event is not None
+        assert segment is not None
+        assert event.name == "Austrian Grand Prix Event Refresh"
+        assert event.date == date(2025, 7, 2)
+        assert segment.metadata_record is not None
+        assert segment.metadata_record["event"]["date"] == "2025-07-02"
 
 
 def test_stats_json_returns_counts(provider_app) -> None:

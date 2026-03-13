@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import logging
 import re
 import threading
@@ -18,6 +19,7 @@ from sportscanner.db.models import (
     Event,
     EventOrder,
     EventOrigin,
+    Override,
     Recording,
     RecordingStatus,
     ReviewTask,
@@ -52,6 +54,14 @@ except ImportError:  # pragma: no cover - optional fallback for minimal environm
     yaml = None
 
 logger = logging.getLogger("sportscanner.organizer.service")
+
+
+def _stringify_override_value(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
 
 
 @dataclass(slots=True)
@@ -191,6 +201,30 @@ class OrganizerService:
                 assert refreshed is not None
                 return refreshed
 
+    def refresh_season_metadata(self, season_id: str) -> CompetitionSeason:
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                season = session.get(CompetitionSeason, season_id)
+                if season is None:
+                    raise KeyError(f"Unknown season: {season_id}")
+                self._refresh_season_metadata(session, season)
+                session.commit()
+                refreshed = session.get(CompetitionSeason, season_id)
+                assert refreshed is not None
+                return refreshed
+
+    def refresh_event_metadata(self, event_id: str) -> Event:
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                event = session.get(Event, event_id)
+                if event is None:
+                    raise KeyError(f"Unknown event: {event_id}")
+                refreshed_id = self._refresh_event_metadata(session, event).id
+                session.commit()
+                refreshed = session.get(Event, refreshed_id)
+                assert refreshed is not None
+                return refreshed
+
     def refresh_recording_metadata(self, recording_id: str) -> Recording:
         with self._ingest_lock:
             with self.session_factory() as session:
@@ -198,6 +232,97 @@ class OrganizerService:
                 if recording is None:
                     raise KeyError(f"Unknown recording: {recording_id}")
                 self._refresh_recording_metadata(session, recording)
+                session.commit()
+                refreshed = session.get(Recording, recording_id)
+                assert refreshed is not None
+                return refreshed
+
+    def update_recording_details(
+        self,
+        recording_id: str,
+        *,
+        title: str,
+        kind: str,
+        summary: str | None,
+        air_date: date | None,
+        episode_number: int | None,
+        competition_season_id: str,
+    ) -> Recording:
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                recording = session.get(Recording, recording_id)
+                if recording is None:
+                    raise KeyError(f"Unknown recording: {recording_id}")
+                season = session.get(CompetitionSeason, competition_season_id)
+                if season is None:
+                    raise KeyError(f"Unknown season: {competition_season_id}")
+
+                previous_season_id = recording.competition_season_id
+                previous_values = {
+                    "title": recording.title,
+                    "kind": recording.kind,
+                    "summary": recording.summary,
+                    "air_date": recording.air_date,
+                    "episode_number": recording.episode_number,
+                    "competition_season_id": recording.competition_season_id,
+                }
+                recording.title = title
+                recording.kind = kind
+                recording.summary = summary
+                recording.air_date = air_date
+                recording.episode_number = episode_number
+                recording.competition_season_id = competition_season_id
+                session.flush()
+
+                event = session.get(Event, recording.event_id) if recording.event_id else None
+                override_baselines = {
+                    "air_date": event.date if event is not None else None,
+                    "summary": event.description if event is not None else None,
+                    "competition_season_id": event.competition_season_id if event is not None else previous_season_id,
+                }
+                new_values = {
+                    "title": title,
+                    "kind": kind,
+                    "summary": summary,
+                    "air_date": air_date,
+                    "episode_number": episode_number,
+                    "competition_season_id": competition_season_id,
+                }
+                existing_overrides = {
+                    override.field: override
+                    for override in session.scalars(select(Override).where(Override.recording_id == recording.id))
+                }
+                for field, new_value in new_values.items():
+                    baseline = override_baselines.get(field)
+                    override = existing_overrides.get(field)
+                    if field in override_baselines and new_value == baseline:
+                        if override is not None:
+                            session.delete(override)
+                        continue
+                    if new_value == previous_values[field] and override is None:
+                        continue
+                    if override is None:
+                        override = Override(
+                            recording_id=recording.id,
+                            field=field,
+                            old_value=_stringify_override_value(previous_values[field]),
+                        )
+                        session.add(override)
+                    override.new_value = _stringify_override_value(new_value)
+                    override.reason = "manual_override"
+                session.flush()
+                session.expire(recording, ["overrides"])
+
+                affected_seasons = {previous_season_id, recording.competition_season_id}
+                for season_id in sorted(affected_seasons):
+                    self._refresh_published_recordings_for_season(session, season_id)
+
+                if recording.event_id is not None:
+                    sync_recording_metadata_snapshot(
+                        session,
+                        recording=recording,
+                        metadata_source_name=getattr(self.metadata_source, "name", None),
+                    )
                 session.commit()
                 refreshed = session.get(Recording, recording_id)
                 assert refreshed is not None
@@ -891,6 +1016,131 @@ class OrganizerService:
             len(retry_recordings),
         )
 
+    def _refresh_season_metadata(self, session: Session, season: CompetitionSeason) -> None:
+        competition = session.get(Competition, season.competition_id)
+        if competition is None:
+            raise KeyError(f"Unknown competition: {season.competition_id}")
+
+        self._refresh_competition_details(competition, overwrite=True)
+        if self.metadata_source is not None and competition.tsdb_id is not None and season.season_number != 0:
+            upstream_competition = UpstreamCompetition(
+                id=competition.id,
+                name=competition.name,
+                tsdb_id=competition.tsdb_id,
+                alternate_names=competition.alternate_names,
+            )
+            try:
+                events, is_complete = self.metadata_source.season_events(upstream_competition, season.label)
+            except Exception as exc:
+                logger.warning(
+                    "season_refresh_failed competition=%s season=%s error=%s",
+                    competition.name,
+                    season.label,
+                    exc,
+                )
+            else:
+                season.is_complete = is_complete
+                for event in events:
+                    self._upsert_event(session, season.id, event)
+
+        self._recompute_sequences_for_season(session, season.id)
+        self._refresh_published_recordings_for_season(session, season.id)
+
+        retry_recordings = list(
+            session.scalars(
+                select(Recording)
+                .where(
+                    Recording.competition_season_id == season.id,
+                    or_(
+                        Recording.event_id.is_(None),
+                        Recording.status != RecordingStatus.PUBLISHED.value,
+                    ),
+                )
+                .order_by(Recording.created_at.asc(), Recording.id.asc())
+            )
+        )
+        for recording in retry_recordings:
+            self._retry_recording_match(session, recording)
+
+        published_recordings = list(
+            session.scalars(
+                select(Recording).where(
+                    Recording.competition_season_id == season.id,
+                    Recording.status == RecordingStatus.PUBLISHED.value,
+                )
+            )
+        )
+        for recording in published_recordings:
+            sync_recording_metadata_snapshot(
+                session,
+                recording=recording,
+                metadata_source_name=getattr(self.metadata_source, "name", None),
+            )
+
+        logger.info(
+            "season_metadata_refreshed competition=%s season=%s retried_recordings=%s",
+            competition.name,
+            season.label,
+            len(retry_recordings),
+        )
+
+    def _refresh_event_metadata(self, session: Session, event: Event) -> Event:
+        current_season = session.get(CompetitionSeason, event.competition_season_id)
+        if current_season is None:
+            raise KeyError(f"Unknown season: {event.competition_season_id}")
+        current_competition = session.get(Competition, current_season.competition_id)
+        if current_competition is None:
+            raise KeyError(f"Unknown competition: {current_season.competition_id}")
+
+        original_season_id = event.competition_season_id
+        if self.metadata_source is not None and event.tsdb_id is not None:
+            upstream = self.metadata_source.lookup_event(event.tsdb_id)
+            if upstream is not None:
+                competition = current_competition
+                if upstream.competition_name and upstream.competition_name != current_competition.name:
+                    competition = self._resolve_competition(session, upstream.competition_name)
+                if upstream.date is not None:
+                    season_number, season_label = season_for_date(upstream.date, competition)
+                    season = get_or_create_competition_season(
+                        session,
+                        competition=competition,
+                        season_number=season_number,
+                        label=season_label,
+                        is_complete=True,
+                    )
+                    session.flush()
+                else:
+                    season = current_season
+                event = self._upsert_event(session, season.id, upstream)
+                current_competition = competition
+
+        attached_recordings = list(session.scalars(select(Recording).where(Recording.event_id == event.id)))
+        for recording in attached_recordings:
+            if recording.competition_season_id == original_season_id:
+                recording.competition_season_id = event.competition_season_id
+
+        affected_seasons = {original_season_id, event.competition_season_id}
+        for season_id in sorted(affected_seasons):
+            self._recompute_sequences_for_season(session, season_id)
+            self._refresh_published_recordings_for_season(session, season_id)
+
+        self._refresh_competition_details(current_competition, overwrite=True)
+        for recording in attached_recordings:
+            sync_recording_metadata_snapshot(
+                session,
+                recording=recording,
+                metadata_source_name=getattr(self.metadata_source, "name", None),
+            )
+
+        logger.info(
+            "event_metadata_refreshed competition=%s event_id=%s season_id=%s recording_count=%s",
+            current_competition.name,
+            event.id,
+            event.competition_season_id,
+            len(attached_recordings),
+        )
+        return event
+
     def _refresh_recording_metadata(self, session: Session, recording: Recording) -> Recording:
         event = session.get(Event, recording.event_id) if recording.event_id else None
         current_season_id = recording.competition_season_id
@@ -1145,6 +1395,12 @@ class OrganizerService:
         logger.info("review_task_open recording_id=%s candidate_count=%s", recording.id, len(candidates))
 
     def _refresh_published_recordings_for_season(self, session: Session, competition_season_id: str) -> None:
+        season = session.get(CompetitionSeason, competition_season_id)
+        if season is None:
+            return
+        competition = session.get(Competition, season.competition_id)
+        if competition is None:
+            return
         published_recordings = list(
             session.scalars(
                 select(Recording).where(
@@ -1153,13 +1409,18 @@ class OrganizerService:
                 )
             )
         )
-        if not published_recordings:
-            return
         event_ids = sorted({recording.event_id for recording in published_recordings if recording.event_id})
         for event_id in event_ids:
             self._recompute_recordings_for_event(session, event_id)
         for recording in published_recordings:
             self._publish_recording(session, recording)
+        guid_prefix = self._effective_plex_provider_identifier(session)
+        show_dir = self._effective_directory(session, "library_dir", self.settings.library_dir) / competition.name
+        season_dir = show_dir / season_directory_name(season.season_number)
+        write_atomic_if_changed(
+            season_dir / ".plexmatch",
+            render_season_plexmatch(competition, season, published_recordings, guid_prefix),
+        )
         logger.info(
             "season_publish_reconciled season_id=%s published_recording_count=%s",
             competition_season_id,
@@ -1206,7 +1467,7 @@ class OrganizerService:
                 recording.source_path,
                 recording.managed_path,
             )
-            recording.managed_path = recording.managed_path or str(destination)
+            recording.managed_path = str(destination)
         sync_recording_metadata_snapshot(
             session,
             recording=recording,

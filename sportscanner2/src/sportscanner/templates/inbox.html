@@ -12,7 +12,7 @@
   <article class="hero-card queue-card">
     <div class="status-line"><span>Total files</span><strong>{{ stats.recordings }}</strong></div>
     <div class="status-line"><span>Needs match</span><strong>{{ stats.review_recordings }}</strong></div>
-    <div class="status-line"><span>In Plex</span><strong>{{ stats.published_recordings }}</strong></div>
+    <div class="status-line"><span>Published events</span><strong>{{ stats.published_recordings }}</strong></div>
     <div class="status-line"><span>Plex refresh queue</span><strong>{{ stats.pending_refresh_jobs }}</strong></div>
   </article>
 </section>
@@ -118,7 +118,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="6" class="empty-state">No recordings matched the current filters.</td>
+          <td colspan="6" class="empty-state">No events matched the current filters.</td>
         </tr>
         {% endfor %}
       </tbody>

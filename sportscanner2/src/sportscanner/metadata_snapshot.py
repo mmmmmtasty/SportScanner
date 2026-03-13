@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from sportscanner.db.models import Competition, CompetitionSeason, Event, EventOrigin, Recording
-from sportscanner.provider.items import episode_display_title
+from sportscanner.provider.items import episode_display_title, has_field_override
 
 
 def effective_episode_thumb(recording: Recording, event: Event | None) -> str | None:
@@ -39,7 +39,11 @@ def _record_for_recording(
     recording: Recording,
     event: Event,
 ) -> dict[str, Any]:
-    aired_at = event.date or recording.air_date
+    aired_at = (
+        recording.air_date
+        if recording.air_date is not None and has_field_override(recording, "air_date")
+        else (event.date or recording.air_date)
+    )
     return {
         "type": "episode",
         "title": episode_display_title(recording, event, competition.name),

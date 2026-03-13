@@ -56,6 +56,10 @@ def normalize_title(value: str) -> str:
     return "".join(char.lower() if char.isalnum() else " " for char in value).split()
 
 
+def has_field_override(recording: Recording, field: str) -> bool:
+    return any(override.field == field for override in getattr(recording, "overrides", []))
+
+
 def _strip_event_name_prefixes(event_name: str, competition_name: str) -> str:
     text = _YEAR_PREFIX_RE.sub("", event_name).strip()
     competition = competition_name.strip()
@@ -65,6 +69,8 @@ def _strip_event_name_prefixes(event_name: str, competition_name: str) -> str:
 
 
 def episode_display_title(recording: Recording, event: Event | None, competition_name: str = "") -> str:
+    if has_field_override(recording, "title"):
+        return recording.title
     if event is None or not event.name:
         return recording.title
     stripped_event = _strip_event_name_prefixes(event.name, competition_name)
@@ -98,7 +104,11 @@ def episode_metadata(
     rating_key = make_episode_rating_key(recording.id)
     season_rating_key = make_season_rating_key(competition.id, season.season_number)
     show_rating_key = make_show_rating_key(competition.id)
-    aired_at = event.date if event is not None else recording.air_date
+    aired_at = (
+        recording.air_date
+        if recording.air_date is not None and has_field_override(recording, "air_date")
+        else (event.date if event is not None else recording.air_date)
+    )
     return MetadataItemModel(
         ratingKey=rating_key,
         guid=make_episode_guid(recording.id, provider_identifier),

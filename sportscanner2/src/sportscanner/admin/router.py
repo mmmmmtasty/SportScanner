@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import logging
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -118,6 +119,37 @@ def _redirect_target(request: Request, fallback: str) -> str:
     if referer and referer.startswith(str(request.base_url)):
         return referer
     return fallback
+
+
+def _with_flash(url: str, message: str) -> str:
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["flash"] = message
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _detail_artwork(recording: Recording, event: Event | None, season: CompetitionSeason | None, competition: Competition | None) -> list[dict[str, str]]:
+    cards: list[dict[str, str]] = []
+    event_thumb = recording.thumb_url or (event.thumb_url if event is not None else None)
+    if event_thumb:
+        cards.append({"label": "Event", "url": event_thumb, "alt": event.name if event is not None else recording.title})
+    if competition is not None and competition.poster_url:
+        cards.append(
+            {
+                "label": f"Season {season.label}" if season is not None else "Season",
+                "url": competition.poster_url,
+                "alt": season.label if season is not None else competition.name,
+            }
+        )
+    if competition is not None and competition.fanart_url:
+        cards.append(
+            {
+                "label": competition.sport or "Sport",
+                "url": competition.fanart_url,
+                "alt": competition.name,
+            }
+        )
+    return cards
 
 
 def _current_log_level(request: Request) -> str:
@@ -257,7 +289,7 @@ def _system_status(request: Request) -> tuple[dict[str, int], dict[str, object],
     if not values["provider_public_url"]:
         next_steps.append("Set the provider public URL so Plex can reach the metadata endpoint.")
     if stats["review_tasks"]:
-        next_steps.append(f"Work through the {stats['review_tasks']} open review task(s) so staged files can publish.")
+        next_steps.append(f"Work through the {stats['review_tasks']} open review task(s) so staged events can publish.")
     if plex_status["configured"] and plex_status["reachable"] and plex_status["show_library_count"] == 0:
         next_steps.append("Create a Plex TV library that points at the managed SportScanner library path.")
     if not next_steps:
@@ -755,7 +787,43 @@ def competition_refresh_metadata(request: Request, competition_id: str) -> Redir
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return RedirectResponse(
-        url=_redirect_target(request, str(request.url_for("library_competition_detail", competition_id=competition_id))),
+        url=_with_flash(
+            _redirect_target(request, str(request.url_for("library_competition_detail", competition_id=competition_id))),
+            "Competition metadata refreshed.",
+        ),
+        status_code=303,
+    )
+
+
+@router.post("/library/{competition_id}/seasons/{season_id}/refresh-metadata", name="season_refresh_metadata")
+def season_refresh_metadata(request: Request, competition_id: str, season_id: str) -> RedirectResponse:
+    services = request.app.state.services
+    try:
+        services.organizer.refresh_season_metadata(season_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return RedirectResponse(
+        url=_with_flash(
+            _redirect_target(
+                request,
+                str(request.url_for("library_season_detail", competition_id=competition_id, season_id=season_id)),
+            ),
+            "Season metadata refreshed.",
+        ),
+        status_code=303,
+    )
+
+
+@router.post("/events/{event_id}/refresh-metadata", name="event_refresh_metadata")
+def event_refresh_metadata(request: Request, event_id: str) -> RedirectResponse:
+    services = request.app.state.services
+    try:
+        services.organizer.refresh_event_metadata(event_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    fallback = str(request.url_for("inbox"))
+    return RedirectResponse(
+        url=_with_flash(_redirect_target(request, fallback), "Event metadata refreshed."),
         status_code=303,
     )
 
@@ -853,6 +921,18 @@ def file_detail(request: Request, recording_id: str) -> HTMLResponse:
                 or (f"Matched via {recording.match_method.replace('_', ' ')}" if recording.match_method else None)
                 or "No explanation stored yet."
             ),
+            "season_options": (
+                list(
+                    session.scalars(
+                        select(CompetitionSeason)
+                        .where(CompetitionSeason.competition_id == competition.id)
+                        .order_by(CompetitionSeason.season_number.asc())
+                    )
+                )
+                if competition is not None
+                else ([season] if season is not None else [])
+            ),
+            "artwork_cards": _detail_artwork(recording, event, season, competition),
         },
     )
 
@@ -865,7 +945,10 @@ def refresh_recording_metadata(request: Request, recording_id: str) -> RedirectR
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return RedirectResponse(
-        url=_redirect_target(request, str(request.url_for("file_detail", recording_id=recording_id))),
+        url=_with_flash(
+            _redirect_target(request, str(request.url_for("file_detail", recording_id=recording_id))),
+            "File metadata refreshed.",
+        ),
         status_code=303,
     )
 
@@ -876,22 +959,28 @@ def update_recording(
     recording_id: str,
     title: str = Form(...),
     kind: str = Form(...),
+    summary: str | None = Form(default=None),
+    air_date: date | None = Form(default=None),
+    episode_number: int | None = Form(default=None),
+    competition_season_id: str = Form(...),
 ) -> RedirectResponse:
     services = request.app.state.services
-    with _session_factory(request)() as session:
-        recording = session.get(Recording, recording_id)
-        if recording is None:
-            raise HTTPException(status_code=404, detail="Unknown recording")
-        recording.title = title
-        recording.kind = kind
-        if recording.event_id is not None:
-            sync_recording_metadata_snapshot(
-                session,
-                recording=recording,
-                metadata_source_name=getattr(services.metadata_source, "name", None),
-            )
-        session.commit()
-    return RedirectResponse(url=f"{request.url_for('file_detail', recording_id=recording_id)}", status_code=303)
+    try:
+        services.organizer.update_recording_details(
+            recording_id,
+            title=title.strip(),
+            kind=kind.strip(),
+            summary=(summary or "").strip() or None,
+            air_date=air_date,
+            episode_number=episode_number,
+            competition_season_id=competition_season_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return RedirectResponse(
+        url=_with_flash(str(request.url_for("file_detail", recording_id=recording_id)), "Manual override saved."),
+        status_code=303,
+    )
 
 
 @router.get("/settings", response_class=HTMLResponse, name="settings_page")

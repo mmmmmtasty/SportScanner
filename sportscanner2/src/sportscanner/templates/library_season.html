@@ -10,9 +10,14 @@
       {% if season.is_complete %}Schedule is complete.{% else %}Schedule is still incomplete upstream — some events may be missing.{% endif %}
     </p>
   </div>
-  <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
-    <button type="submit" class="secondary">Refresh Schedule</button>
-  </form>
+  <div class="action-stack">
+    <form method="post" action="{{ request.url_for('season_refresh_metadata', competition_id=competition.id, season_id=season.id) }}">
+      <button type="submit" class="secondary" data-loading-label="Refreshing Season...">Refresh Season</button>
+    </form>
+    <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
+      <button type="submit" class="secondary" data-loading-label="Refreshing Competition...">Refresh Competition</button>
+    </form>
+  </div>
 </section>
 
 <section>
@@ -58,6 +63,9 @@
               {% for r in row.recordings %}
               <a href="{{ request.url_for('file_detail', recording_id=r.id) }}" class="secondary compact-button">View</a>
               {% endfor %}
+              <form method="post" action="{{ request.url_for('event_refresh_metadata', event_id=row.event.id) }}" style="display:inline;">
+                <button type="submit" class="secondary compact-button" data-loading-label="Refreshing...">Refresh Event</button>
+              </form>
             </td>
           </tr>
           {% endfor %}

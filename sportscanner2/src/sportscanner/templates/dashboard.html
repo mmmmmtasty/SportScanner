@@ -36,9 +36,9 @@
 <section class="stat-grid">
   <article class="metric-card"><h2>{{ stats.competitions }}</h2><p>Competitions</p></article>
   <article class="metric-card"><h2>{{ stats.seasons }}</h2><p>Seasons</p></article>
-  <article class="metric-card"><h2>{{ stats.published_recordings }}</h2><p>Published</p></article>
+  <article class="metric-card"><h2>{{ stats.published_recordings }}</h2><p>Published Events</p></article>
   <article class="metric-card"><h2>{{ stats.review_tasks }}</h2><p>Open Review Tasks</p></article>
-  <article class="metric-card"><h2>{{ stats.review_recordings }}</h2><p>Queued For Review</p></article>
+  <article class="metric-card"><h2>{{ stats.review_recordings }}</h2><p>Queued Events</p></article>
   <article class="metric-card"><h2>{{ plex_status.show_library_count }}</h2><p>Plex Show Libraries</p></article>
 </section>
 
@@ -96,7 +96,7 @@
         <strong>{{ stats.review_tasks }}</strong>
       </div>
       <div class="status-line">
-        <span>Staged recordings</span>
+        <span>Staged events</span>
         <strong>{{ stats.staged_recordings }}</strong>
       </div>
     </div>
@@ -153,7 +153,7 @@
         <a href="{{ request.url_for('recording_detail', recording_id=row.recording.id) }}">Open</a>
       </li>
       {% else %}
-      <li class="empty-state">No published recordings yet.</li>
+      <li class="empty-state">No published events yet.</li>
       {% endfor %}
     </ul>
   </article>
