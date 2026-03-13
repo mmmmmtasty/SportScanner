@@ -57,6 +57,36 @@ def _setting(session, key: str, fallback: str | None = None) -> str | None:
     return setting.value if setting is not None else fallback
 
 
+def _normalize_directory_setting(label: str, value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{label} is required.")
+    path = Path(normalized)
+    if not path.is_absolute():
+        raise ValueError(f"{label} must be an absolute path.")
+    return str(path)
+
+
+def _apply_runtime_directory_settings(request: Request, *, incoming_dir: str, library_dir: str) -> None:
+    services = request.app.state.services
+    incoming_path = Path(incoming_dir)
+    library_path = Path(library_dir)
+
+    services.settings.incoming_dir = incoming_path
+    services.settings.library_dir = library_path
+
+    watcher = services.watcher
+    if watcher is None:
+        return
+
+    path_changed = watcher.incoming_dir != incoming_path
+    if path_changed:
+        watcher.stop()
+        watcher.incoming_dir = incoming_path
+        if incoming_path.exists():
+            watcher.start()
+
+
 def _settings_values(request: Request) -> dict[str, str | None]:
     services = request.app.state.services
     with _session_factory(request)() as session:
@@ -74,6 +104,8 @@ def _settings_values(request: Request) -> dict[str, str | None]:
                 "plex_provider_group_name",
                 services.settings.plex_provider_group_name,
             ),
+            "incoming_dir": _setting(session, "incoming_dir", str(services.settings.incoming_dir)),
+            "library_dir": _setting(session, "library_dir", str(services.settings.library_dir)),
             "log_level": _setting(session, "log_level", services.settings.log_level),
         }
 
@@ -873,16 +905,23 @@ def save_settings(
     provider_public_url: str = Form(...),
     plex_provider_identifier: str = Form(...),
     plex_provider_group_name: str = Form(...),
+    incoming_dir: str | None = Form(default=None),
+    library_dir: str | None = Form(default=None),
 ) -> Response:
+    current_values = _settings_values(request)
     values = {
         "pms_url": pms_url,
         "pms_token": pms_token,
         "provider_public_url": provider_public_url,
         "plex_provider_identifier": plex_provider_identifier,
         "plex_provider_group_name": plex_provider_group_name,
+        "incoming_dir": incoming_dir or current_values["incoming_dir"] or str(request.app.state.services.settings.incoming_dir),
+        "library_dir": library_dir or current_values["library_dir"] or str(request.app.state.services.settings.library_dir),
     }
     try:
         values["plex_provider_identifier"] = validate_plex_provider_identifier(plex_provider_identifier)
+        values["incoming_dir"] = _normalize_directory_setting("Incoming Directory", values["incoming_dir"])
+        values["library_dir"] = _normalize_directory_setting("Library Directory", values["library_dir"])
     except ValueError as exc:
         response = _render(request, "settings.html", {"values": values, "error": str(exc)})
         response.status_code = 400
@@ -896,6 +935,11 @@ def save_settings(
             else:
                 existing.value = value
         session.commit()
+    _apply_runtime_directory_settings(
+        request,
+        incoming_dir=values["incoming_dir"],
+        library_dir=values["library_dir"],
+    )
     return RedirectResponse(url=f"{request.url_for('settings_page')}", status_code=303)
 
 
@@ -980,6 +1024,7 @@ def plex_registration_page(
             "result": result,
             "library_name": library_name,
             "library_section_id": library_section_id,
+            "values": _settings_values(request),
         },
     )
 
@@ -1080,7 +1125,7 @@ def create_plex_library(
         return _render(
             request,
             "plex_registration.html",
-            {"error": str(exc), "result": None},
+            {"error": str(exc), "result": None, "values": _settings_values(request)},
         )
     except httpx.HTTPStatusError as exc:
         detail = f"Plex returned {exc.response.status_code} {exc.response.reason_phrase}."
@@ -1090,13 +1135,13 @@ def create_plex_library(
         return _render(
             request,
             "plex_registration.html",
-            {"error": detail, "result": None},
+            {"error": detail, "result": None, "values": _settings_values(request)},
         )
     except httpx.HTTPError as exc:
         return _render(
             request,
             "plex_registration.html",
-            {"error": f"Could not reach Plex: {exc}", "result": None},
+            {"error": f"Could not reach Plex: {exc}", "result": None, "values": _settings_values(request)},
         )
     destination = request.url_for("plex_registration_page").include_query_params(
         provider_identifier=registration.provider_identifier,

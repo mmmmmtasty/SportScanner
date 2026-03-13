@@ -136,20 +136,26 @@ class OrganizerService:
         except ValueError:
             return self.settings.plex_provider_identifier
 
+    def _effective_directory(self, session: Session, key: str, fallback: Path) -> Path:
+        configured = session.get(AppSetting, key)
+        if configured is None or not configured.value.strip():
+            return fallback
+        return Path(configured.value.strip())
+
     def rescan_incoming(self) -> list[str]:
         with self._ingest_lock:
             processed: list[str] = []
-            incoming = self.settings.incoming_dir
-            if not incoming.exists():
-                logger.info("rescan_skipped incoming_dir_missing=%s", incoming)
-                return processed
-            logger.info("rescan_started incoming_dir=%s", incoming)
-            for path in sorted(incoming.rglob("*")):
-                if path.is_file() and is_media_file(path):
-                    if self.ingest_path_if_parseable(path) is not None:
-                        processed.append(str(path))
-            refreshed_missing_sources = 0
             with self.session_factory() as session:
+                incoming = self._effective_directory(session, "incoming_dir", self.settings.incoming_dir)
+                if not incoming.exists():
+                    logger.info("rescan_skipped incoming_dir_missing=%s", incoming)
+                    return processed
+                logger.info("rescan_started incoming_dir=%s", incoming)
+                for path in sorted(incoming.rglob("*")):
+                    if path.is_file() and is_media_file(path):
+                        if self.ingest_path_if_parseable(path) is not None:
+                            processed.append(str(path))
+                refreshed_missing_sources = 0
                 published = list(
                     session.scalars(
                         select(Recording)
@@ -1174,7 +1180,7 @@ class OrganizerService:
             clear_recording_metadata_snapshot(recording)
             return
 
-        show_dir = self.settings.library_dir / competition.name
+        show_dir = self._effective_directory(session, "library_dir", self.settings.library_dir) / competition.name
         season_dir = show_dir / season_directory_name(season.season_number)
         destination = season_dir / build_managed_filename(
             competition_name=competition.name,

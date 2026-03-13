@@ -3,39 +3,13 @@
 {% block content %}
 <section class="page-header">
   <div>
-    <p class="eyebrow">Connection Setup</p>
     <h1>Settings</h1>
     <p class="hero-copy">
-      Save the Plex connection values here first. After that, register the provider and create or
-      update the Plex library that points at SportScanner's managed output.
+      Save the Plex connection values and SportScanner path mappings here first. After that,
+      register the provider and create or update the Plex library that points at SportScanner's
+      managed output.
     </p>
   </div>
-</section>
-
-<section class="guide-grid">
-  <article class="guide-card">
-    <div class="panel-header">
-      <h2>Normal Setup Order</h2>
-      <span
-        class="tooltip-chip"
-        tabindex="0"
-        title="Save settings first, then register the provider, then create or edit a Plex TV library, then run scans and metadata refreshes as needed."
-      >Order</span>
-    </div>
-    <p>
-      Save the values on this page, register the provider, create or update the Plex TV library, and
-      only then expect SportScanner metadata to appear in Plex.
-    </p>
-  </article>
-  <article class="guide-card">
-    <div class="panel-header">
-      <h2>Important Path Rule</h2>
-    </div>
-    <p>
-      Plex must point at SportScanner's managed <code>library</code> path. SportScanner reads
-      <code>incoming</code>; Plex should never scan that folder directly.
-    </p>
-  </article>
 </section>
 
 {% if error %}
@@ -83,6 +57,24 @@
         placeholder="SportScanner 2"
       />
       <small>This is the Agent name you will choose inside Plex. Leaving the default is fine.</small>
+    </label>
+    <label>
+      Incoming Directory
+      <input
+        name="incoming_dir"
+        value="{{ values.incoming_dir or '' }}"
+        placeholder="/incoming"
+      />
+      <small>Absolute path SportScanner watches for new files inside this runtime or container.</small>
+    </label>
+    <label>
+      Library Directory
+      <input
+        name="library_dir"
+        value="{{ values.library_dir or '' }}"
+        placeholder="/library"
+      />
+      <small>Absolute path SportScanner writes managed files to. Plex should scan this path, or the equivalent mapped path on the Plex side, never <code>incoming</code>.</small>
     </label>
     <button type="submit">Save Settings</button>
   </form>

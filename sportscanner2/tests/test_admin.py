@@ -22,10 +22,11 @@ def test_settings_page_explains_plex_fields(provider_app) -> None:
     response = client.get("/admin/settings")
 
     assert response.status_code == 200
-    assert "Normal Setup Order" in response.text
     assert "Plex Server URL" in response.text
     assert "Plex Token (X-Plex-Token)" in response.text
     assert "Provider Identifier In Plex" in response.text
+    assert "Incoming Directory" in response.text
+    assert "Library Directory" in response.text
     assert "Save Settings" in response.text
     assert "Register Provider And Group" in response.text
 
@@ -49,6 +50,34 @@ def test_save_settings_redirects_back_to_settings(provider_app) -> None:
     assert response.headers["location"].endswith("/admin/settings")
 
 
+def test_save_settings_persists_directory_overrides_and_updates_runtime(provider_app, tmp_path: Path) -> None:
+    client = TestClient(provider_app)
+    incoming_dir = tmp_path / "docker-incoming"
+    library_dir = tmp_path / "docker-library"
+    incoming_dir.mkdir()
+
+    response = client.post(
+        "/admin/settings",
+        data={
+            "pms_url": "http://plex:32400",
+            "pms_token": "abc123",
+            "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_identifier": "tv.plex.agents.custom.sportscanner.metadata",
+            "plex_provider_group_name": "SportScanner 2",
+            "incoming_dir": str(incoming_dir),
+            "library_dir": str(library_dir),
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert provider_app.state.services.settings.incoming_dir == incoming_dir
+    assert provider_app.state.services.settings.library_dir == library_dir
+    with provider_app.state.services.session_factory() as session:
+        assert session.get(AppSetting, "incoming_dir").value == str(incoming_dir)
+        assert session.get(AppSetting, "library_dir").value == str(library_dir)
+
+
 def test_save_settings_rejects_invalid_provider_identifier(provider_app) -> None:
     client = TestClient(provider_app)
 
@@ -66,6 +95,25 @@ def test_save_settings_rejects_invalid_provider_identifier(provider_app) -> None
     assert response.status_code == 400
     assert "Action failed" in response.text
     assert "must start with tv.plex.agents." in response.text
+
+
+def test_save_settings_rejects_relative_directory_override(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.post(
+        "/admin/settings",
+        data={
+            "pms_url": "http://plex:32400",
+            "pms_token": "abc123",
+            "provider_public_url": "http://sportscanner:32699",
+            "plex_provider_identifier": "tv.plex.agents.custom.sportscanner.metadata",
+            "plex_provider_group_name": "SportScanner 2",
+            "incoming_dir": "incoming",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Incoming Directory must be an absolute path." in response.text
 
 
 def test_register_plex_redirects_to_get_result_page(provider_app) -> None:
@@ -108,6 +156,7 @@ def test_register_plex_page_renders_create_library_form(provider_app) -> None:
 
     assert response.status_code == 200
     assert "Create Plex Test Library" in response.text
+    assert f'value="{provider_app.state.services.settings.library_dir}"' in response.text
 
 
 def test_register_plex_failure_renders_html_error(provider_app) -> None:

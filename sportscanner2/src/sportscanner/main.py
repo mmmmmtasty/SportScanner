@@ -85,11 +85,24 @@ def _load_log_level(session_factory, fallback: str) -> str:
     return fallback.upper()
 
 
+def _load_path_setting(session_factory, key: str, fallback: Path) -> Path:
+    try:
+        with session_factory() as session:
+            setting = session.get(AppSetting, key)
+            if setting is not None and setting.value.strip():
+                return Path(setting.value.strip())
+    except Exception:
+        return fallback
+    return fallback
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     engine = create_sqlite_engine(settings)
     init_db(engine)
     session_factory = create_session_factory(engine)
+    settings.incoming_dir = _load_path_setting(session_factory, "incoming_dir", settings.incoming_dir)
+    settings.library_dir = _load_path_setting(session_factory, "library_dir", settings.library_dir)
     sport_logger = logging.getLogger("sportscanner")
     sport_logger.setLevel(_load_log_level(session_factory, settings.log_level))
     for handler in list(sport_logger.handlers):

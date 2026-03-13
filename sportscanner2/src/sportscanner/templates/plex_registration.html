@@ -3,7 +3,6 @@
 {% block content %}
 <section class="page-header">
   <div>
-    <p class="eyebrow">Plex Setup</p>
     <h1>Plex Registration</h1>
     <p class="hero-copy">
       Register the provider group, then create a TV library that uses Plex TV Series plus the SportScanner metadata
@@ -87,8 +86,13 @@
       </label>
       <label>
         Media Location (on Plex host)
-        <input name="library_location" value="/sport/sportscanner2-dev" placeholder="/sport/sportscanner2-dev" required />
-        <small>Absolute path on the machine running Plex Media Server.</small>
+        <input
+          name="library_location"
+          value="{{ values.library_dir or '/library' }}"
+          placeholder="{{ values.library_dir or '/library' }}"
+          required
+        />
+        <small>Absolute path on the machine running Plex Media Server. If Plex sees the library through a different Docker or host mapping, change it here.</small>
       </label>
       <button
         type="submit"
