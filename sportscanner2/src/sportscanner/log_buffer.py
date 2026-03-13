@@ -121,7 +121,7 @@ class LogBuffer(logging.Handler):
     def entries(
         self,
         *,
-        min_level: str | None = None,
+        level: str | None = None,
         component: str | None = None,
         keyword: str | None = None,
         since_id: int = 0,
@@ -129,7 +129,7 @@ class LogBuffer(logging.Handler):
     ) -> list[LogEntry]:
         if self._session_factory is not None:
             persisted_entries = self._persistent_entries(
-                min_level=min_level,
+                level=level,
                 component=component,
                 keyword=keyword,
                 since_id=since_id,
@@ -137,17 +137,15 @@ class LogBuffer(logging.Handler):
             )
             if persisted_entries:
                 return persisted_entries
-        level_num = logging.getLevelName(min_level.upper()) if min_level else 0
+        normalized_level = level.upper() if level else None
         with self._lock:
             snapshot = list(self._entries)
         out = []
         for entry in snapshot:
             if entry.id <= since_id:
                 continue
-            if isinstance(level_num, int) and level_num > 0:
-                entry_level_num = logging.getLevelName(entry.level)
-                if isinstance(entry_level_num, int) and entry_level_num < level_num:
-                    continue
+            if normalized_level and entry.level.upper() != normalized_level:
+                continue
             if component and not entry.logger_name.startswith(component):
                 continue
             search_text = entry.message
@@ -161,24 +159,22 @@ class LogBuffer(logging.Handler):
     def _persistent_entries(
         self,
         *,
-        min_level: str | None,
+        level: str | None,
         component: str | None,
         keyword: str | None,
         since_id: int,
         limit: int,
     ) -> list[LogEntry]:
         assert self._session_factory is not None
-        level_num = logging.getLevelName(min_level.upper()) if min_level else 0
+        normalized_level = level.upper() if level else None
         with self._session_factory() as session:
             rows = session.scalars(
                 select(LogRecord).where(LogRecord.id > since_id).order_by(LogRecord.id.desc())
             ).all()
         out = []
         for row in rows:
-            if isinstance(level_num, int) and level_num > 0:
-                row_level_num = logging.getLevelName(row.level)
-                if isinstance(row_level_num, int) and row_level_num < level_num:
-                    continue
+            if normalized_level and row.level.upper() != normalized_level:
+                continue
             if component and not row.logger_name.startswith(component):
                 continue
             message, payload_json = _unpack_message(row.message)

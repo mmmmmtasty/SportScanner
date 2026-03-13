@@ -87,9 +87,9 @@
     width: 100%;
     min-width: 0;
     margin: 0;
-    font-size: 0.78rem;
+    font-size: 0.88rem;
     padding: 0.28rem 0.42rem;
-    height: auto;
+    height: 2.1rem;
   }
   .log-filter-reset {
     padding: 0.24rem 0.5rem;
@@ -104,6 +104,7 @@
   tr.log-debug td { color: var(--pico-muted-color); }
   .log-ts { min-width: 160px; }
   .log-level { min-width: 60px; font-weight: bold; }
+  #log-table th.log-level.log-header-cell { min-width: 11rem; }
   .log-name { min-width: 180px; color: var(--pico-muted-color); }
 </style>
 
@@ -177,7 +178,6 @@
     </thead>
     <tbody id="log-tbody"
            hx-get="{{ request.url_for('logs_entries') }}"
-           hx-trigger="every 3s"
            hx-target="#log-tbody"
            hx-swap="innerHTML"
            hx-include="#log-filter-controls select, #log-filter-controls input">
@@ -188,15 +188,21 @@
 <script>
   (() => {
     const expandedPayloadRows = new Set();
+    const refreshIntervalMs = 3000;
+    let refreshTimer = null;
 
     const restoreExpandedPayloads = (root) => {
       if (!(root instanceof Element || root instanceof Document)) return;
+      const visibleExpandedRows = new Set();
       root.querySelectorAll("#log-tbody tr[data-log-id]").forEach((row) => {
         const details = row.querySelector(".log-payload");
         if (details && expandedPayloadRows.has(row.dataset.logId)) {
           details.open = true;
+          visibleExpandedRows.add(row.dataset.logId);
         }
       });
+      expandedPayloadRows.clear();
+      visibleExpandedRows.forEach((rowId) => expandedPayloadRows.add(rowId));
     };
 
     const refreshLogs = () => {
@@ -210,6 +216,20 @@
       });
     };
 
+    const startRefreshLoop = () => {
+      if (refreshTimer !== null) return;
+      refreshTimer = window.setInterval(() => {
+        if (expandedPayloadRows.size > 0) return;
+        refreshLogs();
+      }, refreshIntervalMs);
+    };
+
+    const stopRefreshLoop = () => {
+      if (refreshTimer === null) return;
+      window.clearInterval(refreshTimer);
+      refreshTimer = null;
+    };
+
     document.body.addEventListener("toggle", (event) => {
       const details = event.target;
       if (!(details instanceof HTMLDetailsElement) || !details.classList.contains("log-payload")) return;
@@ -217,19 +237,29 @@
       if (!row) return;
       if (details.open) {
         expandedPayloadRows.add(row.dataset.logId);
+        stopRefreshLoop();
         return;
       }
       expandedPayloadRows.delete(row.dataset.logId);
+      if (expandedPayloadRows.size === 0) {
+        startRefreshLoop();
+      }
     });
 
     document.body.addEventListener("htmx:afterSwap", (event) => {
       if (event.target && event.target.id === "log-tbody") {
         restoreExpandedPayloads(event.target);
+        if (expandedPayloadRows.size > 0) {
+          stopRefreshLoop();
+          return;
+        }
+        startRefreshLoop();
       }
     });
 
     document.addEventListener("DOMContentLoaded", () => {
       restoreExpandedPayloads(document);
+      startRefreshLoop();
       const resetButton = document.getElementById("log-filter-reset");
       if (!(resetButton instanceof HTMLButtonElement)) return;
       resetButton.addEventListener("click", () => {

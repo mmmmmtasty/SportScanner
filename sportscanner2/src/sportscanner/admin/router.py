@@ -1154,7 +1154,7 @@ def logs_entries(
     keyword: str | None = None,
 ) -> HTMLResponse:
     buf = request.app.state.log_buffer
-    entries = buf.entries(min_level=level or None, component=component or None, keyword=keyword or None)
+    entries = buf.entries(level=level or None, component=component or None, keyword=keyword or None)
     return _render(request, "logs_entries.html", {"entries": entries})
 
 

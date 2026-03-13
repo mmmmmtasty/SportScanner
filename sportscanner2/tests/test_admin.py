@@ -680,6 +680,8 @@ def test_logs_page_renders(provider_app) -> None:
         assert "Logs" in response.text
         assert 'id="log-filter-controls"' in response.text
         assert 'id="log-filter-reset"' in response.text
+        assert 'aria-label="Filter by level"' in response.text
+        assert "refreshIntervalMs = 3000" in response.text
         assert "Current <strong>INFO</strong>" in response.text
         assert "persisted log entry" in response.text
     finally:
@@ -735,6 +737,12 @@ def test_logs_entries_returns_filtered_rows(provider_app) -> None:
         response = client.get("/admin/logs/entries?level=ERROR")
         assert "something went wrong" in response.text
         assert "hello from info" not in response.text
+        assert "hello from debug" not in response.text
+
+        response = client.get("/admin/logs/entries?level=DEBUG")
+        assert "hello from debug" in response.text
+        assert "hello from info" not in response.text
+        assert "something went wrong" not in response.text
 
         response = client.get("/admin/logs/entries?keyword=wrong")
         assert "something went wrong" in response.text
@@ -762,6 +770,7 @@ def test_logs_page_renders_structured_payload(provider_app) -> None:
         assert response.status_code == 200
         assert "View JSON payload" in response.text
         assert "expandedPayloadRows" in response.text
+        assert "stopRefreshLoop()" in response.text
         assert "idEvent" in response.text
         assert "1234" in response.text
     finally:
