@@ -771,6 +771,7 @@ def test_logs_page_renders_structured_payload(provider_app) -> None:
         assert "View JSON payload" in response.text
         assert "expandedPayloadRows" in response.text
         assert "stopRefreshLoop()" in response.text
+        assert 'closest(".log-payload > summary")' in response.text
         assert "idEvent" in response.text
         assert "1234" in response.text
     finally:

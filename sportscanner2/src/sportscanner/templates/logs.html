@@ -90,6 +90,14 @@
     font-size: 0.88rem;
     padding: 0.28rem 0.42rem;
     height: 2.1rem;
+    min-height: 2.1rem;
+    box-sizing: border-box;
+  }
+  select.log-filter-control,
+  input.log-filter-control {
+    height: 2.1rem;
+    min-height: 2.1rem;
+    line-height: 1.2;
   }
   .log-filter-reset {
     padding: 0.24rem 0.5rem;
@@ -244,6 +252,12 @@
       if (expandedPayloadRows.size === 0) {
         startRefreshLoop();
       }
+    });
+
+    document.body.addEventListener("click", (event) => {
+      const summary = event.target instanceof Element ? event.target.closest(".log-payload > summary") : null;
+      if (!summary) return;
+      stopRefreshLoop();
     });
 
     document.body.addEventListener("htmx:afterSwap", (event) => {
