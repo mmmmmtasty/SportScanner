@@ -54,7 +54,10 @@ def _session_factory(request: Request):
 
 def _setting(session, key: str, fallback: str | None = None) -> str | None:
     setting = session.get(AppSetting, key)
-    return setting.value if setting is not None else fallback
+    if setting is None:
+        return fallback
+    value = setting.value.strip()
+    return value if value else fallback
 
 
 def _normalize_directory_setting(label: str, value: str) -> str:

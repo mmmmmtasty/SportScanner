@@ -31,6 +31,20 @@ def test_settings_page_explains_plex_fields(provider_app) -> None:
     assert "Register Provider And Group" in response.text
 
 
+def test_settings_page_falls_back_when_directory_settings_are_blank(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        session.add(AppSetting(key="incoming_dir", value="   "))
+        session.add(AppSetting(key="library_dir", value=""))
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.get("/admin/settings")
+
+    assert response.status_code == 200
+    assert f'value="{provider_app.state.services.settings.incoming_dir}"' in response.text
+    assert f'value="{provider_app.state.services.settings.library_dir}"' in response.text
+
+
 def test_save_settings_redirects_back_to_settings(provider_app) -> None:
     client = TestClient(provider_app)
 
