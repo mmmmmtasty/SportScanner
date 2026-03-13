@@ -17,12 +17,28 @@
         </ul>
         <ul>
           <li><a href="{{ request.url_for('inbox') }}" title="See every file, current state, and next action">Inbox</a></li>
+          <li><a href="{{ request.url_for('review_queue') }}" title="Resolve unmatched or uncertain files from anywhere">Review Queue</a></li>
           <li><a href="{{ request.url_for('library_page') }}" title="Browse competitions, seasons, and published events">Library</a></li>
           <li><a href="{{ request.url_for('plex_page') }}" title="Check Plex connection, refresh jobs, and library actions">Plex</a></li>
           <li><a href="{{ request.url_for('settings_page') }}" title="Save Plex settings and register the SportScanner provider">Settings</a></li>
           <li><a href="{{ request.url_for('logs_page') }}" title="Inspect logs, debug output, and upstream API payloads">Logs</a></li>
         </ul>
       </nav>
+      {% if breadcrumbs %}
+      <nav class="breadcrumb-bar" aria-label="Breadcrumb">
+        <ol class="breadcrumb-list">
+          {% for crumb in breadcrumbs %}
+          <li>
+            {% if crumb.href and not loop.last %}
+            <a href="{{ crumb.href }}">{{ crumb.label }}</a>
+            {% else %}
+            <span {% if loop.last %}aria-current="page"{% endif %}>{{ crumb.label }}</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </nav>
+      {% endif %}
       <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
       {% block content %}{% endblock %}
     </main>

@@ -11,86 +11,88 @@
   </div>
   <article class="hero-card queue-card">
     <div class="status-line"><span>Total files</span><strong>{{ stats.recordings }}</strong></div>
-    <div class="status-line"><span>Needs match</span><strong>{{ stats.review_recordings }}</strong></div>
+    <div class="status-line">
+      <span><a href="{{ request.url_for('review_queue') }}">No Match</a></span>
+      <strong>{{ stats.review_recordings }}</strong>
+    </div>
     <div class="status-line"><span>Published events</span><strong>{{ stats.published_recordings }}</strong></div>
     <div class="status-line"><span>Plex refresh queue</span><strong>{{ stats.pending_refresh_jobs }}</strong></div>
   </article>
 </section>
 
-<section class="panel">
-  <div class="panel-header">
-    <h2>Filters</h2>
-  </div>
-  <form method="get" class="filters-grid">
-    <label>
-      Status
-      <select name="status">
-        <option value="">All states</option>
-        <option value="review" {% if filters.status == "review" %}selected{% endif %}>Needs Match</option>
-        <option value="staged" {% if filters.status == "staged" %}selected{% endif %}>Waiting for Schedule</option>
-        <option value="published" {% if filters.status == "published" %}selected{% endif %}>In Plex</option>
-        <option value="ignored" {% if filters.status == "ignored" %}selected{% endif %}>Ignored</option>
-        <option value="error" {% if filters.status == "error" %}selected{% endif %}>Error</option>
-      </select>
-    </label>
-    <label>
-      Competition
-      <select name="competition_id">
-        <option value="">All competitions</option>
-        {% for competition in competitions %}
-        <option value="{{ competition.id }}" {% if filters.competition_id == competition.id %}selected{% endif %}>{{ competition.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      Confidence
-      <select name="confidence">
-        <option value="">Any confidence</option>
-        <option value="high" {% if filters.confidence == "high" %}selected{% endif %}>High</option>
-        <option value="medium" {% if filters.confidence == "medium" %}selected{% endif %}>Medium</option>
-        <option value="low" {% if filters.confidence == "low" %}selected{% endif %}>Low / Unknown</option>
-      </select>
-    </label>
-    <label>
-      Date from
-      <input type="date" name="date_from" value="{{ filters.date_from }}" />
-    </label>
-    <label>
-      Date to
-      <input type="date" name="date_to" value="{{ filters.date_to }}" />
-    </label>
-    <div class="filter-actions">
-      <button type="submit">Apply Filters</button>
-      <a href="{{ request.url_for('inbox') }}" role="button" class="secondary">Reset</a>
-    </div>
-  </form>
-</section>
-
 <section class="actions">
   <form method="post" action="{{ request.url_for('rescan') }}">
-    <button type="submit">Rescan Incoming</button>
+    <button type="submit" class="compact-button">Rescan Incoming</button>
   </form>
   <form method="post" action="{{ request.url_for('resolve_high_confidence') }}"
         onsubmit="return confirm('Accept all Needs Match files with confidence ≥ 70%?')">
-    <button type="submit" class="secondary">Resolve High-Confidence</button>
+    <button type="submit" class="secondary compact-button">Resolve High-Confidence</button>
   </form>
-  <a href="{{ request.url_for('review_queue') }}" role="button" class="secondary">Open Review Queue</a>
+  <a href="{{ request.url_for('review_queue') }}" role="button" class="secondary compact-button">Open Review Queue</a>
 </section>
 
 <section class="panel">
   <div class="panel-header">
     <h2>All Files</h2>
   </div>
+  <form id="inbox-filter-form" method="get" class="header-filter-form"></form>
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th>Filename</th>
-          <th>Status</th>
-          <th>Best Match</th>
-          <th>Confidence</th>
-          <th>Why</th>
-          <th></th>
+          <th class="table-header-filter">
+            <span class="table-header-title">Filename</span>
+            <a href="{{ request.url_for('inbox') }}" class="table-filter-reset">Clear</a>
+          </th>
+          <th class="table-header-filter">
+            <span class="table-header-title">Status</span>
+            <select
+              name="status"
+              form="inbox-filter-form"
+              class="table-filter-control"
+              aria-label="Filter inbox by status"
+              onchange="document.getElementById('inbox-filter-form').submit()"
+            >
+              <option value="">All states</option>
+              <option value="review" {% if filters.status == "review" %}selected{% endif %}>Needs Match</option>
+              <option value="staged" {% if filters.status == "staged" %}selected{% endif %}>Waiting for Schedule</option>
+              <option value="published" {% if filters.status == "published" %}selected{% endif %}>In Plex</option>
+              <option value="ignored" {% if filters.status == "ignored" %}selected{% endif %}>Ignored</option>
+              <option value="error" {% if filters.status == "error" %}selected{% endif %}>Error</option>
+            </select>
+          </th>
+          <th class="table-header-filter">
+            <span class="table-header-title">Best Match</span>
+            <select
+              name="competition_id"
+              form="inbox-filter-form"
+              class="table-filter-control"
+              aria-label="Filter inbox by competition"
+              onchange="document.getElementById('inbox-filter-form').submit()"
+            >
+              <option value="">All competitions</option>
+              {% for competition in competitions %}
+              <option value="{{ competition.id }}" {% if filters.competition_id == competition.id %}selected{% endif %}>{{ competition.name }}</option>
+              {% endfor %}
+            </select>
+          </th>
+          <th class="table-header-filter">
+            <span class="table-header-title">Confidence</span>
+            <select
+              name="confidence"
+              form="inbox-filter-form"
+              class="table-filter-control"
+              aria-label="Filter inbox by confidence"
+              onchange="document.getElementById('inbox-filter-form').submit()"
+            >
+              <option value="">Any confidence</option>
+              <option value="high" {% if filters.confidence == "high" %}selected{% endif %}>High</option>
+              <option value="medium" {% if filters.confidence == "medium" %}selected{% endif %}>Medium</option>
+              <option value="low" {% if filters.confidence == "low" %}selected{% endif %}>Low / Unknown</option>
+            </select>
+          </th>
+          <th><span class="table-header-title">Why</span></th>
+          <th><span class="table-header-title">Action</span></th>
         </tr>
       </thead>
       <tbody>
@@ -118,7 +120,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="6" class="empty-state">No events matched the current filters.</td>
+          <td colspan="6" class="empty-state">No files matched the current filters.</td>
         </tr>
         {% endfor %}
       </tbody>

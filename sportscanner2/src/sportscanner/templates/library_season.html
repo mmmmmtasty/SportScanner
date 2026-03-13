@@ -12,10 +12,7 @@
   </div>
   <div class="action-stack">
     <form method="post" action="{{ request.url_for('season_refresh_metadata', competition_id=competition.id, season_id=season.id) }}">
-      <button type="submit" class="secondary" data-loading-label="Refreshing Season...">Refresh Season</button>
-    </form>
-    <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
-      <button type="submit" class="secondary" data-loading-label="Refreshing Competition...">Refresh Competition</button>
+      <button type="submit" class="secondary compact-button" data-loading-label="Refreshing Season...">Refresh Season</button>
     </form>
   </div>
 </section>

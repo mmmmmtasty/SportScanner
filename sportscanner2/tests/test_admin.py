@@ -237,6 +237,7 @@ def test_dashboard_shows_connected_plex_state(provider_app) -> None:
     assert "Inbox" in response.text
     assert "Plex connection" in response.text
     assert "Connected" in response.text
+    assert "Review Queue" in response.text
 
 
 def test_review_queue_explains_resolution_flow(provider_app) -> None:
@@ -503,9 +504,36 @@ def test_competitions_page_shows_row_refresh_actions(provider_app) -> None:
     response = client.get("/admin/competitions")
 
     assert response.status_code == 200
-    assert "Refresh Schedule" in response.text
+    assert "Refresh Competition" in response.text
     assert "Library" in response.text
     assert "/admin/competitions/tsdb_4370/refresh-metadata" in response.text
+
+
+def test_inbox_uses_column_header_filters_and_links_no_match_to_review_queue(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/inbox")
+
+    assert response.status_code == 200
+    assert 'id="inbox-filter-form"' in response.text
+    assert 'aria-label="Filter inbox by status"' in response.text
+    assert 'aria-label="Filter inbox by competition"' in response.text
+    assert 'aria-label="Filter inbox by confidence"' in response.text
+    assert "Date from" not in response.text
+    assert 'href="http://testserver/admin/review"' in response.text
+
+
+def test_season_page_removes_refresh_competition_button_and_shows_breadcrumbs(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/library/tsdb_4370/seasons/season_tsdb_4370_2025")
+
+    assert response.status_code == 200
+    assert 'aria-label="Breadcrumb"' in response.text
+    assert "Formula 1" in response.text
+    assert "2025" in response.text
+    assert "Refresh Season" in response.text
+    assert "Refreshing Competition" not in response.text
 
 
 def test_competition_refresh_route_updates_competition_and_segment_metadata(provider_app) -> None:
@@ -600,6 +628,19 @@ def test_segment_refresh_route_retries_item_metadata(provider_app) -> None:
         assert event.date == date(2025, 6, 28)
         assert segment.metadata_record is not None
         assert segment.metadata_record["event"]["date"] == "2025-06-28"
+
+
+def test_refresh_route_redirects_with_flash_when_refresh_raises(provider_app, monkeypatch) -> None:
+    def fail_refresh(recording_id: str) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(provider_app.state.services.organizer, "refresh_recording_metadata", fail_refresh)
+    client = TestClient(provider_app)
+
+    response = client.post("/admin/recordings/seg_primary/refresh-metadata", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert "flash=File+metadata+refresh+failed%3A+boom" in response.headers["location"]
 
 
 def test_season_refresh_route_updates_only_the_requested_season(provider_app) -> None:

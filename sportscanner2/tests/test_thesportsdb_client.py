@@ -70,3 +70,18 @@ def test_get_json_logs_structured_response_payload(settings, session_factory, mo
     finally:
         logger.removeHandler(buf)
         logger.setLevel(original_level)
+
+
+def test_parse_csv_events_accepts_null_score_values(settings, session_factory) -> None:
+    client = TheSportsDbClient(settings, session_factory)
+
+    events = client._parse_csv_events(
+        "idEvent,Home Team,Away Team,Round,Home Score,Away Score,dateEvent,Thumb\n"
+        "1001,Arsenal,Tottenham,Round 4,,,2025-04-12,\n",
+        "English Premier League",
+        4328,
+    )
+
+    assert len(events) == 1
+    assert events[0].home_score is None
+    assert events[0].away_score is None

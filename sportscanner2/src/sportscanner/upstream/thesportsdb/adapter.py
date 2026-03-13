@@ -6,6 +6,13 @@ from datetime import date, time
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
 
 
+def _csv_text(row: dict, key: str) -> str:
+    value = row.get(key)
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def _parse_date(value: str | None) -> date | None:
     if not value:
         return None
@@ -69,21 +76,21 @@ def adapt_event(payload: dict, *, competition_name: str | None = None) -> Upstre
 
 def adapt_event_csv(row: dict, *, competition_name: str, competition_tsdb_id: int) -> UpstreamEvent | None:
     """Adapt a row from the TheSportsDB season CSV download to an UpstreamEvent."""
-    tsdb_id_raw = row.get("idEvent", "").strip()
+    tsdb_id_raw = _csv_text(row, "idEvent")
     if not tsdb_id_raw:
         return None
 
-    home_team = row.get("Home Team", "").strip()
-    away_team = row.get("Away Team", "").strip()
+    home_team = _csv_text(row, "Home Team")
+    away_team = _csv_text(row, "Away Team")
     name = f"{home_team} vs {away_team}" if away_team else home_team or "Unknown Event"
 
     round_val: int | None = None
-    m = re.match(r"round\s+(\d+)$", row.get("Round", "").strip(), re.IGNORECASE)
+    m = re.match(r"round\s+(\d+)$", _csv_text(row, "Round"), re.IGNORECASE)
     if m:
         round_val = int(m.group(1))
 
-    home_score_raw = row.get("Home Score", "").strip()
-    away_score_raw = row.get("Away Score", "").strip()
+    home_score_raw = _csv_text(row, "Home Score")
+    away_score_raw = _csv_text(row, "Away Score")
 
     return UpstreamEvent(
         id=f"tsdb_{tsdb_id_raw}",
@@ -91,12 +98,11 @@ def adapt_event_csv(row: dict, *, competition_name: str, competition_tsdb_id: in
         competition_tsdb_id=competition_tsdb_id,
         name=name,
         competition_name=competition_name,
-        date=_parse_date(row.get("dateEvent", "").strip() or None),
+        date=_parse_date(_csv_text(row, "dateEvent") or None),
         round=round_val,
         home_team=home_team or None,
         away_team=away_team or None,
         home_score=int(home_score_raw) if home_score_raw else None,
         away_score=int(away_score_raw) if away_score_raw else None,
-        thumb_url=row.get("Thumb", "").strip() or None,
+        thumb_url=_csv_text(row, "Thumb") or None,
     )
-

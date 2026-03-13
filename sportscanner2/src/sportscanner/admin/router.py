@@ -36,6 +36,7 @@ from sportscanner.plex import PlexRegistrationResult
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 _LOG_LEVEL_OPTIONS = ("DEBUG", "INFO", "WARNING", "ERROR")
+logger = logging.getLogger("sportscanner.admin.router")
 
 
 def _render(request: Request, template_name: str, context: dict) -> HTMLResponse:
@@ -44,6 +45,7 @@ def _render(request: Request, template_name: str, context: dict) -> HTMLResponse
         "request": request,
         "status_meta": _status_meta,
         "format_episode_code": _format_episode_code,
+        "breadcrumbs": context.get("breadcrumbs", []),
         **context,
     }
     return templates.TemplateResponse(request, template_name, merged)
@@ -126,6 +128,26 @@ def _with_flash(url: str, message: str) -> str:
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     query["flash"] = message
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _crumb(label: str, href: str | None = None) -> dict[str, str | None]:
+    return {"label": label, "href": href}
+
+
+def _format_exception_message(exc: Exception) -> str:
+    detail = str(exc).strip() or exc.__class__.__name__
+    return detail[:200]
+
+
+def _refresh_failure_redirect(request: Request, *, fallback: str, entity_label: str, exc: Exception) -> RedirectResponse:
+    logger.exception("%s refresh failed", entity_label, exc_info=exc)
+    return RedirectResponse(
+        url=_with_flash(
+            _redirect_target(request, fallback),
+            f"{entity_label} refresh failed: {_format_exception_message(exc)}",
+        ),
+        status_code=303,
+    )
 
 
 def _detail_artwork(recording: Recording, event: Event | None, season: CompetitionSeason | None, competition: Competition | None) -> list[dict[str, str]]:
@@ -308,11 +330,10 @@ def inbox(
     status: str | None = None,
     competition_id: str | None = None,
     confidence: str | None = None,
-    date_from: date | None = None,
-    date_to: date | None = None,
 ) -> HTMLResponse:
     stats, plex_status, values, next_steps = _system_status(request)
     with _session_factory(request)() as session:
+        competitions = list(session.scalars(select(Competition).order_by(Competition.name.asc())))
         stmt = (
             select(Recording)
             .options(joinedload(Recording.competition_season), joinedload(Recording.event))
@@ -326,19 +347,12 @@ def inbox(
             stmt = stmt.where(Recording.match_confidence >= 0.5, Recording.match_confidence < 0.8)
         elif confidence == "low":
             stmt = stmt.where(or_(Recording.match_confidence < 0.5, Recording.match_confidence.is_(None)))
-        if date_from is not None:
-            stmt = stmt.where(Recording.air_date >= date_from)
-        if date_to is not None:
-            stmt = stmt.where(Recording.air_date <= date_to)
 
         recordings = list(session.scalars(stmt))
         rows = []
-        competitions = {}
         for recording in recordings:
             season = recording.competition_season
             competition = session.get(Competition, season.competition_id) if season is not None else None
-            if competition is not None:
-                competitions[competition.id] = competition
             if competition_id and (competition is None or competition.id != competition_id):
                 continue
             review_task = session.scalar(
@@ -399,10 +413,9 @@ def inbox(
                 "status": status or "",
                 "competition_id": competition_id or "",
                 "confidence": confidence or "",
-                "date_from": date_from.isoformat() if date_from else "",
-                "date_to": date_to.isoformat() if date_to else "",
             },
-            "competitions": sorted(competitions.values(), key=lambda comp: comp.name.lower()),
+            "competitions": competitions,
+            "breadcrumbs": [_crumb("Inbox")],
         },
     )
 
@@ -441,7 +454,15 @@ def review_queue(request: Request) -> HTMLResponse:
                 select(func.count(Recording.id)).where(Recording.status == RecordingStatus.STAGED.value)
             ) or 0,
         }
-    return _render(request, "review_queue.html", {"tasks": rows, "summary": summary})
+    return _render(
+        request,
+        "review_queue.html",
+        {
+            "tasks": rows,
+            "summary": summary,
+            "breadcrumbs": [_crumb("Review Queue")],
+        },
+    )
 
 
 @router.get("/review/{task_id}", response_class=HTMLResponse)
@@ -485,6 +506,10 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
             "prev_task_id": prev_task_id,
             "next_task_id": next_task_id,
             "suggested_query": suggested_query,
+            "breadcrumbs": [
+                _crumb("Review Queue", str(request.url_for("review_queue"))),
+                _crumb(f"Task {task.id}"),
+            ],
         },
     )
 
@@ -776,19 +801,34 @@ def library_page(request: Request) -> HTMLResponse:
                     "last_refreshed": last_refreshed,
                 }
             )
-    return _render(request, "library.html", {"rows": rows})
+    return _render(
+        request,
+        "library.html",
+        {
+            "rows": rows,
+            "breadcrumbs": [_crumb("Library")],
+        },
+    )
 
 
 @router.post("/competitions/{competition_id}/refresh-metadata")
 def competition_refresh_metadata(request: Request, competition_id: str) -> RedirectResponse:
     services = request.app.state.services
+    fallback = str(request.url_for("library_competition_detail", competition_id=competition_id))
     try:
         services.organizer.refresh_competition_metadata(competition_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        return _refresh_failure_redirect(
+            request,
+            fallback=fallback,
+            entity_label="Competition metadata",
+            exc=exc,
+        )
     return RedirectResponse(
         url=_with_flash(
-            _redirect_target(request, str(request.url_for("library_competition_detail", competition_id=competition_id))),
+            _redirect_target(request, fallback),
             "Competition metadata refreshed.",
         ),
         status_code=303,
@@ -798,16 +838,21 @@ def competition_refresh_metadata(request: Request, competition_id: str) -> Redir
 @router.post("/library/{competition_id}/seasons/{season_id}/refresh-metadata", name="season_refresh_metadata")
 def season_refresh_metadata(request: Request, competition_id: str, season_id: str) -> RedirectResponse:
     services = request.app.state.services
+    fallback = str(request.url_for("library_season_detail", competition_id=competition_id, season_id=season_id))
     try:
         services.organizer.refresh_season_metadata(season_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        return _refresh_failure_redirect(
+            request,
+            fallback=fallback,
+            entity_label="Season metadata",
+            exc=exc,
+        )
     return RedirectResponse(
         url=_with_flash(
-            _redirect_target(
-                request,
-                str(request.url_for("library_season_detail", competition_id=competition_id, season_id=season_id)),
-            ),
+            _redirect_target(request, fallback),
             "Season metadata refreshed.",
         ),
         status_code=303,
@@ -817,11 +862,18 @@ def season_refresh_metadata(request: Request, competition_id: str, season_id: st
 @router.post("/events/{event_id}/refresh-metadata", name="event_refresh_metadata")
 def event_refresh_metadata(request: Request, event_id: str) -> RedirectResponse:
     services = request.app.state.services
+    fallback = str(request.url_for("inbox"))
     try:
         services.organizer.refresh_event_metadata(event_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    fallback = str(request.url_for("inbox"))
+    except Exception as exc:
+        return _refresh_failure_redirect(
+            request,
+            fallback=fallback,
+            entity_label="Event metadata",
+            exc=exc,
+        )
     return RedirectResponse(
         url=_with_flash(_redirect_target(request, fallback), "Event metadata refreshed."),
         status_code=303,
@@ -861,7 +913,15 @@ def library_competition_detail(request: Request, competition_id: str) -> HTMLRes
     return _render(
         request,
         "library_competition.html",
-        {"competition": competition, "seasons": seasons, "recordings": recordings},
+        {
+            "competition": competition,
+            "seasons": seasons,
+            "recordings": recordings,
+            "breadcrumbs": [
+                _crumb("Library", str(request.url_for("library_page"))),
+                _crumb(competition.name),
+            ],
+        },
     )
 
 
@@ -933,6 +993,28 @@ def file_detail(request: Request, recording_id: str) -> HTMLResponse:
                 else ([season] if season is not None else [])
             ),
             "artwork_cards": _detail_artwork(recording, event, season, competition),
+            "breadcrumbs": (
+                [
+                    _crumb("Library", str(request.url_for("library_page"))),
+                    _crumb(
+                        competition.name,
+                        str(request.url_for("library_competition_detail", competition_id=competition.id)),
+                    ),
+                    _crumb(
+                        season.label,
+                        str(
+                            request.url_for(
+                                "library_season_detail",
+                                competition_id=competition.id,
+                                season_id=season.id,
+                            )
+                        ),
+                    ),
+                    _crumb(recording.title),
+                ]
+                if competition is not None and season is not None
+                else [_crumb("Inbox", str(request.url_for("inbox"))), _crumb(recording.title)]
+            ),
         },
     )
 
@@ -940,13 +1022,21 @@ def file_detail(request: Request, recording_id: str) -> HTMLResponse:
 @router.post("/recordings/{recording_id}/refresh-metadata")
 def refresh_recording_metadata(request: Request, recording_id: str) -> RedirectResponse:
     services = request.app.state.services
+    fallback = str(request.url_for("file_detail", recording_id=recording_id))
     try:
         services.organizer.refresh_recording_metadata(recording_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        return _refresh_failure_redirect(
+            request,
+            fallback=fallback,
+            entity_label="File metadata",
+            exc=exc,
+        )
     return RedirectResponse(
         url=_with_flash(
-            _redirect_target(request, str(request.url_for("file_detail", recording_id=recording_id))),
+            _redirect_target(request, fallback),
             "File metadata refreshed.",
         ),
         status_code=303,
@@ -986,7 +1076,11 @@ def update_recording(
 @router.get("/settings", response_class=HTMLResponse, name="settings_page")
 def settings_page(request: Request) -> HTMLResponse:
     values = _settings_values(request)
-    return _render(request, "settings.html", {"values": values, "error": None})
+    return _render(
+        request,
+        "settings.html",
+        {"values": values, "error": None, "breadcrumbs": [_crumb("Settings")]},
+    )
 
 
 @router.post("/settings")
@@ -1131,6 +1225,7 @@ def logs_page(request: Request) -> HTMLResponse:
             "entries": entries,
             "current_log_level": _current_log_level(request),
             "log_level_options": _LOG_LEVEL_OPTIONS,
+            "breadcrumbs": [_crumb("Logs")],
         },
     )
 
@@ -1287,6 +1382,7 @@ def plex_page(request: Request) -> HTMLResponse:
             "error": error,
             "provider_identifier": provider_identifier,
             "refresh_jobs": refresh_jobs,
+            "breadcrumbs": [_crumb("Plex")],
         },
     )
 
@@ -1554,5 +1650,13 @@ def library_season_detail(request: Request, competition_id: str, season_id: str)
             "season": season,
             "rows": rows,
             "aliases": aliases,
+            "breadcrumbs": [
+                _crumb("Library", str(request.url_for("library_page"))),
+                _crumb(
+                    competition.name,
+                    str(request.url_for("library_competition_detail", competition_id=competition.id)),
+                ),
+                _crumb(season.label),
+            ],
         },
     )

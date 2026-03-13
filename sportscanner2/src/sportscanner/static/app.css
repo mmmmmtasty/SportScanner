@@ -107,6 +107,46 @@ main.container {
   padding-inline: 1rem;
 }
 
+.breadcrumb-bar {
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(227, 238, 249, 0.18);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(5, 12, 20, 0.9), rgba(9, 20, 31, 0.84));
+  box-shadow: 0 18px 40px rgba(3, 10, 18, 0.28);
+}
+
+.breadcrumb-list {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.breadcrumb-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: rgba(240, 246, 252, 0.9);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.breadcrumb-list li + li::before {
+  content: "/";
+  color: rgba(210, 230, 255, 0.46);
+}
+
+.breadcrumb-list a {
+  color: #d2e6ff;
+  text-decoration: none;
+}
+
+.breadcrumb-list a:hover {
+  color: #f7fbff;
+}
+
 .topnav a {
   color: var(--ink);
   font-weight: 600;
@@ -480,6 +520,10 @@ main.container > p a:hover {
   overflow-x: auto;
 }
 
+.header-filter-form {
+  display: none;
+}
+
 table {
   width: 100%;
   margin: 0;
@@ -504,6 +548,40 @@ table th {
   background: rgba(16, 32, 50, 0.05);
 }
 
+.table-header-title {
+  display: block;
+  margin-bottom: 0.22rem;
+}
+
+.table-filter-control {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.88rem;
+  padding: 0.28rem 0.42rem;
+  height: 2.1rem;
+  min-height: 2.1rem;
+  box-sizing: border-box;
+}
+
+.table-filter-reset {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(10, 99, 201, 0.08);
+  color: var(--accent-strong);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  text-transform: none;
+}
+
+.table-filter-reset:hover {
+  background: rgba(10, 99, 201, 0.14);
+}
+
 table td {
   color: var(--ink);
   border-top: 1px solid var(--line);
@@ -525,8 +603,10 @@ table tbody tr {
 }
 
 .compact-button {
-  padding: 0.25rem 0.75rem;
-  font-size: 0.85rem;
+  padding: 0.18rem 0.62rem;
+  min-height: auto;
+  font-size: 0.82rem;
+  line-height: 1.15;
 }
 
 .filters-grid {
