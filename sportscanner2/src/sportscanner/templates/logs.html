@@ -2,20 +2,100 @@
 {% block title %}Logs{% endblock %}
 {% block content %}
 <style>
-  .log-controls { margin-bottom: 1rem; }
-  .log-controls form { display: flex; gap: 1rem; flex-wrap: wrap; align-items: end; }
-  .log-controls label { margin-bottom: 0; min-width: 220px; }
-  .log-controls select, .log-controls button { margin-bottom: 0; }
-  .log-controls p { margin: 0; color: var(--pico-muted-color); }
-  .log-filter-bar { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1rem; }
-  .log-filter-bar label { margin-bottom: 0; flex: 1; min-width: 140px; }
-  .log-filter-bar select, .log-filter-bar input { margin-bottom: 0; }
-  .log-filter-bar button { margin-bottom: 0; }
+  .log-controls {
+    margin-bottom: 0.85rem;
+    padding: 0.8rem 1rem;
+    display: flex;
+    gap: 0.8rem 1rem;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .log-controls-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .log-controls h2,
+  .log-controls p {
+    margin: 0;
+  }
+  .log-controls h2 {
+    font-size: 1rem;
+  }
+  .log-controls p {
+    color: var(--pico-muted-color);
+  }
+  .log-controls form {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0;
+  }
+  .log-controls label {
+    margin-bottom: 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    white-space: nowrap;
+    font-size: 0.88rem;
+  }
+  .log-controls select,
+  .log-controls button {
+    margin-bottom: 0;
+    width: auto;
+  }
+  .log-level-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(10, 99, 201, 0.08);
+    color: var(--ink);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
   #log-table-wrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; }
-  #log-table { width: 100%; font-size: 0.8rem; border-collapse: collapse; line-height: 1.18; }
+  #log-table { width: 100%; font-size: 0.9rem; border-collapse: collapse; line-height: 1.22; }
   #log-table th, #log-table td { padding: 0.12rem 0.45rem; border-bottom: 1px solid var(--pico-table-border-color); vertical-align: top; white-space: nowrap; }
   #log-table td.log-msg { min-width: 300px; }
-  #log-table .log-msg-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.18; margin: 0; }
+  #log-table .log-msg-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.22; margin: 0; }
+  #log-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: rgba(244, 248, 252, 0.98);
+    backdrop-filter: blur(12px);
+  }
+  #log-table .log-header-cell {
+    padding-top: 0.32rem;
+    padding-bottom: 0.38rem;
+  }
+  .log-header-title {
+    display: block;
+    margin-bottom: 0.22rem;
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--pico-muted-color);
+  }
+  .log-filter-control {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    font-size: 0.78rem;
+    padding: 0.28rem 0.42rem;
+    height: auto;
+  }
+  .log-filter-reset {
+    padding: 0.24rem 0.5rem;
+    font-size: 0.72rem;
+    line-height: 1.1;
+  }
   .log-payload { margin-top: 0.12rem; }
   .log-payload summary { cursor: pointer; color: var(--pico-primary); font-size: 0.72rem; line-height: 1.1; }
   .log-payload-pre { margin-top: 0.15rem; margin-bottom: 0; max-height: 20rem; overflow: auto; background: rgba(0, 0, 0, 0.04); padding: 0.35rem 0.45rem; border-radius: 0.45rem; font-size: 0.74rem; }
@@ -29,65 +109,70 @@
 
 <header>
   <h1>Logs</h1>
-  <p>Use `DEBUG` when you want upstream request details and structured API payloads such as raw TheSportsDB responses.</p>
 </header>
 
 <section class="panel log-controls">
-  <div class="panel-header">
+  <div class="log-controls-header">
     <h2>Logging Level</h2>
+    <span class="log-level-indicator">Current <strong>{{ current_log_level }}</strong></span>
+    <p>Use `DEBUG` when you want upstream request details and structured API payloads such as raw TheSportsDB responses.</p>
   </div>
   <form method="post" action="{{ request.url_for('configure_logs') }}">
     <label>
-      Active level
+      Active
       <select name="level">
         {% for level in log_level_options %}
           <option value="{{ level }}" {% if current_log_level == level %}selected{% endif %}>{{ level }}</option>
         {% endfor %}
       </select>
     </label>
-    <button type="submit">Save Logging Level</button>
-    <p>Current level: <strong>{{ current_log_level }}</strong></p>
+    <button type="submit">Save</button>
   </form>
 </section>
 
-<form id="log-filter-form" class="log-filter-bar"
-      hx-get="{{ request.url_for('logs_entries') }}"
-      hx-target="#log-tbody"
-      hx-swap="innerHTML"
-      hx-trigger="submit, change delay:300ms">
-  <label>
-    Level
-    <select name="level">
-      <option value="" {% if not request.query_params.get('level') %}selected{% endif %}>All</option>
-      <option value="DEBUG" {% if request.query_params.get('level') == 'DEBUG' %}selected{% endif %}>DEBUG</option>
-      <option value="INFO" {% if request.query_params.get('level') == 'INFO' %}selected{% endif %}>INFO</option>
-      <option value="WARNING" {% if request.query_params.get('level') == 'WARNING' %}selected{% endif %}>WARNING</option>
-      <option value="ERROR" {% if request.query_params.get('level') == 'ERROR' %}selected{% endif %}>ERROR</option>
-    </select>
-  </label>
-  <label>
-    Component
-    <input
-      name="component"
-      placeholder="e.g. sportscanner.organizer"
-      value="{{ request.query_params.get('component', '') }}"
-    />
-  </label>
-  <label>
-    Keyword
-    <input name="keyword" placeholder="Search message..." value="{{ request.query_params.get('keyword', '') }}" />
-  </label>
-  <button type="submit" class="secondary">Apply</button>
-</form>
-
 <div id="log-table-wrap">
   <table id="log-table">
-    <thead>
+    <thead id="log-filter-controls"
+           hx-get="{{ request.url_for('logs_entries') }}"
+           hx-target="#log-tbody"
+           hx-swap="innerHTML"
+           hx-trigger="change from:#log-filter-controls select delay:150ms, input from:#log-filter-controls input delay:300ms"
+           hx-include="#log-filter-controls select, #log-filter-controls input">
       <tr>
-        <th class="log-ts">Time (UTC)</th>
-        <th class="log-level">Level</th>
-        <th class="log-name">Logger</th>
-        <th class="log-msg">Message</th>
+        <th class="log-ts log-header-cell">
+          <span class="log-header-title">Time (UTC)</span>
+          <button type="button" id="log-filter-reset" class="secondary outline log-filter-reset">Clear</button>
+        </th>
+        <th class="log-level log-header-cell">
+          <span class="log-header-title">Level</span>
+          <select name="level" class="log-filter-control" aria-label="Filter by level">
+            <option value="" {% if not request.query_params.get('level') %}selected{% endif %}>All levels</option>
+            <option value="DEBUG" {% if request.query_params.get('level') == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+            <option value="INFO" {% if request.query_params.get('level') == 'INFO' %}selected{% endif %}>INFO</option>
+            <option value="WARNING" {% if request.query_params.get('level') == 'WARNING' %}selected{% endif %}>WARNING</option>
+            <option value="ERROR" {% if request.query_params.get('level') == 'ERROR' %}selected{% endif %}>ERROR</option>
+          </select>
+        </th>
+        <th class="log-name log-header-cell">
+          <span class="log-header-title">Logger</span>
+          <input
+            name="component"
+            class="log-filter-control"
+            aria-label="Filter by logger"
+            placeholder="sportscanner.organizer"
+            value="{{ request.query_params.get('component', '') }}"
+          />
+        </th>
+        <th class="log-msg log-header-cell">
+          <span class="log-header-title">Message</span>
+          <input
+            name="keyword"
+            class="log-filter-control"
+            aria-label="Filter by message"
+            placeholder="Search message text"
+            value="{{ request.query_params.get('keyword', '') }}"
+          />
+        </th>
       </tr>
     </thead>
     <tbody id="log-tbody"
@@ -95,9 +180,67 @@
            hx-trigger="every 3s"
            hx-target="#log-tbody"
            hx-swap="innerHTML"
-           hx-include="#log-filter-form">
+           hx-include="#log-filter-controls select, #log-filter-controls input">
       {% include "logs_entries.html" %}
     </tbody>
   </table>
 </div>
+<script>
+  (() => {
+    const expandedPayloadRows = new Set();
+
+    const restoreExpandedPayloads = (root) => {
+      if (!(root instanceof Element || root instanceof Document)) return;
+      root.querySelectorAll("#log-tbody tr[data-log-id]").forEach((row) => {
+        const details = row.querySelector(".log-payload");
+        if (details && expandedPayloadRows.has(row.dataset.logId)) {
+          details.open = true;
+        }
+      });
+    };
+
+    const refreshLogs = () => {
+      const controls = document.getElementById("log-filter-controls");
+      if (!controls || typeof htmx === "undefined") return;
+      htmx.ajax("GET", "{{ request.url_for('logs_entries') }}", {
+        source: controls,
+        target: "#log-tbody",
+        swap: "innerHTML",
+        values: htmx.values(controls),
+      });
+    };
+
+    document.body.addEventListener("toggle", (event) => {
+      const details = event.target;
+      if (!(details instanceof HTMLDetailsElement) || !details.classList.contains("log-payload")) return;
+      const row = details.closest("tr[data-log-id]");
+      if (!row) return;
+      if (details.open) {
+        expandedPayloadRows.add(row.dataset.logId);
+        return;
+      }
+      expandedPayloadRows.delete(row.dataset.logId);
+    });
+
+    document.body.addEventListener("htmx:afterSwap", (event) => {
+      if (event.target && event.target.id === "log-tbody") {
+        restoreExpandedPayloads(event.target);
+      }
+    });
+
+    document.addEventListener("DOMContentLoaded", () => {
+      restoreExpandedPayloads(document);
+      const resetButton = document.getElementById("log-filter-reset");
+      if (!(resetButton instanceof HTMLButtonElement)) return;
+      resetButton.addEventListener("click", () => {
+        document.querySelectorAll("#log-filter-controls select, #log-filter-controls input").forEach((control) => {
+          if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement) {
+            control.value = "";
+          }
+        });
+        refreshLogs();
+      });
+    });
+  })();
+</script>
 {% endblock %}

@@ -678,7 +678,9 @@ def test_logs_page_renders(provider_app) -> None:
 
         assert response.status_code == 200
         assert "Logs" in response.text
-        assert "Save Logging Level" in response.text
+        assert 'id="log-filter-controls"' in response.text
+        assert 'id="log-filter-reset"' in response.text
+        assert "Current <strong>INFO</strong>" in response.text
         assert "persisted log entry" in response.text
     finally:
         logger.removeHandler(buf)
@@ -759,6 +761,7 @@ def test_logs_page_renders_structured_payload(provider_app) -> None:
 
         assert response.status_code == 200
         assert "View JSON payload" in response.text
+        assert "expandedPayloadRows" in response.text
         assert "idEvent" in response.text
         assert "1234" in response.text
     finally:
