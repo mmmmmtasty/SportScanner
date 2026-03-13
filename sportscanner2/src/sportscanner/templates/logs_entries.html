@@ -3,15 +3,12 @@
   <td class="log-ts">{{ entry.timestamp }}</td>
   <td class="log-level">{{ entry.level }}</td>
   <td class="log-name">{{ entry.logger_name }}</td>
-  <td class="log-msg">
-    {{ entry.message }}
-    {% if entry.payload_json %}
+  <td class="log-msg"><span class="log-msg-text">{{ entry.message }}</span>{% if entry.payload_json %}
       <details class="log-payload">
         <summary>View JSON payload</summary>
         <pre class="log-payload-pre">{{ entry.payload_json }}</pre>
       </details>
-    {% endif %}
-  </td>
+    {% endif %}</td>
 </tr>
 {% else %}
 <tr><td colspan="4" style="text-align:center;color:var(--pico-muted-color)">No log entries match the current filters.</td></tr>

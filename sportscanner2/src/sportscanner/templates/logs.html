@@ -12,12 +12,13 @@
   .log-filter-bar select, .log-filter-bar input { margin-bottom: 0; }
   .log-filter-bar button { margin-bottom: 0; }
   #log-table-wrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; }
-  #log-table { width: 100%; font-size: 0.74rem; border-collapse: collapse; line-height: 1.08; }
-  #log-table th, #log-table td { padding: 0.08rem 0.45rem; border-bottom: 1px solid var(--pico-table-border-color); vertical-align: top; white-space: nowrap; }
-  #log-table td.log-msg { white-space: pre-wrap; word-break: break-all; min-width: 300px; line-height: 1.12; }
+  #log-table { width: 100%; font-size: 0.8rem; border-collapse: collapse; line-height: 1.18; }
+  #log-table th, #log-table td { padding: 0.12rem 0.45rem; border-bottom: 1px solid var(--pico-table-border-color); vertical-align: top; white-space: nowrap; }
+  #log-table td.log-msg { min-width: 300px; }
+  #log-table .log-msg-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.18; margin: 0; }
   .log-payload { margin-top: 0.12rem; }
-  .log-payload summary { cursor: pointer; color: var(--pico-primary); font-size: 0.68rem; line-height: 1.05; }
-  .log-payload-pre { margin-top: 0.15rem; margin-bottom: 0; max-height: 20rem; overflow: auto; background: rgba(0, 0, 0, 0.04); padding: 0.35rem 0.45rem; border-radius: 0.45rem; font-size: 0.7rem; }
+  .log-payload summary { cursor: pointer; color: var(--pico-primary); font-size: 0.72rem; line-height: 1.1; }
+  .log-payload-pre { margin-top: 0.15rem; margin-bottom: 0; max-height: 20rem; overflow: auto; background: rgba(0, 0, 0, 0.04); padding: 0.35rem 0.45rem; border-radius: 0.45rem; font-size: 0.74rem; }
   tr.log-error td { color: var(--pico-del-color, #c0392b); }
   tr.log-warning td { color: #e67e22; }
   tr.log-debug td { color: var(--pico-muted-color); }
