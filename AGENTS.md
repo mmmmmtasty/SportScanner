@@ -120,19 +120,29 @@ For more details, see README.md and docs/QUICKSTART.md.
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
+4. **Restart the web server** - This is MANDATORY after every set of changes:
+   ```bash
+   lsof -nP -iTCP:32699 -sTCP:LISTEN
+   kill <PID>
+   cd sportscanner2
+   PYTHONPATH=src .venv/bin/uvicorn sportscanner.main:create_app --factory --host 0.0.0.0 --port 32699
+   curl http://127.0.0.1:32699/health
+   ```
+   If nothing is listening on port `32699`, just start the server and verify the health check.
+5. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
    bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+6. **Clean up** - Clear stashes, prune remote branches
+7. **Verify** - All changes committed, pushed, and the restarted server is healthy
+8. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
 - Work is NOT complete until `git push` succeeds
+- Work is NOT complete until the local web server has been restarted after the latest changes
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
