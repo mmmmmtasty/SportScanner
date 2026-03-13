@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">SportScanner icon</title>
+  <desc id="desc">A sports-themed icon with a basketball inside a radar display.</desc>
+  <rect x="24" y="24" width="464" height="464" rx="104" fill="#0d1826"/>
+  <path d="M256 256 L428 126 A220 220 0 0 1 424 256 Z" fill="#184f55"/>
+  <circle cx="256" cy="256" r="158" fill="none" stroke="#1d8f7d" stroke-width="10"/>
+  <circle cx="256" cy="256" r="120" fill="none" stroke="#1d8f7d" stroke-width="8"/>
+  <circle cx="256" cy="256" r="80" fill="none" stroke="#1d8f7d" stroke-width="6"/>
+  <path d="M256 94 V418" stroke="#2ab59a" stroke-width="6" stroke-linecap="round" opacity="0.7"/>
+  <path d="M94 256 H418" stroke="#2ab59a" stroke-width="6" stroke-linecap="round" opacity="0.7"/>
+  <circle cx="256" cy="284" r="110" fill="#ef7d22"/>
+  <path d="M256 174 C288 202 302 239 302 284 C302 329 288 366 256 394" fill="none" stroke="#5f2b0f" stroke-width="13" stroke-linecap="round"/>
+  <path d="M256 174 C224 202 210 239 210 284 C210 329 224 366 256 394" fill="none" stroke="#5f2b0f" stroke-width="13" stroke-linecap="round"/>
+  <path d="M146 284 C182 266 219 258 256 258 C293 258 330 266 366 284" fill="none" stroke="#5f2b0f" stroke-width="13" stroke-linecap="round"/>
+  <path d="M146 284 C182 302 219 310 256 310 C293 310 330 302 366 284" fill="none" stroke="#5f2b0f" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="384" cy="160" r="15" fill="#d8fff8"/>
+  <circle cx="384" cy="160" r="30" fill="none" stroke="#d8fff8" stroke-width="5" opacity="0.45"/>
+</svg>
