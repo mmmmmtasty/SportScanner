@@ -6,12 +6,13 @@
     <p class="eyebrow">System Health</p>
     <h1>Alerts</h1>
     <p class="hero-copy">
-      Persistent operational alerts from Plex connectivity, TheSportsDB requests, and background jobs.
+      Persistent operational alerts from Plex connectivity, TheSportsDB requests, and background jobs. Keep active problems in front, then use Refresh Activity when you need the job timeline behind them.
     </p>
   </div>
   <article class="hero-card queue-card">
     <div class="status-line"><span>Open alerts</span><strong>{{ alerts|length }}</strong></div>
     <div class="status-line"><span>Dismissed shown</span><strong>{{ dismissed_alerts|length }}</strong></div>
+    <div class="status-line"><span>Timeline</span><strong><a href="{{ request.url_for('refresh_activity_page') }}">Open Refresh Activity</a></strong></div>
   </article>
 </section>
 
@@ -60,10 +61,8 @@
   </div>
 </section>
 
-<section class="panel">
-  <div class="panel-header">
-    <h2>Recently Dismissed</h2>
-  </div>
+<details class="panel">
+  <summary><strong>Recently Dismissed</strong></summary>
   <div class="table-wrap">
     <table>
       <thead>
@@ -90,5 +89,5 @@
       </tbody>
     </table>
   </div>
-</section>
+</details>
 {% endblock %}

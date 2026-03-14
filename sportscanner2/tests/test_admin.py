@@ -616,7 +616,7 @@ def test_plex_libraries_page_explains_refresh_vs_scan(provider_app) -> None:
 
     assert response.status_code == 200
     assert "Plex" in response.text
-    assert "Recent Refresh Jobs" in response.text
+    assert "Recent Refresh Activity" in response.text
     assert "Libraries" in response.text
     assert "Force Refresh" in response.text
     assert "Open full history" in response.text

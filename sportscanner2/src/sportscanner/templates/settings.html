@@ -5,11 +5,13 @@
   <div>
     <h1>Settings</h1>
     <p class="hero-copy">
-      Save the Plex connection values and SportScanner path mappings here first. After that,
-      register the provider and create or update the Plex library that points at SportScanner's
-      managed output.
+      Save the Plex connection, provider identity, and SportScanner path mappings here before returning to Activity or registering Plex against the managed library path.
     </p>
   </div>
+  <article class="hero-card queue-card">
+    <div class="status-line"><span>Next step</span><strong><a href="{{ request.url_for('plex_registration_page') }}">Register Provider</a></strong></div>
+    <div class="status-line"><span>History</span><strong><a href="{{ request.url_for('refresh_activity_page') }}">Open Refresh Activity</a></strong></div>
+  </article>
 </section>
 
 {% if error %}
@@ -19,74 +21,99 @@
 </article>
 {% endif %}
 
-<article class="panel">
-  <form method="post" action="{{ request.url_for('save_settings') }}">
-    <label>
-      Plex Server URL
-      <input name="pms_url" value="{{ values.pms_url or '' }}" placeholder="http://192.168.1.20:32400" />
-      <small>The full URL for your Plex Media Server. The default Plex port is 32400.</small>
-    </label>
-    <label>
-      Plex Token (X-Plex-Token)
-      <input name="pms_token" value="{{ values.pms_token or '' }}" placeholder="Paste your Plex token here" />
-      <small>In Plex Web App, open any library item, click Get Info, then View XML, and copy the X-Plex-Token value.</small>
-    </label>
-    <label>
-      Provider Public URL
-      <input
-        name="provider_public_url"
-        value="{{ values.provider_public_url or '' }}"
-        placeholder="http://192.168.1.50:32699"
-      />
-      <small>The address Plex uses to reach SportScanner. Use a real IP or hostname, not localhost.</small>
-    </label>
-    <label>
-      Provider Identifier In Plex
-      <input
-        name="plex_provider_identifier"
-        value="{{ values.plex_provider_identifier or '' }}"
-        placeholder="tv.plex.agents.custom.sportscanner.metadata"
-      />
-      <small>This must start with <code>tv.plex.agents.</code> and use only letters, numbers, and periods.</small>
-    </label>
-    <label>
-      Provider Group Name In Plex
-      <input
-        name="plex_provider_group_name"
-        value="{{ values.plex_provider_group_name or '' }}"
-        placeholder="SportScanner 2"
-      />
-      <small>This is the Agent name you will choose inside Plex. Leaving the default is fine.</small>
-    </label>
-    <label>
-      Incoming Directory
-      <input
-        name="incoming_dir"
-        value="{{ values.incoming_dir or '' }}"
-        placeholder="/incoming"
-      />
-      <small>Absolute path SportScanner watches for new files inside this runtime or container.</small>
-    </label>
-    <label>
-      Library Directory
-      <input
-        name="library_dir"
-        value="{{ values.library_dir or '' }}"
-        placeholder="/library"
-      />
-      <small>Absolute path SportScanner writes managed files to. Plex should scan this path, or the equivalent mapped path on the Plex side, never <code>incoming</code>.</small>
-    </label>
-    <button type="submit" data-loading-label="Saving...">Save Settings</button>
-  </form>
-</article>
+<form method="post" action="{{ request.url_for('save_settings') }}">
+  <section class="split-grid">
+    <article class="panel">
+      <div class="panel-header">
+        <h2>Plex Connection</h2>
+      </div>
+      <label>
+        Plex Server URL
+        <input name="pms_url" value="{{ values.pms_url or '' }}" placeholder="http://192.168.1.20:32400" />
+        <small>The full URL for your Plex Media Server. The default Plex port is 32400.</small>
+      </label>
+      <label>
+        Plex Token (X-Plex-Token)
+        <input name="pms_token" value="{{ values.pms_token or '' }}" placeholder="Paste your Plex token here" />
+        <small>In Plex Web App, open any library item, click Get Info, then View XML, and copy the X-Plex-Token value.</small>
+      </label>
+      <label>
+        Provider Public URL
+        <input
+          name="provider_public_url"
+          value="{{ values.provider_public_url or '' }}"
+          placeholder="http://192.168.1.50:32699"
+        />
+        <small>The address Plex uses to reach SportScanner. Use a real IP or hostname, not localhost.</small>
+      </label>
+    </article>
 
-<form method="post" action="{{ request.url_for('register_with_plex') }}">
-  <button
-    type="submit"
-    class="secondary"
-    data-loading-label="Registering..."
-    title="Register the SportScanner provider with Plex after these settings are saved"
-  >Register Provider And Group</button>
+    <article class="panel">
+      <div class="panel-header">
+        <h2>Provider Identity</h2>
+      </div>
+      <label>
+        Provider Identifier In Plex
+        <input
+          name="plex_provider_identifier"
+          value="{{ values.plex_provider_identifier or '' }}"
+          placeholder="tv.plex.agents.custom.sportscanner.metadata"
+        />
+        <small>This must start with <code>tv.plex.agents.</code> and use only letters, numbers, and periods.</small>
+      </label>
+      <label>
+        Provider Group Name In Plex
+        <input
+          name="plex_provider_group_name"
+          value="{{ values.plex_provider_group_name or '' }}"
+          placeholder="SportScanner 2"
+        />
+        <small>This is the Agent name you will choose inside Plex. Leaving the default is fine.</small>
+      </label>
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Path Mapping</h2>
+    </div>
+    <div class="split-grid">
+      <div>
+        <label>
+          Incoming Directory
+          <input
+            name="incoming_dir"
+            value="{{ values.incoming_dir or '' }}"
+            placeholder="/incoming"
+          />
+          <small>Absolute path SportScanner watches for new files inside this runtime or container.</small>
+        </label>
+      </div>
+      <div>
+        <label>
+          Library Directory
+          <input
+            name="library_dir"
+            value="{{ values.library_dir or '' }}"
+            placeholder="/library"
+          />
+          <small>Absolute path SportScanner writes managed files to. Plex should scan this path, or the equivalent mapped path on the Plex side, never <code>incoming</code>.</small>
+        </label>
+      </div>
+    </div>
+    <button type="submit" data-loading-label="Saving...">Save Settings</button>
+  </section>
 </form>
-<p><a href="{{ request.url_for('plex_registration_page') }}">Create Plex Test Library &rarr;</a></p>
+
+<section class="actions">
+  <form method="post" action="{{ request.url_for('register_with_plex') }}">
+    <button
+      type="submit"
+      class="secondary"
+      data-loading-label="Registering..."
+      title="Register the SportScanner provider with Plex after these settings are saved"
+    >Register Provider And Group</button>
+  </form>
+  <a href="{{ request.url_for('plex_registration_page') }}" role="button" class="secondary">Create Plex Test Library</a>
+</section>
 {% endblock %}

@@ -116,9 +116,19 @@
   .log-name { min-width: 180px; color: var(--pico-muted-color); }
 </style>
 
-<header>
-  <h1>Logs</h1>
-</header>
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Debug & Operations</p>
+    <h1>Logs</h1>
+    <p class="hero-copy">
+      Use logs for low-level troubleshooting. For day-to-day workflow and refresh timelines, start from Activity and Refresh Activity instead.
+    </p>
+  </div>
+  <article class="hero-card queue-card">
+    <div class="status-line"><span>Workflow</span><strong><a href="{{ request.url_for('activity_page') }}">Open Activity</a></strong></div>
+    <div class="status-line"><span>History</span><strong><a href="{{ request.url_for('refresh_activity_page') }}">Open Refresh Activity</a></strong></div>
+  </article>
+</section>
 
 <section class="panel log-controls">
   <div class="log-controls-header">
