@@ -3,30 +3,8 @@
 {% block content %}
 <section class="page-header">
   <div>
-    <p class="eyebrow">Oldest Open Tasks First</p>
     <h1>Review Queue</h1>
   </div>
-  <article class="hero-card queue-card">
-    <div class="status-line">
-      <span>Open tasks</span>
-      <strong>{{ summary.open_tasks }}</strong>
-    </div>
-    <div class="status-line">
-      <span>Resolved tasks</span>
-      <strong>{{ summary.resolved_tasks }}</strong>
-    </div>
-    <div class="status-line">
-      <span>Events in review</span>
-      <strong>{{ summary.review_recordings }}</strong>
-    </div>
-  </article>
-</section>
-
-<section class="stat-grid compact-grid">
-  <article class="metric-card"><h2>{{ summary.open_tasks }}</h2><p>Open Tasks</p></article>
-  <article class="metric-card"><h2>{{ summary.resolved_tasks }}</h2><p>Resolved Tasks</p></article>
-  <article class="metric-card"><h2>{{ summary.review_recordings }}</h2><p>Review Events</p></article>
-  <article class="metric-card"><h2>{{ summary.staged_recordings }}</h2><p>Staged Events</p></article>
 </section>
 
 <section class="panel">

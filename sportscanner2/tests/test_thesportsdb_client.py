@@ -72,6 +72,17 @@ def test_get_json_logs_structured_response_payload(settings, session_factory, mo
         logger.setLevel(original_level)
 
 
+def test_probe_defaults_to_v1_without_hitting_v2(settings, session_factory, monkeypatch) -> None:
+    def fail_http_get(*args, **kwargs):
+        raise AssertionError("probe should not issue a v2 network request in auto mode")
+
+    monkeypatch.setattr("sportscanner.upstream.thesportsdb.client.httpx.get", fail_http_get)
+
+    client = TheSportsDbClient(settings, session_factory)
+
+    assert client.probe() == "v1"
+
+
 def test_parse_csv_events_accepts_null_score_values(settings, session_factory) -> None:
     client = TheSportsDbClient(settings, session_factory)
 

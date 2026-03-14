@@ -46,14 +46,14 @@ class TheSportsDbClient(MetadataSource):
     def probe(self) -> str:
         if self._mode is not None:
             return self._mode
-        if self.settings.tsdb_api_mode in {"v1", "v2"}:
-            self._mode = self.settings.tsdb_api_mode
-            return self._mode
-        try:
-            self._get_json("/all/leagues", version="v2", cache=False)
-            self._mode = "v2"
-        except httpx.HTTPError:
+        if self.settings.tsdb_api_mode == "v1":
             self._mode = "v1"
+            return self._mode
+        if self.settings.tsdb_api_mode == "v2":
+            logger.warning("thesportsdb_v2_probe_unsupported_falling_back_to_v1")
+        # The request layer still uses v1 endpoints. Auto mode should report the
+        # working path instead of probing the unsupported v2 route and logging 404s.
+        self._mode = "v1"
         return self._mode
 
     def all_competitions(self) -> list[UpstreamCompetition]:

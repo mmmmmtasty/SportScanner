@@ -540,22 +540,11 @@ def review_queue(request: Request) -> HTMLResponse:
                     "competition": competition,
                 }
             )
-        summary = {
-            "open_tasks": len(rows),
-            "resolved_tasks": session.scalar(select(func.count(ReviewTask.id)).where(ReviewTask.status == "resolved")) or 0,
-            "review_recordings": session.scalar(
-                select(func.count(Recording.id)).where(Recording.status == RecordingStatus.REVIEW.value)
-            ) or 0,
-            "staged_recordings": session.scalar(
-                select(func.count(Recording.id)).where(Recording.status == RecordingStatus.STAGED.value)
-            ) or 0,
-        }
     return _render(
         request,
         "review_queue.html",
         {
             "tasks": rows,
-            "summary": summary,
             "breadcrumbs": [_crumb("Review Queue")],
         },
     )
