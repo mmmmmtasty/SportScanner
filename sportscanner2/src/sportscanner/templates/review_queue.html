@@ -3,9 +3,7 @@
 {% block content %}
 <section class="page-header">
   <div>
-    <p class="eyebrow">Manual Review</p>
     <h1>Review Queue</h1>
-    <p class="hero-copy">Resolve ambiguous matches, search cached or upstream events, and move edge cases forward cleanly.</p>
   </div>
   <article class="hero-card queue-card">
     <div class="status-line">
@@ -28,32 +26,6 @@
   <article class="metric-card"><h2>{{ summary.resolved_tasks }}</h2><p>Resolved Tasks</p></article>
   <article class="metric-card"><h2>{{ summary.review_recordings }}</h2><p>Review Events</p></article>
   <article class="metric-card"><h2>{{ summary.staged_recordings }}</h2><p>Staged Events</p></article>
-</section>
-
-<section class="guide-grid">
-  <article class="guide-card">
-    <div class="panel-header">
-      <h2>How To Work The Queue</h2>
-      <span
-        class="tooltip-chip"
-        tabindex="0"
-        title="Resolve the oldest open tasks first so event numbering and Plex refreshes settle in a predictable order."
-      >Order matters</span>
-    </div>
-    <p>
-      Review items exist because SportScanner could not safely pick one event. Resolve the oldest
-      tasks first, then refresh Plex metadata after the queue is back under control.
-    </p>
-  </article>
-  <article class="guide-card">
-    <div class="panel-header">
-      <h2>Choose The Right Outcome</h2>
-    </div>
-    <p>
-      Use a cached or live TheSportsDB event for normal matches and races. Use Season 0 only for
-      true extras. Ignore duplicates, junk captures, or files you do not want published.
-    </p>
-  </article>
 </section>
 
 <section class="panel">
