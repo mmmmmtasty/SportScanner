@@ -249,8 +249,7 @@ def test_review_queue_explains_resolution_flow(provider_app) -> None:
     response = client.get("/admin/review")
 
     assert response.status_code == 200
-    assert "Manual Review" not in response.text
-    assert "Resolve ambiguous matches" not in response.text
+    assert "Oldest Open Tasks First" in response.text
     assert "How To Work The Queue" not in response.text
     assert "Choose The Right Outcome" not in response.text
     assert "Potential Matches" in response.text
