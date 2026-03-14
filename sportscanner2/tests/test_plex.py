@@ -145,3 +145,42 @@ def test_create_tv_shows_library_uses_current_plex_series_pair_and_provider_grou
     assert route.calls[0].request.url.params["agent"] == "tv.plex.agents.series"
     assert route.calls[0].request.url.params["scanner"] == "Plex TV Series"
     assert route.calls[0].request.url.params["metadataAgentProviderGroupId"] == "42"
+
+
+@respx.mock
+def test_scan_section_episodes_reads_provider_guids_and_media_paths() -> None:
+    client = PlexPmsClient(base_url="http://plex:32400", token="abc123")
+    route = respx.get("http://plex:32400/library/sections/17/all").mock(
+        return_value=httpx.Response(
+            200,
+            text=(
+                '<MediaContainer size="1" totalSize="1">'
+                '<Video ratingKey="555" guid="tv.plex.agents.custom.sportscanner.metadata://episode/episode_seg_primary" title="Austrian Grand Prix">'
+                '<Media><Part file="/library/Formula 1/Season 2025/Austrian.mkv" /></Media>'
+                "</Video>"
+                "</MediaContainer>"
+            ),
+        )
+    )
+
+    episodes = client.scan_section_episodes(17)
+
+    assert route.called
+    assert route.calls[0].request.headers["X-Plex-Container-Size"] == "200"
+    assert len(episodes) == 1
+    assert episodes[0].section_id == 17
+    assert episodes[0].rating_key == "555"
+    assert episodes[0].file_path == "/library/Formula 1/Season 2025/Austrian.mkv"
+
+
+@respx.mock
+def test_delete_metadata_uses_library_metadata_endpoint() -> None:
+    client = PlexPmsClient(base_url="http://plex:32400", token="abc123")
+    route = respx.delete("http://plex:32400/library/metadata/555").mock(
+        return_value=httpx.Response(200, text="OK")
+    )
+
+    client.delete_metadata("555")
+
+    assert route.called
+    assert route.calls[0].request.url.params["X-Plex-Token"] == "abc123"

@@ -16,6 +16,20 @@
   </form>
 </section>
 
+<section class="panel">
+  <div class="panel-header">
+    <h2>Delete Competition</h2>
+  </div>
+  <p class="helper-text">
+    This removes every season, event, and file under {{ competition.name }} from SportScanner. Remove From Plex first if Plex still has the published media.
+  </p>
+  <form method="post" action="{{ request.url_for('delete_competition', competition_id=competition.id) }}" onsubmit="return confirm('Delete this competition and all nested files?');">
+    <label><input type="checkbox" name="remove_from_plex" value="1" /> Remove From Plex</label>
+    <label><input type="checkbox" name="delete_media" value="1" /> Delete Media Files</label>
+    <button type="submit" class="secondary">Delete Competition</button>
+  </form>
+</section>
+
 <section class="split-grid">
   <article class="panel">
     <div class="panel-header">

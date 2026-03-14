@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Missing From Plex{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Plex Drift</p>
+    <h1>Missing From Plex</h1>
+    <p class="hero-copy">
+      Compare SportScanner's published files against the current Plex library and investigate anything Plex no longer has.
+    </p>
+  </div>
+</section>
+
+{% if error %}
+<article class="panel">
+  <header>Scan Error</header>
+  <p>{{ error }}</p>
+</article>
+{% else %}
+<section class="split-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Summary</h2>
+    </div>
+    <div class="status-stack">
+      <div class="status-line"><span>Missing files</span><strong>{{ stats.missing_count }}</strong></div>
+      <div class="status-line"><span>Affected competitions</span><strong>{{ stats.competition_count }}</strong></div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Filters</h2>
+    </div>
+    <form method="get" class="filters-grid">
+      <label>
+        Competition
+        <select name="competition_id">
+          <option value="">All competitions</option>
+          {% for competition in competitions %}
+          <option value="{{ competition.id }}" {% if filters.competition_id == competition.id %}selected{% endif %}>{{ competition.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Managed file
+        <select name="managed_state">
+          {% for value, label in managed_state_options.items() %}
+          <option value="{{ value }}" {% if filters.managed_state == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="filter-actions">
+        <button type="submit">Run Scan</button>
+        <a href="{{ request.url_for('plex_drift_page') }}" role="button" class="secondary outline compact-button">Clear</a>
+      </div>
+    </form>
+  </article>
+</section>
+
+{% for group in groups %}
+<section class="panel">
+  <div class="panel-header">
+    <h2>{{ group.competition_name }}</h2>
+    <span class="pill">{{ group.rows | length }} missing</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Season</th>
+          <th>Event</th>
+          <th>Managed File</th>
+          <th>Incoming Source</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in group.rows %}
+        <tr>
+          <td><a href="{{ request.url_for('file_detail', recording_id=row.recording.id) }}">{{ row.recording.title }}</a></td>
+          <td>{{ row.season.label if row.season else "Unknown" }}</td>
+          <td>{{ row.event.name if row.event else "Unmatched" }}</td>
+          <td>
+            <span class="status-chip {{ 'status-success' if row.managed_exists else 'status-warning' }}">
+              {{ "Present" if row.managed_exists else "Missing" }}
+            </span>
+          </td>
+          <td>
+            <span class="status-chip {{ 'status-success' if row.source_exists else 'status-neutral' }}">
+              {{ "Present" if row.source_exists else "Gone" }}
+            </span>
+          </td>
+          <td>
+            <div class="inline-actions">
+              <a href="{{ request.url_for('file_detail', recording_id=row.recording.id) }}" class="secondary compact-button">Inspect</a>
+              <form method="post" action="{{ request.url_for('queue_plex_drift_refresh', recording_id=row.recording.id) }}">
+                <button type="submit" class="secondary compact-button" data-loading-label="Queueing...">Queue Plex Refresh</button>
+              </form>
+              <form method="post" action="{{ request.url_for('delete_recording', recording_id=row.recording.id) }}" onsubmit="return confirm('Remove this missing Plex file from SportScanner?');">
+                <button type="submit" class="secondary compact-button">Delete DB Record</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<section class="panel">
+  <p class="empty-state">No published files are currently missing from Plex.</p>
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

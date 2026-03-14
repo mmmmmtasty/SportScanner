@@ -29,6 +29,7 @@
       <div class="status-line"><span>Plex status</span><strong>{% if error %}Needs attention{% else %}Connected{% endif %}</strong></div>
     </div>
     <p><a href="{{ request.url_for('plex_registration_page') }}">Open registration and library creation</a></p>
+    <p><a href="{{ request.url_for('plex_drift_page') }}">Open Missing From Plex scan</a></p>
   </article>
 
   <article class="panel">

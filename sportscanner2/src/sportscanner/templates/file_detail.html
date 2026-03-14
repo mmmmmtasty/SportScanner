@@ -65,6 +65,7 @@
       <div class="status-line"><span>Season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
       <div class="status-line"><span>Managed path</span><strong>{{ recording.managed_path or "Not published yet" }}</strong></div>
     </div>
+    <p class="helper-text">After publish, the managed library path is the canonical copy. The incoming source path may disappear after linking or torrent cleanup.</p>
   </article>
 
   <article class="panel">
@@ -168,6 +169,20 @@
         <input type="number" name="episode_number" min="0" value="{{ recording.episode_number if recording.episode_number is not none else '' }}" />
       </label>
       <button type="submit" data-loading-label="Saving...">Save Manual Override</button>
+    </form>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <h2>Delete File</h2>
+    </div>
+    <p class="helper-text">
+      If Plex still has this published item, select Remove From Plex first. Delete Media File also removes the managed copy from disk when it still exists.
+    </p>
+    <form method="post" action="{{ request.url_for('delete_recording', recording_id=recording.id) }}" onsubmit="return confirm('Delete this file from SportScanner?');">
+      <label><input type="checkbox" name="remove_from_plex" value="1" /> Remove From Plex</label>
+      <label><input type="checkbox" name="delete_media" value="1" /> Delete Media File</label>
+      <button type="submit" class="secondary">Delete File</button>
     </form>
   </article>
 </section>

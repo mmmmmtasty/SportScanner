@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from datetime import date
+from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -294,6 +295,62 @@ def test_refresh_recording_metadata_does_not_renumber_published_items(settings, 
         assert updated_event.name == "British Grand Prix Updated"
         assert refreshed_second.metadata_record is not None
         assert refreshed_second.metadata_record["event"]["date"] == "2025-06-15"
+
+
+def test_refresh_recording_metadata_reuses_managed_path_when_incoming_file_is_gone(settings, session_factory) -> None:
+    source = MutableMetadataSource(
+        complete=True,
+        events=[
+            UpstreamEvent(
+                id="tsdb_1001",
+                tsdb_id=1001,
+                name="Austrian Grand Prix",
+                competition_name="Formula 1",
+                date=date(2025, 6, 29),
+            ),
+        ],
+    )
+    organizer = OrganizerService(settings, session_factory, metadata_source=source)
+    path = settings.incoming_dir / "Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv"
+    path.write_text("video", encoding="utf-8")
+
+    recording = organizer.ingest_path(path)
+
+    with session_factory() as session:
+        stored = session.get(Recording, recording.id)
+        assert stored is not None
+        stored.event_id = None
+        session.commit()
+
+    refreshed = organizer.refresh_recording_metadata(recording.id)
+
+    assert refreshed.status == RecordingStatus.PUBLISHED.value
+    assert refreshed.event_id == "tsdb_1001"
+    assert refreshed.managed_path is not None
+    assert Path(refreshed.source_path).exists() is False
+    assert Path(refreshed.managed_path).exists()
+
+
+def test_rescan_does_not_treat_missing_incoming_path_as_a_problem_for_published_files(
+    settings,
+    organizer,
+    monkeypatch,
+) -> None:
+    path = settings.incoming_dir / "Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv"
+    path.write_text("video", encoding="utf-8")
+    organizer.ingest_path(path)
+
+    refresh_calls: list[dict[str, object]] = []
+
+    def capture_refresh(**kwargs) -> None:
+        refresh_calls.append(kwargs)
+
+    monkeypatch.setattr(organizer, "_run_tracked_metadata_refresh_job", capture_refresh)
+
+    processed = organizer.rescan_incoming()
+
+    assert processed == []
+    assert refresh_calls == []
 
 
 def test_refresh_competition_metadata_retries_unmatched_segments(settings, session_factory) -> None:

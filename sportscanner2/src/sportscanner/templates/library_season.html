@@ -16,6 +16,11 @@
           hx-swap="none">
       <button type="submit" class="secondary compact-button" data-loading-label="Queueing Season..." data-queued-label="Queued">Refresh Season</button>
     </form>
+    <form method="post" action="{{ request.url_for('delete_season', competition_id=competition.id, season_id=season.id) }}" onsubmit="return confirm('Delete this season and all nested files?');">
+      <label><input type="checkbox" name="remove_from_plex" value="1" /> Remove From Plex</label>
+      <label><input type="checkbox" name="delete_media" value="1" /> Delete Media Files</label>
+      <button type="submit" class="secondary compact-button">Delete Season</button>
+    </form>
   </div>
 </section>
 
@@ -66,6 +71,14 @@
               {% for r in row.recordings %}
               <a href="{{ request.url_for('file_detail', recording_id=r.id) }}" class="secondary compact-button">View</a>
               {% endfor %}
+              <details class="metadata-details" style="display:inline-block;">
+                <summary class="secondary compact-button">Delete Event</summary>
+                <form method="post" action="{{ request.url_for('delete_event', event_id=row.event.id) }}" onsubmit="return confirm('Delete this event and its files?');" style="margin-top:0.5rem;">
+                  <label><input type="checkbox" name="remove_from_plex" value="1" /> Remove From Plex</label>
+                  <label><input type="checkbox" name="delete_media" value="1" /> Delete Media Files</label>
+                  <button type="submit" class="secondary compact-button">Confirm Delete</button>
+                </form>
+              </details>
               <form method="post" action="{{ request.url_for('event_refresh_metadata', event_id=row.event.id) }}"
                     hx-post="{{ request.url_for('event_refresh_metadata', event_id=row.event.id) }}"
                     hx-swap="none"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+import xml.etree.ElementTree as ET
 
 import httpx
 
@@ -11,6 +12,15 @@ class PlexRegistrationResult:
     provider_identifier: str
     provider_uri: str
     provider_group_id: int | None
+
+
+@dataclass(slots=True)
+class PlexEpisode:
+    section_id: int
+    rating_key: str
+    guid: str | None
+    file_path: str | None
+    title: str | None
 
 
 logger = logging.getLogger("sportscanner.plex")
@@ -219,6 +229,79 @@ class PlexPmsClient:
         except Exception:
             return []
         return [s["key"] for s in sections if s.get("type") == "show"]
+
+    def scan_section_episodes(self, section_id: int, *, page_size: int = 200) -> list[PlexEpisode]:
+        if not self.configured():
+            raise ValueError("Plex PMS URL and token are required")
+
+        episodes: list[PlexEpisode] = []
+        start = 0
+        with httpx.Client(
+            base_url=self.base_url,
+            headers={"X-Plex-Token": self.token, "Accept": "application/xml"},
+            timeout=30.0,
+        ) as client:
+            while True:
+                try:
+                    response = client.get(
+                        f"/library/sections/{section_id}/all",
+                        params={**self._auth_params(), "type": "4", "includeGuids": "1"},
+                        headers={
+                            "X-Plex-Container-Start": str(start),
+                            "X-Plex-Container-Size": str(page_size),
+                        },
+                    )
+                except httpx.HTTPError as exc:
+                    logger.warning("plex_scan_section_failed section_id=%s error=%s", section_id, exc)
+                    raise
+                response.raise_for_status()
+
+                root = ET.fromstring(response.text)
+                videos = root.findall(".//Video")
+                for video in videos:
+                    part = video.find(".//Part")
+                    episodes.append(
+                        PlexEpisode(
+                            section_id=section_id,
+                            rating_key=video.attrib["ratingKey"],
+                            guid=video.attrib.get("guid"),
+                            file_path=part.attrib.get("file") if part is not None else None,
+                            title=video.attrib.get("title"),
+                        )
+                    )
+
+                returned = len(videos)
+                total_size = int(root.attrib.get("totalSize") or 0)
+                if returned == 0:
+                    break
+                start += returned
+                if total_size and start >= total_size:
+                    break
+                if returned < page_size and not total_size:
+                    break
+
+        return episodes
+
+    def scan_show_section_episodes(self, *, page_size: int = 200) -> list[PlexEpisode]:
+        episodes: list[PlexEpisode] = []
+        for section_id in self.find_show_section_ids():
+            episodes.extend(self.scan_section_episodes(section_id, page_size=page_size))
+        return episodes
+
+    def delete_metadata(self, rating_key: str) -> None:
+        if not self.configured():
+            raise ValueError("Plex PMS URL and token are required")
+        with httpx.Client(base_url=self.base_url, headers={"X-Plex-Token": self.token}, timeout=20.0) as client:
+            try:
+                response = client.delete(
+                    f"/library/metadata/{rating_key}",
+                    params=self._auth_params(),
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("plex_metadata_delete_failed rating_key=%s error=%s", rating_key, exc)
+                raise
+            response.raise_for_status()
+        logger.info("plex_metadata_deleted rating_key=%s", rating_key)
 
     def library_uses_group(self, section_id: int, group_id: int) -> bool:
         if not self.configured():

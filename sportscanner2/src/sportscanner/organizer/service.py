@@ -5,6 +5,7 @@ import logging
 import re
 import threading
 from dataclasses import dataclass
+from itertools import chain
 from pathlib import Path
 from uuid import uuid4
 
@@ -24,6 +25,7 @@ from sportscanner.db.models import (
     MetadataRefreshJobStatus,
     MetadataRefreshJobTarget,
     Override,
+    PlexRefreshJob,
     Recording,
     RecordingStatus,
     ReviewTask,
@@ -85,6 +87,15 @@ class SidecarMetadata:
     kind: str | None = None
     title_suffix: str | None = None
     tsdb_event_id: int | None = None
+
+
+@dataclass(slots=True)
+class DeleteResult:
+    recordings_deleted: int = 0
+    events_deleted: int = 0
+    seasons_deleted: int = 0
+    competitions_deleted: int = 0
+    media_files_deleted: int = 0
 
 
 def slugify(value: str) -> str:
@@ -165,6 +176,24 @@ class OrganizerService:
             return fallback
         return Path(configured.value.strip())
 
+    def _recording_media_path(self, recording: Recording) -> Path:
+        managed_path = Path(recording.managed_path) if recording.managed_path else None
+        source_path = Path(recording.source_path)
+        if managed_path is not None and managed_path.exists():
+            return managed_path
+        if source_path.exists():
+            return source_path
+        if managed_path is not None:
+            return managed_path
+        return source_path
+
+    def _recording_sidecar_source(self, recording: Recording, media_path: Path) -> Path:
+        source_path = Path(recording.source_path)
+        source_sidecar = source_path.with_suffix(".sportscanner.yml")
+        if source_path.exists() or source_sidecar.exists():
+            return source_path
+        return media_path
+
     def _all_upstream_competitions(self) -> list[UpstreamCompetition]:
         if self.metadata_source is None:
             return []
@@ -184,7 +213,6 @@ class OrganizerService:
     def rescan_incoming(self) -> list[str]:
         with self._ingest_lock:
             processed: list[str] = []
-            auto_refresh_targets: list[tuple[str, str]] = []
             with self.session_factory() as session:
                 incoming = self._effective_directory(session, "incoming_dir", self.settings.incoming_dir)
                 if not incoming.exists():
@@ -195,43 +223,7 @@ class OrganizerService:
                     if path.is_file() and is_media_file(path):
                         if self.ingest_path_if_parseable(path) is not None:
                             processed.append(str(path))
-                refreshed_missing_sources = 0
-                published = list(
-                    session.scalars(
-                        select(Recording)
-                        .where(Recording.status == RecordingStatus.PUBLISHED.value)
-                        .order_by(Recording.updated_at.asc(), Recording.id.asc())
-                    )
-                )
-                for recording in published:
-                    if Path(recording.source_path).exists():
-                        continue
-                    event = session.get(Event, recording.event_id) if recording.event_id else None
-                    if event is None or event.tsdb_id is None:
-                        continue
-                    auto_refresh_targets.append((recording.id, recording.title))
                 session.commit()
-            for recording_id, recording_title in auto_refresh_targets:
-                try:
-                    self._run_tracked_metadata_refresh_job(
-                        target_type=MetadataRefreshJobTarget.RECORDING,
-                        target_id=recording_id,
-                        target_label=recording_title,
-                        source=MetadataRefreshJobSource.AUTOMATIC,
-                        task=lambda recording_id=recording_id: self.refresh_recording_metadata(recording_id),
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "rescan_missing_source_refresh_failed recording_id=%s error=%s",
-                        recording_id,
-                        exc,
-                    )
-                else:
-                    refreshed_missing_sources += 1
-            logger.info(
-                "rescan_reconciled_missing_sources refreshed_count=%s",
-                refreshed_missing_sources,
-            )
             logger.info("rescan_completed processed_count=%s", len(processed))
             return processed
 
@@ -282,6 +274,138 @@ class OrganizerService:
                 refreshed = session.get(Recording, recording_id)
                 assert refreshed is not None
                 return refreshed
+
+    def delete_recording(self, recording_id: str, *, delete_media: bool = False) -> DeleteResult:
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                recording = session.get(Recording, recording_id)
+                if recording is None:
+                    raise KeyError(f"Unknown recording: {recording_id}")
+
+                result = DeleteResult()
+                affected_season_ids = {recording.competition_season_id}
+                self._delete_recordings(session, [recording], delete_media=delete_media, result=result)
+                self._reconcile_remaining_seasons(session, affected_season_ids)
+                session.commit()
+                return result
+
+    def delete_event(self, event_id: str, *, delete_media: bool = False) -> DeleteResult:
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                event = session.get(Event, event_id)
+                if event is None:
+                    raise KeyError(f"Unknown event: {event_id}")
+
+                season_id = event.competition_season_id
+                result = DeleteResult()
+                recordings = list(session.scalars(select(Recording).where(Recording.event_id == event_id)))
+                self._delete_recordings(session, recordings, delete_media=delete_media, result=result)
+                self._delete_metadata_refresh_jobs(
+                    session,
+                    target_type=MetadataRefreshJobTarget.EVENT,
+                    target_ids=[event_id],
+                )
+                session.delete(event)
+                result.events_deleted += 1
+                self._reconcile_remaining_seasons(session, {season_id})
+                session.commit()
+                return result
+
+    def delete_season(self, season_id: str, *, delete_media: bool = False) -> DeleteResult:
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                season = session.get(CompetitionSeason, season_id)
+                if season is None:
+                    raise KeyError(f"Unknown season: {season_id}")
+                competition = session.get(Competition, season.competition_id)
+                if competition is None:
+                    raise KeyError(f"Unknown competition: {season.competition_id}")
+
+                result = DeleteResult()
+                recordings = list(session.scalars(select(Recording).where(Recording.competition_season_id == season_id)))
+                event_ids = list(session.scalars(select(Event.id).where(Event.competition_season_id == season_id)))
+                self._delete_recordings(session, recordings, delete_media=delete_media, result=result)
+                self._delete_metadata_refresh_jobs(
+                    session,
+                    target_type=MetadataRefreshJobTarget.EVENT,
+                    target_ids=event_ids,
+                )
+                self._delete_metadata_refresh_jobs(
+                    session,
+                    target_type=MetadataRefreshJobTarget.SEASON,
+                    target_ids=[season_id],
+                )
+                session.delete(season)
+                result.events_deleted += len(event_ids)
+                result.seasons_deleted += 1
+                self._remove_deleted_season_artifacts(competition.name, season.season_number, delete_media=delete_media)
+                remaining_seasons = set(
+                    session.scalars(
+                        select(CompetitionSeason.id).where(
+                            CompetitionSeason.competition_id == competition.id,
+                            CompetitionSeason.id != season_id,
+                        )
+                    )
+                )
+                self._reconcile_remaining_seasons(session, remaining_seasons)
+                if not remaining_seasons:
+                    self._remove_deleted_competition_artifacts(competition.name, delete_media=delete_media)
+                session.commit()
+                return result
+
+    def delete_competition(self, competition_id: str, *, delete_media: bool = False) -> DeleteResult:
+        with self._ingest_lock:
+            with self.session_factory() as session:
+                competition = session.get(Competition, competition_id)
+                if competition is None:
+                    raise KeyError(f"Unknown competition: {competition_id}")
+
+                result = DeleteResult()
+                seasons = list(
+                    session.scalars(
+                        select(CompetitionSeason)
+                        .where(CompetitionSeason.competition_id == competition_id)
+                        .order_by(CompetitionSeason.season_number.asc())
+                    )
+                )
+                season_ids = [season.id for season in seasons]
+                event_ids = list(
+                    session.scalars(
+                        select(Event.id)
+                        .join(CompetitionSeason, CompetitionSeason.id == Event.competition_season_id)
+                        .where(CompetitionSeason.competition_id == competition_id)
+                    )
+                )
+                recordings = list(
+                    session.scalars(
+                        select(Recording)
+                        .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
+                        .where(CompetitionSeason.competition_id == competition_id)
+                    )
+                )
+                self._delete_recordings(session, recordings, delete_media=delete_media, result=result)
+                self._delete_metadata_refresh_jobs(
+                    session,
+                    target_type=MetadataRefreshJobTarget.EVENT,
+                    target_ids=event_ids,
+                )
+                self._delete_metadata_refresh_jobs(
+                    session,
+                    target_type=MetadataRefreshJobTarget.SEASON,
+                    target_ids=season_ids,
+                )
+                self._delete_metadata_refresh_jobs(
+                    session,
+                    target_type=MetadataRefreshJobTarget.COMPETITION,
+                    target_ids=[competition_id],
+                )
+                session.delete(competition)
+                result.events_deleted += len(event_ids)
+                result.seasons_deleted += len(seasons)
+                result.competitions_deleted += 1
+                self._remove_deleted_competition_artifacts(competition.name, delete_media=delete_media)
+                session.commit()
+                return result
 
     def _run_tracked_metadata_refresh_job(
         self,
@@ -1448,8 +1572,19 @@ class OrganizerService:
         return refreshed
 
     def _retry_recording_match(self, session: Session, recording: Recording) -> Recording:
-        parsed = parse_filename(recording.source_path)
-        sidecar = read_sidecar(parsed.source_path)
+        media_path = self._recording_media_path(recording)
+        parsed = parse_filename(media_path)
+        if parsed.source_path != Path(recording.source_path):
+            parsed = ParsedFile(
+                source_path=Path(recording.source_path),
+                show=parsed.show,
+                event_date=parsed.event_date,
+                title=parsed.title,
+                kind=parsed.kind,
+                kind_label=parsed.kind_label,
+                season_hint=parsed.season_hint,
+            )
+        sidecar = read_sidecar(self._recording_sidecar_source(recording, parsed.source_path))
         refreshed = self._upsert_recording_from_path(session, parsed, sidecar)
         competition_season = session.get(CompetitionSeason, refreshed.competition_season_id)
         competition = session.get(Competition, competition_season.competition_id) if competition_season else None
@@ -1462,6 +1597,109 @@ class OrganizerService:
                     metadata_source_name=getattr(self.metadata_source, "name", None),
                 )
         return refreshed
+
+    def _delete_recordings(
+        self,
+        session: Session,
+        recordings: list[Recording],
+        *,
+        delete_media: bool,
+        result: DeleteResult,
+    ) -> None:
+        for recording in recordings:
+            if delete_media:
+                result.media_files_deleted += self._delete_recording_media(recording)
+
+            self._delete_metadata_refresh_jobs(
+                session,
+                target_type=MetadataRefreshJobTarget.RECORDING,
+                target_ids=[recording.id],
+            )
+            for child in chain(
+                list(session.scalars(select(Override).where(Override.recording_id == recording.id))),
+                list(session.scalars(select(ReviewTask).where(ReviewTask.recording_id == recording.id))),
+                list(session.scalars(select(PlexRefreshJob).where(PlexRefreshJob.recording_id == recording.id))),
+            ):
+                session.delete(child)
+            session.delete(recording)
+            result.recordings_deleted += 1
+
+    def _delete_metadata_refresh_jobs(
+        self,
+        session: Session,
+        *,
+        target_type: MetadataRefreshJobTarget,
+        target_ids: list[str],
+    ) -> None:
+        normalized_ids = [target_id for target_id in target_ids if target_id]
+        if not normalized_ids:
+            return
+        jobs = list(
+            session.scalars(
+                select(MetadataRefreshJob).where(
+                    MetadataRefreshJob.target_type == target_type.value,
+                    MetadataRefreshJob.target_id.in_(normalized_ids),
+                )
+            )
+        )
+        for job in jobs:
+            session.delete(job)
+
+    def _delete_recording_media(self, recording: Recording) -> int:
+        deleted = 0
+        unique_paths = []
+        for raw_path in (recording.managed_path, recording.source_path):
+            if raw_path and raw_path not in unique_paths:
+                unique_paths.append(raw_path)
+        for raw_path in unique_paths:
+            candidate = Path(raw_path)
+            if candidate.exists():
+                candidate.unlink()
+                deleted += 1
+            sidecar_path = candidate.with_suffix(".sportscanner.yml")
+            if sidecar_path.exists():
+                sidecar_path.unlink()
+        return deleted
+
+    def _reconcile_remaining_seasons(self, session: Session, season_ids: set[str]) -> None:
+        for season_id in sorted(season_ids):
+            season = session.get(CompetitionSeason, season_id)
+            if season is None:
+                continue
+            self._recompute_sequences_for_season(session, season_id)
+            self._refresh_published_recordings_for_season(session, season_id)
+
+    def _remove_deleted_season_artifacts(self, competition_name: str, season_number: int, *, delete_media: bool) -> None:
+        show_dir = self.settings.library_dir / competition_name
+        season_dir = show_dir / season_directory_name(season_number)
+        self._unlink_if_present(season_dir / ".plexmatch")
+        if delete_media:
+            self._remove_dir_if_empty(season_dir)
+        self._remove_dir_if_empty(show_dir)
+
+    def _remove_deleted_competition_artifacts(self, competition_name: str, *, delete_media: bool) -> None:
+        show_dir = self.settings.library_dir / competition_name
+        self._unlink_if_present(show_dir / ".plexmatch")
+        for season_dir in show_dir.glob("Season *"):
+            self._unlink_if_present(season_dir / ".plexmatch")
+            if delete_media:
+                self._remove_dir_if_empty(season_dir)
+        self._remove_dir_if_empty(show_dir)
+
+    def _unlink_if_present(self, path: Path) -> None:
+        try:
+            if path.exists():
+                path.unlink()
+        except FileNotFoundError:
+            return
+
+    def _remove_dir_if_empty(self, path: Path) -> None:
+        try:
+            next(path.iterdir())
+        except FileNotFoundError:
+            return
+        except StopIteration:
+            path.rmdir()
 
     def _apply_competition_config(self, competition: Competition, source_path: Path) -> None:
         config = read_competition_config(source_path)

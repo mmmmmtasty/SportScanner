@@ -19,6 +19,8 @@ from sportscanner.db.models import (
     MetadataRefreshJobSource,
     MetadataRefreshJobStatus,
     MetadataRefreshJobTarget,
+    Notification,
+    NotificationStatus,
     PlexRefreshJob,
     PlexRefreshJobSource,
     PlexRefreshJobStatus,
@@ -28,7 +30,7 @@ from sportscanner.db.models import (
 from sportscanner.db.queries import backfill_legacy_refresh_job_sources
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.organizer.service import OrganizerService, UNRESOLVED_COMPETITION_ID
-from sportscanner.plex import PlexRegistrationResult
+from sportscanner.plex import PlexEpisode, PlexRegistrationResult
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
 
 
@@ -685,7 +687,7 @@ def test_manual_competition_refresh_route_records_metadata_job(provider_app) -> 
         assert job.status == MetadataRefreshJobStatus.SUCCESS.value
 
 
-def test_rescan_records_automatic_metadata_refresh_jobs(provider_app) -> None:
+def test_rescan_no_longer_records_automatic_metadata_refresh_jobs_for_missing_source_paths(provider_app) -> None:
     client = TestClient(provider_app)
 
     response = client.post("/admin/rescan", follow_redirects=False)
@@ -699,9 +701,7 @@ def test_rescan_records_automatic_metadata_refresh_jobs(provider_app) -> None:
                 .order_by(MetadataRefreshJob.id.asc())
             )
         )
-        assert jobs
-        assert all(job.target_type == MetadataRefreshJobTarget.RECORDING.value for job in jobs)
-        assert all(job.status == MetadataRefreshJobStatus.SUCCESS.value for job in jobs)
+        assert jobs == []
 
 
 def test_metadata_refresh_jobs_page_lists_and_filters_job_sources(provider_app) -> None:
@@ -852,6 +852,120 @@ def test_segment_detail_persists_and_shows_cached_item_metadata(provider_app) ->
         assert segment.metadata_record["event"]["summary"] == "Upstream summary for the cached record"
         assert segment.metadata_record["event"]["tsdbId"] == 1001
         assert any(image["url"] == "https://example.com/event-thumb.jpg" for image in segment.metadata_images or [])
+
+
+def test_segment_detail_explains_managed_path_is_canonical_after_publish(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/recordings/seg_primary")
+
+    assert response.status_code == 200
+    assert "managed library path is the canonical copy" in response.text
+
+
+def test_recording_delete_requires_remove_from_plex_when_plex_still_has_the_item(provider_app) -> None:
+    class FakePlex:
+        def with_credentials(self, base_url, token):
+            return self
+
+        def scan_show_section_episodes(self):
+            return [
+                PlexEpisode(
+                    section_id=17,
+                    rating_key="555",
+                    guid="tv.plex.agents.custom.sportscanner.metadata://episode/episode_seg_primary",
+                    file_path="/library/Formula 1/Season 2025/Formula 1 - 2025-06-29 - Austrian Grand Prix Race.mkv",
+                    title="Austrian Grand Prix Race",
+                )
+            ]
+
+    provider_app.state.services.plex = FakePlex()
+    client = TestClient(provider_app)
+
+    response = client.post("/admin/recordings/seg_primary/delete", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert "Delete+failed" in response.headers["location"]
+    with provider_app.state.services.session_factory() as session:
+        assert session.get(Recording, "seg_primary") is not None
+
+
+def test_recording_delete_removes_db_row_when_plex_has_already_lost_the_item(provider_app, tmp_path: Path) -> None:
+    class FakePlex:
+        def with_credentials(self, base_url, token):
+            return self
+
+        def scan_show_section_episodes(self):
+            return []
+
+    provider_app.state.services.plex = FakePlex()
+    managed_path = tmp_path / "Formula 1 - 2025-06-29 - Austrian Grand Prix Race.mkv"
+    managed_path.write_text("video", encoding="utf-8")
+    with provider_app.state.services.session_factory() as session:
+        segment = session.get(Recording, "seg_primary")
+        assert segment is not None
+        segment.managed_path = str(managed_path)
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.post(
+        "/admin/recordings/seg_primary/delete",
+        data={"delete_media": "1"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        assert session.get(Recording, "seg_primary") is None
+    assert not managed_path.exists()
+
+
+def test_plex_drift_page_lists_missing_files_and_creates_notifications(provider_app) -> None:
+    class FakePlex:
+        def with_credentials(self, base_url, token):
+            return self
+
+        def scan_show_section_episodes(self):
+            return []
+
+    provider_app.state.services.plex = FakePlex()
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/plex-drift")
+
+    assert response.status_code == 200
+    assert "Missing From Plex" in response.text
+    assert "Austrian Grand Prix Race" in response.text
+    with provider_app.state.services.session_factory() as session:
+        notification = session.scalar(
+            select(Notification).where(Notification.dedupe_key == "plex-drift:seg_primary")
+        )
+        assert notification is not None
+        assert notification.status == NotificationStatus.OPEN.value
+
+
+def test_season_delete_cascades_events_and_recordings_when_plex_items_are_missing(provider_app) -> None:
+    class FakePlex:
+        def with_credentials(self, base_url, token):
+            return self
+
+        def scan_show_section_episodes(self):
+            return []
+
+    provider_app.state.services.plex = FakePlex()
+    client = TestClient(provider_app)
+
+    response = client.post(
+        "/admin/library/tsdb_4370/seasons/season_tsdb_4370_2025/delete",
+        data={"delete_media": "1"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        assert session.get(CompetitionSeason, "season_tsdb_4370_2025") is None
+        assert session.scalar(select(Event).where(Event.competition_season_id == "season_tsdb_4370_2025")) is None
+        assert session.get(Recording, "seg_primary") is None
 
 
 def test_competitions_page_shows_row_refresh_actions(provider_app) -> None:

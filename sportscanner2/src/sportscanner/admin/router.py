@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from collections import defaultdict
+from datetime import UTC, date, datetime
 import json
 import logging
 from pathlib import Path
@@ -25,8 +26,11 @@ from sportscanner.db.models import (
     MetadataRefreshJobSource,
     MetadataRefreshJobStatus,
     MetadataRefreshJobTarget,
+    Notification,
+    NotificationSeverity,
     NotificationStatus,
     PlexRefreshJob,
+    PlexRefreshJobStatus,
     PlexRefreshJobSource,
     Recording,
     RecordingStatus,
@@ -42,11 +46,18 @@ from sportscanner.db.queries import (
     list_competition_aliases,
 )
 from sportscanner.metadata_snapshot import sync_recording_metadata_snapshot
-from sportscanner.notifications import dismiss_all_notifications, dismiss_notification, list_notifications
+from sportscanner.notifications import (
+    NotificationEvent,
+    dismiss_all_notifications,
+    dismiss_notification,
+    list_notifications,
+    record_notification,
+)
 from sportscanner.organizer.matcher import season_for_date, similarity
 from sportscanner.organizer.parser import parse_filename
 from sportscanner.organizer.service import UNRESOLVED_COMPETITION_ID
-from sportscanner.plex import PlexRegistrationResult
+from sportscanner.plex import PlexEpisode, PlexRegistrationResult
+from sportscanner.provider.rating_keys import make_episode_guid
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 _LOG_LEVEL_OPTIONS = ("DEBUG", "INFO", "WARNING", "ERROR")
@@ -273,6 +284,10 @@ def _action_response(request: Request, *, fallback: str, message: str) -> Respon
     )
 
 
+def _fixed_redirect(fallback: str, message: str) -> RedirectResponse:
+    return RedirectResponse(url=_with_flash(fallback, message), status_code=303)
+
+
 def _crumb(label: str, href: str | None = None) -> dict[str, str | None]:
     return {"label": label, "href": href}
 
@@ -291,6 +306,153 @@ def _refresh_failure_redirect(request: Request, *, fallback: str, entity_label: 
         ),
         status_code=303,
     )
+
+
+def _effective_plex_client(request: Request):
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        pms_url = _setting(session, "pms_url", services.settings.pms_url)
+        pms_token = _setting(session, "pms_token", services.settings.pms_token)
+    return services.plex.with_credentials(pms_url, pms_token)
+
+
+def _effective_provider_identifier(request: Request) -> str:
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        return (
+            _setting(session, "plex_provider_identifier", services.settings.plex_provider_identifier)
+            or services.settings.plex_provider_identifier
+        )
+
+
+def _scan_plex_episodes(request: Request) -> list[PlexEpisode]:
+    plex = _effective_plex_client(request)
+    return plex.scan_show_section_episodes()
+
+
+def _recording_plex_matches(
+    episodes: list[PlexEpisode],
+    provider_identifier: str,
+    recordings: list[Recording],
+) -> dict[str, list[PlexEpisode]]:
+    by_guid: dict[str, list[PlexEpisode]] = defaultdict(list)
+    by_file: dict[str, list[PlexEpisode]] = defaultdict(list)
+    for episode in episodes:
+        if episode.guid:
+            by_guid[episode.guid].append(episode)
+        if episode.file_path:
+            by_file[episode.file_path].append(episode)
+
+    matches: dict[str, list[PlexEpisode]] = {}
+    for recording in recordings:
+        seen: dict[str, PlexEpisode] = {}
+        expected_guid = make_episode_guid(recording.id, provider_identifier)
+        for episode in by_guid.get(expected_guid, []):
+            seen[episode.rating_key] = episode
+        for raw_path in (recording.managed_path, recording.source_path):
+            if not raw_path:
+                continue
+            for episode in by_file.get(raw_path, []):
+                seen[episode.rating_key] = episode
+        matches[recording.id] = list(seen.values())
+    return matches
+
+
+def _sync_plex_drift_notifications(
+    session,
+    *,
+    rows: list[dict[str, object]],
+) -> None:
+    open_drift_notifications = {
+        notification.dedupe_key: notification
+        for notification in session.scalars(
+            select(Notification).where(Notification.dedupe_key.like("plex-drift:%"))
+        )
+    }
+    active_keys: set[str] = set()
+    for row in rows:
+        recording = row["recording"]
+        competition = row["competition"]
+        season = row["season"]
+        dedupe_key = f"plex-drift:{recording.id}"
+        active_keys.add(dedupe_key)
+        record_notification(
+            session,
+            NotificationEvent(
+                dedupe_key=dedupe_key,
+                category="plex",
+                source="plex_drift",
+                severity=NotificationSeverity.WARNING.value,
+                title="File missing from Plex",
+                message=f"{recording.title} is published in SportScanner but was not found in Plex.",
+                details={
+                    "recording_id": recording.id,
+                    "competition_id": competition.id if competition is not None else None,
+                    "season_id": season.id if season is not None else None,
+                    "managed_path": recording.managed_path,
+                },
+            ),
+        )
+
+    now = datetime.now(UTC)
+    for dedupe_key, notification in open_drift_notifications.items():
+        if dedupe_key in active_keys:
+            continue
+        notification.status = NotificationStatus.DISMISSED.value
+        notification.dismissed_at = now
+
+
+def _delete_result_message(prefix: str, result) -> str:
+    parts = [prefix]
+    if result.recordings_deleted:
+        parts.append(f"{result.recordings_deleted} file(s)")
+    if result.events_deleted:
+        parts.append(f"{result.events_deleted} event(s)")
+    if result.seasons_deleted:
+        parts.append(f"{result.seasons_deleted} season(s)")
+    if result.competitions_deleted:
+        parts.append(f"{result.competitions_deleted} competition(s)")
+    if result.media_files_deleted:
+        parts.append(f"{result.media_files_deleted} media file(s)")
+    return "Removed " + ", ".join(parts[1:]) + "." if len(parts) > 1 else prefix
+
+
+def _published_recordings(recordings: list[Recording]) -> list[Recording]:
+    return [
+        recording
+        for recording in recordings
+        if recording.status == RecordingStatus.PUBLISHED.value and (recording.managed_path or recording.source_path)
+    ]
+
+
+def _delete_plex_metadata_for_recordings(
+    request: Request,
+    *,
+    recordings: list[Recording],
+    remove_from_plex: bool,
+) -> dict[str, list[PlexEpisode]]:
+    published_recordings = _published_recordings(recordings)
+    if not published_recordings:
+        return {}
+
+    try:
+        provider_identifier = _effective_provider_identifier(request)
+        episodes = _scan_plex_episodes(request)
+    except Exception as exc:
+        raise ValueError(f"Could not verify Plex state before deleting: {_format_exception_message(exc)}") from exc
+
+    matches = _recording_plex_matches(episodes, provider_identifier, published_recordings)
+    existing_matches = {recording_id: items for recording_id, items in matches.items() if items}
+    if existing_matches and not remove_from_plex:
+        raise ValueError("Plex still has this media. Select Remove From Plex to continue.")
+
+    if remove_from_plex:
+        plex = _effective_plex_client(request)
+        rating_keys = sorted({item.rating_key for items in existing_matches.values() for item in items})
+        for rating_key in rating_keys:
+            plex.delete_metadata(rating_key)
+
+    return existing_matches
 
 
 def _detail_artwork(recording: Recording, event: Event | None, season: CompetitionSeason | None, competition: Competition | None) -> list[dict[str, str]]:
@@ -1318,6 +1480,151 @@ def update_recording(
     )
 
 
+@router.post("/recordings/{recording_id}/delete", name="delete_recording")
+def delete_recording_route(
+    request: Request,
+    recording_id: str,
+    remove_from_plex: str | None = Form(default=None),
+    delete_media: str | None = Form(default=None),
+) -> RedirectResponse:
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        recording = session.get(Recording, recording_id)
+        if recording is None:
+            raise HTTPException(status_code=404, detail=f"Unknown recording: {recording_id}")
+        season = session.get(CompetitionSeason, recording.competition_season_id)
+        competition = session.get(Competition, season.competition_id) if season is not None else None
+        fallback = (
+            str(request.url_for("library_season_detail", competition_id=competition.id, season_id=season.id))
+            if competition is not None and season is not None
+            else str(request.url_for("library_page"))
+        )
+
+    try:
+        _delete_plex_metadata_for_recordings(
+            request,
+            recordings=[recording],
+            remove_from_plex=bool(remove_from_plex),
+        )
+        result = services.organizer.delete_recording(recording_id, delete_media=bool(delete_media))
+    except ValueError as exc:
+        return _fixed_redirect(fallback, f"Delete failed: {_format_exception_message(exc)}")
+    except Exception as exc:
+        logger.exception("recording delete failed recording_id=%s", recording_id, exc_info=exc)
+        return _fixed_redirect(fallback, f"Delete failed: {_format_exception_message(exc)}")
+
+    return _fixed_redirect(fallback, _delete_result_message("File removed.", result))
+
+
+@router.post("/events/{event_id}/delete", name="delete_event")
+def delete_event_route(
+    request: Request,
+    event_id: str,
+    remove_from_plex: str | None = Form(default=None),
+    delete_media: str | None = Form(default=None),
+) -> RedirectResponse:
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        event = session.get(Event, event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail=f"Unknown event: {event_id}")
+        season = session.get(CompetitionSeason, event.competition_season_id)
+        competition = session.get(Competition, season.competition_id) if season is not None else None
+        recordings = list(session.scalars(select(Recording).where(Recording.event_id == event_id)))
+        fallback = (
+            str(request.url_for("library_season_detail", competition_id=competition.id, season_id=season.id))
+            if competition is not None and season is not None
+            else str(request.url_for("library_page"))
+        )
+
+    try:
+        _delete_plex_metadata_for_recordings(
+            request,
+            recordings=recordings,
+            remove_from_plex=bool(remove_from_plex),
+        )
+        result = services.organizer.delete_event(event_id, delete_media=bool(delete_media))
+    except ValueError as exc:
+        return _fixed_redirect(fallback, f"Delete failed: {_format_exception_message(exc)}")
+    except Exception as exc:
+        logger.exception("event delete failed event_id=%s", event_id, exc_info=exc)
+        return _fixed_redirect(fallback, f"Delete failed: {_format_exception_message(exc)}")
+
+    return _fixed_redirect(fallback, _delete_result_message("Event removed.", result))
+
+
+@router.post("/library/{competition_id}/seasons/{season_id}/delete", name="delete_season")
+def delete_season_route(
+    request: Request,
+    competition_id: str,
+    season_id: str,
+    remove_from_plex: str | None = Form(default=None),
+    delete_media: str | None = Form(default=None),
+) -> RedirectResponse:
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        competition = session.get(Competition, competition_id)
+        season = session.get(CompetitionSeason, season_id)
+        if competition is None:
+            raise HTTPException(status_code=404, detail=f"Unknown competition: {competition_id}")
+        if season is None:
+            raise HTTPException(status_code=404, detail=f"Unknown season: {season_id}")
+        recordings = list(session.scalars(select(Recording).where(Recording.competition_season_id == season_id)))
+        fallback = str(request.url_for("library_competition_detail", competition_id=competition_id))
+
+    try:
+        _delete_plex_metadata_for_recordings(
+            request,
+            recordings=recordings,
+            remove_from_plex=bool(remove_from_plex),
+        )
+        result = services.organizer.delete_season(season_id, delete_media=bool(delete_media))
+    except ValueError as exc:
+        return _fixed_redirect(fallback, f"Delete failed: {_format_exception_message(exc)}")
+    except Exception as exc:
+        logger.exception("season delete failed season_id=%s", season_id, exc_info=exc)
+        return _fixed_redirect(fallback, f"Delete failed: {_format_exception_message(exc)}")
+
+    return _fixed_redirect(fallback, _delete_result_message("Season removed.", result))
+
+
+@router.post("/library/{competition_id}/delete", name="delete_competition")
+def delete_competition_route(
+    request: Request,
+    competition_id: str,
+    remove_from_plex: str | None = Form(default=None),
+    delete_media: str | None = Form(default=None),
+) -> RedirectResponse:
+    services = request.app.state.services
+    with _session_factory(request)() as session:
+        competition = session.get(Competition, competition_id)
+        if competition is None:
+            raise HTTPException(status_code=404, detail=f"Unknown competition: {competition_id}")
+        recordings = list(
+            session.scalars(
+                select(Recording)
+                .join(CompetitionSeason, CompetitionSeason.id == Recording.competition_season_id)
+                .where(CompetitionSeason.competition_id == competition_id)
+            )
+        )
+        fallback = str(request.url_for("library_page"))
+
+    try:
+        _delete_plex_metadata_for_recordings(
+            request,
+            recordings=recordings,
+            remove_from_plex=bool(remove_from_plex),
+        )
+        result = services.organizer.delete_competition(competition_id, delete_media=bool(delete_media))
+    except ValueError as exc:
+        return _fixed_redirect(fallback, f"Delete failed: {_format_exception_message(exc)}")
+    except Exception as exc:
+        logger.exception("competition delete failed competition_id=%s", competition_id, exc_info=exc)
+        return _fixed_redirect(fallback, f"Delete failed: {_format_exception_message(exc)}")
+
+    return _fixed_redirect(fallback, _delete_result_message("Competition removed.", result))
+
+
 @router.get("/settings", response_class=HTMLResponse, name="settings_page")
 def settings_page(request: Request) -> HTMLResponse:
     values = _settings_values(request)
@@ -1682,6 +1989,122 @@ def plex_page(request: Request) -> HTMLResponse:
             "breadcrumbs": [_crumb("Plex")],
         },
     )
+
+
+@router.get("/plex-drift", response_class=HTMLResponse, name="plex_drift_page")
+def plex_drift_page(
+    request: Request,
+    competition_id: str | None = None,
+    managed_state: str = "",
+) -> HTMLResponse:
+    if managed_state not in {"", "present", "missing"}:
+        managed_state = ""
+
+    error = None
+    provider_identifier = _effective_provider_identifier(request)
+    rows: list[dict[str, object]] = []
+    with _session_factory(request)() as session:
+        competitions = list(session.scalars(select(Competition).order_by(Competition.name.asc())))
+        published_recordings = list(
+            session.scalars(
+                select(Recording)
+                .options(joinedload(Recording.competition_season), joinedload(Recording.event))
+                .where(Recording.status == RecordingStatus.PUBLISHED.value)
+                .order_by(Recording.updated_at.desc(), Recording.id.asc())
+            )
+        )
+        try:
+            matches = _recording_plex_matches(_scan_plex_episodes(request), provider_identifier, published_recordings)
+        except Exception as exc:
+            matches = {}
+            error = f"Could not scan Plex libraries: {_format_exception_message(exc)}"
+
+        rows: list[dict[str, object]] = []
+        if error is None:
+            for recording in published_recordings:
+                if matches.get(recording.id):
+                    continue
+                season = recording.competition_season
+                competition = session.get(Competition, season.competition_id) if season is not None else None
+                if competition_id and (competition is None or competition.id != competition_id):
+                    continue
+                managed_exists = bool(recording.managed_path and Path(recording.managed_path).exists())
+                if managed_state == "present" and not managed_exists:
+                    continue
+                if managed_state == "missing" and managed_exists:
+                    continue
+                rows.append(
+                    {
+                        "recording": recording,
+                        "season": season,
+                        "competition": competition,
+                        "event": recording.event,
+                        "managed_exists": managed_exists,
+                        "source_exists": Path(recording.source_path).exists(),
+                    }
+                )
+            _sync_plex_drift_notifications(session, rows=rows)
+            session.commit()
+
+    grouped_rows: list[dict[str, object]] = []
+    grouped_source: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for row in rows if error is None else []:
+        competition = row["competition"]
+        key = competition.name if competition is not None else "Unknown competition"
+        grouped_source[key].append(row)
+    for competition_name in sorted(grouped_source):
+        grouped_rows.append({"competition_name": competition_name, "rows": grouped_source[competition_name]})
+
+    return _render(
+        request,
+        "plex_drift.html",
+        {
+            "groups": grouped_rows,
+            "competitions": competitions,
+            "filters": {
+                "competition_id": competition_id or "",
+                "managed_state": managed_state,
+            },
+            "managed_state_options": {
+                "": "All files",
+                "present": "Managed file still present",
+                "missing": "Managed file missing on disk",
+            },
+            "stats": {
+                "missing_count": sum(len(group["rows"]) for group in grouped_rows),
+                "competition_count": len(grouped_rows),
+            },
+            "error": error,
+            "breadcrumbs": [
+                _crumb("Plex", str(request.url_for("plex_page"))),
+                _crumb("Missing From Plex"),
+            ],
+        },
+    )
+
+
+@router.post("/plex-drift/{recording_id}/queue-refresh", name="queue_plex_drift_refresh")
+def queue_plex_drift_refresh(request: Request, recording_id: str) -> Response:
+    with _session_factory(request)() as session:
+        recording = session.get(Recording, recording_id)
+        if recording is None:
+            raise HTTPException(status_code=404, detail=f"Unknown recording: {recording_id}")
+        plex = _effective_plex_client(request)
+        section_ids = plex.find_show_section_ids()
+        for section_id in section_ids:
+            create_refresh_job(
+                session,
+                section_id=section_id,
+                recording_id=recording_id,
+                source=PlexRefreshJobSource.MANUAL,
+            )
+        session.commit()
+    message = (
+        f"Queued Plex refresh for {len(section_ids)} show library section(s)."
+        if section_ids
+        else "No Plex show libraries were available to refresh."
+    )
+    return _action_response(request, fallback=str(request.url_for("plex_drift_page")), message=message)
 
 
 @router.post("/plex-libraries/{section_id}/refresh")
