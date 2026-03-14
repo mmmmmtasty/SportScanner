@@ -519,6 +519,8 @@ def test_segment_detail_persists_and_shows_cached_item_metadata(provider_app) ->
         assert segment is not None
         assert segment.metadata_source == "fake"
         assert segment.metadata_record is not None
+        assert segment.metadata_record["competition"]["sport"] == "Motorsport"
+        assert segment.metadata_record["event"]["summary"] == "Upstream summary for the cached record"
         assert segment.metadata_record["event"]["tsdbId"] == 1001
         assert any(image["url"] == "https://example.com/event-thumb.jpg" for image in segment.metadata_images or [])
 
@@ -558,6 +560,8 @@ def test_season_page_removes_refresh_competition_button_and_shows_breadcrumbs(pr
     assert "Formula 1" in response.text
     assert "2025" in response.text
     assert "Refresh Season" in response.text
+    assert "Confidence" in response.text
+    assert "season-event-row-high" in response.text
     assert "Refreshing Competition" not in response.text
 
 
@@ -565,12 +569,14 @@ def test_competition_refresh_route_updates_competition_and_segment_metadata(prov
     metadata = provider_app.state.services.metadata_source
     metadata._f1.poster_url = "https://example.com/f1-updated-poster.jpg"
     metadata._f1.fanart_url = "https://example.com/f1-updated-fanart.jpg"
+    metadata._f1.source_payload = {"idLeague": "4370", "strLeague": "Formula 1", "strPoster": metadata._f1.poster_url}
     metadata._f1_event = UpstreamEvent(
         id="tsdb_1001",
         tsdb_id=1001,
         name="Austrian Grand Prix Updated",
         competition_name="Formula 1",
         date=date(2025, 6, 30),
+        source_payload={"idEvent": "1001", "strEvent": "Austrian Grand Prix Updated"},
     )
     client = TestClient(provider_app)
 
@@ -585,10 +591,13 @@ def test_competition_refresh_route_updates_competition_and_segment_metadata(prov
         assert event is not None
         assert segment is not None
         assert competition.poster_url == "https://example.com/f1-updated-poster.jpg"
+        assert competition.upstream_metadata == {"idLeague": "4370", "strLeague": "Formula 1", "strPoster": metadata._f1.poster_url}
         assert event.name == "Austrian Grand Prix Updated"
         assert event.date == date(2025, 6, 30)
+        assert event.upstream_metadata == {"idEvent": "1001", "strEvent": "Austrian Grand Prix Updated"}
         assert segment.metadata_record is not None
         assert segment.metadata_record["event"]["date"] == "2025-06-30"
+        assert segment.metadata_record["event"]["upstreamMetadata"] == {"idEvent": "1001", "strEvent": "Austrian Grand Prix Updated"}
         assert any(
             image["url"] == "https://example.com/f1-updated-poster.jpg"
             for image in segment.metadata_images or []
@@ -655,7 +664,7 @@ def test_segment_refresh_route_retries_item_metadata(provider_app) -> None:
         assert segment.metadata_record["event"]["date"] == "2025-06-28"
 
 
-def test_refresh_route_redirects_with_flash_when_refresh_raises(provider_app, monkeypatch) -> None:
+def test_refresh_route_redirects_with_queue_flash_when_refresh_raises(provider_app, monkeypatch) -> None:
     def fail_refresh(recording_id: str) -> None:
         raise RuntimeError("boom")
 
@@ -665,7 +674,20 @@ def test_refresh_route_redirects_with_flash_when_refresh_raises(provider_app, mo
     response = client.post("/admin/recordings/seg_primary/refresh-metadata", follow_redirects=False)
 
     assert response.status_code == 303
-    assert "flash=File+metadata+refresh+failed%3A+boom" in response.headers["location"]
+    assert "flash=File+metadata+refresh+queued." in response.headers["location"]
+
+
+def test_refresh_route_supports_htmx_queue_feedback(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.post(
+        "/admin/recordings/seg_primary/refresh-metadata",
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 204
+    assert "showToast" in response.headers["HX-Trigger"]
 
 
 def test_season_refresh_route_updates_only_the_requested_season(provider_app) -> None:

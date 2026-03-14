@@ -184,6 +184,11 @@ def test_init_db_migrates_legacy_segment_schema(tmp_path) -> None:
             assert nullable_column in recording_columns
             assert recording_columns[nullable_column]["nullable"] is True
 
+        competition_columns = {column["name"] for column in inspector.get_columns("competition")}
+        event_columns = {column["name"] for column in inspector.get_columns("event")}
+        assert "upstream_metadata" in competition_columns
+        assert "upstream_metadata" in event_columns
+
         override_columns = {column["name"] for column in inspector.get_columns("override")}
         review_task_columns = {column["name"] for column in inspector.get_columns("review_task")}
         assert "recording_id" in override_columns

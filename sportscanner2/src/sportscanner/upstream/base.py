@@ -18,6 +18,7 @@ class UpstreamCompetition:
     poster_url: str | None = None
     banner_url: str | None = None
     fanart_url: str | None = None
+    source_payload: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -40,6 +41,7 @@ class UpstreamEvent:
     tsdb_id: int | None = None
     competition_tsdb_id: int | None = None
     weekend_group: str | None = None
+    source_payload: dict[str, object] = field(default_factory=dict)
 
 
 class MetadataSource(Protocol):
@@ -65,4 +67,3 @@ class MetadataSource(Protocol):
 
     def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
         ...
-

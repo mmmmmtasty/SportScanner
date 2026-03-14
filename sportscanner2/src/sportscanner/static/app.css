@@ -544,6 +544,29 @@ main.container > p a:hover {
   overflow-x: auto;
 }
 
+.inbox-table {
+  table-layout: fixed;
+}
+
+.inbox-table th,
+.inbox-table td {
+  white-space: normal;
+  vertical-align: top;
+}
+
+.inbox-cell-filename,
+.inbox-cell-match,
+.inbox-cell-why,
+.inbox-cell-filename strong,
+.inbox-cell-match strong {
+  overflow-wrap: anywhere;
+}
+
+.inbox-table .status-chip,
+.inbox-table .pill {
+  white-space: nowrap;
+}
+
 .header-filter-form {
   display: none;
 }
@@ -614,6 +637,18 @@ table td {
 
 table tbody tr {
   background: transparent;
+}
+
+.season-event-row-high td {
+  background: rgba(23, 105, 75, 0.08);
+}
+
+.season-event-row-medium td {
+  background: rgba(169, 105, 0, 0.09);
+}
+
+.season-event-row-low td {
+  background: rgba(160, 34, 40, 0.06);
 }
 
 .muted-cell {

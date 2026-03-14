@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 import logging
 from pathlib import Path
+import threading
+from typing import Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import joinedload
@@ -61,6 +64,44 @@ def _setting(session, key: str, fallback: str | None = None) -> str | None:
         return fallback
     value = setting.value.strip()
     return value if value else fallback
+
+
+def _background_job_state(request: Request) -> tuple[set[str], threading.Lock]:
+    jobs = getattr(request.app.state, "background_jobs", None)
+    lock = getattr(request.app.state, "background_jobs_lock", None)
+    if jobs is None:
+        jobs = set()
+        request.app.state.background_jobs = jobs
+    if lock is None:
+        lock = threading.Lock()
+        request.app.state.background_jobs_lock = lock
+    return jobs, lock
+
+
+def _queue_background_job(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    *,
+    job_key: str,
+    task: Callable[[], None],
+) -> bool:
+    jobs, lock = _background_job_state(request)
+    with lock:
+        if job_key in jobs:
+            return False
+        jobs.add(job_key)
+
+    def run() -> None:
+        try:
+            task()
+        except Exception:
+            logger.exception("background_job_failed job_key=%s", job_key)
+        finally:
+            with lock:
+                jobs.discard(job_key)
+
+    background_tasks.add_task(run)
+    return True
 
 
 def _normalize_directory_setting(label: str, value: str) -> str:
@@ -128,6 +169,18 @@ def _with_flash(url: str, message: str) -> str:
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     query["flash"] = message
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _action_response(request: Request, *, fallback: str, message: str) -> Response:
+    if request.headers.get("HX-Request") == "true":
+        return Response(
+            status_code=204,
+            headers={"HX-Trigger": json.dumps({"showToast": {"value": message}})},
+        )
+    return RedirectResponse(
+        url=_with_flash(_redirect_target(request, fallback), message),
+        status_code=303,
+    )
 
 
 def _crumb(label: str, href: str | None = None) -> dict[str, str | None]:
@@ -223,6 +276,31 @@ def _confidence_class(score: float) -> str:
     if score >= 0.50:
         return "medium"
     return "low"
+
+
+def _display_confidence(recording: Recording) -> float:
+    if recording.match_confidence is not None:
+        return recording.match_confidence
+    if recording.event_id and recording.status == RecordingStatus.PUBLISHED.value:
+        return 1.0
+    return 0.0
+
+
+def _confidence_summary(recordings: list[Recording]) -> dict[str, object]:
+    if not recordings:
+        return {
+            "score": None,
+            "score_pct": None,
+            "class_name": "low",
+            "label": "No file matched",
+        }
+    score = max(_display_confidence(recording) for recording in recordings)
+    return {
+        "score": score,
+        "score_pct": round(score * 100),
+        "class_name": _confidence_class(score),
+        "label": f"{round(score * 100)}%",
+    }
 
 
 def _review_candidate_cards(session, candidates: list[dict] | None) -> list[dict[str, object]]:
@@ -410,8 +488,8 @@ def inbox(
                         recording.status,
                         has_refresh_pending=recording.plex_refresh_status == "pending",
                     ),
-                    "confidence_score": round((recording.match_confidence or 0) * 100),
-                    "confidence_class": _confidence_class(recording.match_confidence or 0),
+                    "confidence_score": round(_display_confidence(recording) * 100),
+                    "confidence_class": _confidence_class(_display_confidence(recording)),
                     "explanation": explanation or "No explanation stored yet.",
                     "action_label": action_label,
                     "action_href": action_href,
@@ -834,72 +912,67 @@ def library_page(request: Request) -> HTMLResponse:
 
 
 @router.post("/competitions/{competition_id}/refresh-metadata")
-def competition_refresh_metadata(request: Request, competition_id: str) -> RedirectResponse:
+def competition_refresh_metadata(
+    request: Request,
+    competition_id: str,
+    background_tasks: BackgroundTasks,
+) -> Response:
     services = request.app.state.services
     fallback = str(request.url_for("library_competition_detail", competition_id=competition_id))
-    try:
-        services.organizer.refresh_competition_metadata(competition_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        return _refresh_failure_redirect(
-            request,
-            fallback=fallback,
-            entity_label="Competition metadata",
-            exc=exc,
-        )
-    return RedirectResponse(
-        url=_with_flash(
-            _redirect_target(request, fallback),
-            "Competition metadata refreshed.",
-        ),
-        status_code=303,
+    with _session_factory(request)() as session:
+        if session.get(Competition, competition_id) is None:
+            raise HTTPException(status_code=404, detail=f"Unknown competition: {competition_id}")
+    queued = _queue_background_job(
+        request,
+        background_tasks,
+        job_key=f"competition-refresh:{competition_id}",
+        task=lambda: services.organizer.refresh_competition_metadata(competition_id),
     )
+    message = "Competition metadata refresh queued." if queued else "Competition metadata refresh already queued."
+    return _action_response(request, fallback=fallback, message=message)
 
 
 @router.post("/library/{competition_id}/seasons/{season_id}/refresh-metadata", name="season_refresh_metadata")
-def season_refresh_metadata(request: Request, competition_id: str, season_id: str) -> RedirectResponse:
+def season_refresh_metadata(
+    request: Request,
+    competition_id: str,
+    season_id: str,
+    background_tasks: BackgroundTasks,
+) -> Response:
     services = request.app.state.services
     fallback = str(request.url_for("library_season_detail", competition_id=competition_id, season_id=season_id))
-    try:
-        services.organizer.refresh_season_metadata(season_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        return _refresh_failure_redirect(
-            request,
-            fallback=fallback,
-            entity_label="Season metadata",
-            exc=exc,
-        )
-    return RedirectResponse(
-        url=_with_flash(
-            _redirect_target(request, fallback),
-            "Season metadata refreshed.",
-        ),
-        status_code=303,
+    with _session_factory(request)() as session:
+        if session.get(CompetitionSeason, season_id) is None:
+            raise HTTPException(status_code=404, detail=f"Unknown season: {season_id}")
+    queued = _queue_background_job(
+        request,
+        background_tasks,
+        job_key=f"season-refresh:{season_id}",
+        task=lambda: services.organizer.refresh_season_metadata(season_id),
     )
+    message = "Season metadata refresh queued." if queued else "Season metadata refresh already queued."
+    return _action_response(request, fallback=fallback, message=message)
 
 
 @router.post("/events/{event_id}/refresh-metadata", name="event_refresh_metadata")
-def event_refresh_metadata(request: Request, event_id: str) -> RedirectResponse:
+def event_refresh_metadata(
+    request: Request,
+    event_id: str,
+    background_tasks: BackgroundTasks,
+) -> Response:
     services = request.app.state.services
     fallback = str(request.url_for("inbox"))
-    try:
-        services.organizer.refresh_event_metadata(event_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        return _refresh_failure_redirect(
-            request,
-            fallback=fallback,
-            entity_label="Event metadata",
-            exc=exc,
-        )
-    return RedirectResponse(
-        url=_with_flash(_redirect_target(request, fallback), "Event metadata refreshed."),
-        status_code=303,
+    with _session_factory(request)() as session:
+        if session.get(Event, event_id) is None:
+            raise HTTPException(status_code=404, detail=f"Unknown event: {event_id}")
+    queued = _queue_background_job(
+        request,
+        background_tasks,
+        job_key=f"event-refresh:{event_id}",
+        task=lambda: services.organizer.refresh_event_metadata(event_id),
     )
+    message = "Event metadata refresh queued." if queued else "Event metadata refresh already queued."
+    return _action_response(request, fallback=fallback, message=message)
 
 
 @router.get("/competitions/{competition_id}", response_class=HTMLResponse, name="competition_detail")
@@ -1042,27 +1115,24 @@ def file_detail(request: Request, recording_id: str) -> HTMLResponse:
 
 
 @router.post("/recordings/{recording_id}/refresh-metadata")
-def refresh_recording_metadata(request: Request, recording_id: str) -> RedirectResponse:
+def refresh_recording_metadata(
+    request: Request,
+    recording_id: str,
+    background_tasks: BackgroundTasks,
+) -> Response:
     services = request.app.state.services
     fallback = str(request.url_for("file_detail", recording_id=recording_id))
-    try:
-        services.organizer.refresh_recording_metadata(recording_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        return _refresh_failure_redirect(
-            request,
-            fallback=fallback,
-            entity_label="File metadata",
-            exc=exc,
-        )
-    return RedirectResponse(
-        url=_with_flash(
-            _redirect_target(request, fallback),
-            "File metadata refreshed.",
-        ),
-        status_code=303,
+    with _session_factory(request)() as session:
+        if session.get(Recording, recording_id) is None:
+            raise HTTPException(status_code=404, detail=f"Unknown recording: {recording_id}")
+    queued = _queue_background_job(
+        request,
+        background_tasks,
+        job_key=f"recording-refresh:{recording_id}",
+        task=lambda: services.organizer.refresh_recording_metadata(recording_id),
     )
+    message = "File metadata refresh queued." if queued else "File metadata refresh already queued."
+    return _action_response(request, fallback=fallback, message=message)
 
 
 @router.post("/recordings/{recording_id}")
@@ -1363,9 +1433,16 @@ def create_plex_library(
 
 
 @router.post("/rescan")
-def rescan(request: Request) -> RedirectResponse:
-    request.app.state.services.organizer.rescan_incoming()
-    return RedirectResponse(url=f"{request.url_for('inbox')}", status_code=303)
+def rescan(request: Request, background_tasks: BackgroundTasks) -> Response:
+    services = request.app.state.services
+    queued = _queue_background_job(
+        request,
+        background_tasks,
+        job_key="rescan",
+        task=services.organizer.rescan_incoming,
+    )
+    message = "Incoming rescan queued." if queued else "Incoming rescan already queued."
+    return _action_response(request, fallback=str(request.url_for("inbox")), message=message)
 
 
 @router.get("/plex-libraries", response_class=HTMLResponse, name="plex_libraries_page")
@@ -1410,17 +1487,19 @@ def plex_page(request: Request) -> HTMLResponse:
 
 
 @router.post("/plex-libraries/{section_id}/refresh")
-def plex_refresh_section(request: Request, section_id: int) -> RedirectResponse:
-    services = request.app.state.services
+def plex_refresh_section(request: Request, section_id: int) -> Response:
     with _session_factory(request)() as session:
-        pms_url = _setting(session, "pms_url", services.settings.pms_url)
-        pms_token = _setting(session, "pms_token", services.settings.pms_token)
-    plex = services.plex.with_credentials(pms_url, pms_token)
-    try:
-        plex.refresh_library_section(section_id)
-    except (ValueError, httpx.HTTPError):
-        pass
-    return RedirectResponse(url=str(request.url_for("plex_page")), status_code=303)
+        job = create_refresh_job(session, section_id=section_id)
+        session.commit()
+    return _action_response(
+        request,
+        fallback=str(request.url_for("plex_page")),
+        message=(
+            f"Plex refresh queued for library {section_id}."
+            if job is not None
+            else f"Plex refresh already queued for library {section_id}."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1625,10 +1704,13 @@ def search_events_for_file(
 
 
 @router.post("/inbox/resolve-high-confidence", name="resolve_high_confidence")
-def resolve_high_confidence(request: Request) -> RedirectResponse:
+def resolve_high_confidence(request: Request, background_tasks: BackgroundTasks) -> Response:
     services = request.app.state.services
-    resolved_ids = services.organizer.resolve_high_confidence_recordings(threshold=0.70)
-    if resolved_ids:
+
+    def run() -> None:
+        resolved_ids = services.organizer.resolve_high_confidence_recordings(threshold=0.70)
+        if not resolved_ids:
+            return
         with _session_factory(request)() as session:
             pms_url = _setting(session, "pms_url", services.settings.pms_url)
             pms_token = _setting(session, "pms_token", services.settings.pms_token)
@@ -1636,7 +1718,19 @@ def resolve_high_confidence(request: Request) -> RedirectResponse:
             for section_id in plex.find_show_section_ids():
                 create_refresh_job(session, section_id=section_id)
             session.commit()
-    return RedirectResponse(url=str(request.url_for("inbox")), status_code=303)
+
+    queued = _queue_background_job(
+        request,
+        background_tasks,
+        job_key="resolve-high-confidence",
+        task=run,
+    )
+    message = (
+        "High-confidence review resolutions queued."
+        if queued
+        else "High-confidence review resolutions already queued."
+    )
+    return _action_response(request, fallback=str(request.url_for("inbox")), message=message)
 
 
 # ---------------------------------------------------------------------------
@@ -1657,10 +1751,13 @@ def library_season_detail(request: Request, competition_id: str, season_id: str)
         rows = []
         for event in events:
             event_recordings = recordings_by_event_id.get(event.id, [])
+            confidence = _confidence_summary(event_recordings)
             rows.append(
                 {
                     "event": event,
                     "recordings": event_recordings,
+                    "confidence": confidence,
+                    "row_class": f"season-event-row season-event-row-{confidence['class_name']}",
                     "status": (
                         _status_meta(event_recordings[0].status) if event_recordings else None
                     ),

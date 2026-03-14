@@ -137,6 +137,7 @@ class OrganizerService:
         self.session_factory = session_factory
         self.metadata_source = metadata_source
         self._ingest_lock = threading.RLock()
+        self._upstream_competitions_cache: list[UpstreamCompetition] | None = None
 
     def _effective_plex_provider_identifier(self, session: Session) -> str:
         configured = session.get(AppSetting, "plex_provider_identifier")
@@ -151,6 +152,13 @@ class OrganizerService:
         if configured is None or not configured.value.strip():
             return fallback
         return Path(configured.value.strip())
+
+    def _all_upstream_competitions(self) -> list[UpstreamCompetition]:
+        if self.metadata_source is None:
+            return []
+        if self._upstream_competitions_cache is None:
+            self._upstream_competitions_cache = self.metadata_source.all_competitions()
+        return self._upstream_competitions_cache
 
     def rescan_incoming(self) -> list[str]:
         with self._ingest_lock:
@@ -808,7 +816,7 @@ class OrganizerService:
             return matched
 
         if self.metadata_source is not None:
-            upstream_match = best_upstream_competition_match(show_name, self.metadata_source.all_competitions())
+            upstream_match = best_upstream_competition_match(show_name, self._all_upstream_competitions())
             if upstream_match is not None:
                 rich = None
                 if upstream_match.tsdb_id is not None:
@@ -820,11 +828,9 @@ class OrganizerService:
                     id=upstream_match.competition_id or f"manual_{slugify(show_name)}",
                     tsdb_id=upstream_match.tsdb_id,
                     name=upstream_match.name,
-                    description=rich.description if rich else None,
-                    poster_url=rich.poster_url if rich else None,
-                    banner_url=rich.banner_url if rich else None,
-                    fanart_url=rich.fanart_url if rich else None,
+                    alternate_names=(rich.alternate_names if rich else upstream_match.alternate_names),
                 )
+                self._apply_competition_metadata(competition, rich or upstream_match, overwrite_description=True)
                 session.add(competition)
                 session.flush()
                 return competition
@@ -850,11 +856,9 @@ class OrganizerService:
                             id=f"tsdb_{tsdb_id}",
                             tsdb_id=tsdb_id,
                             name=rich.name,
-                            description=rich.description,
-                            poster_url=rich.poster_url,
-                            banner_url=rich.banner_url,
-                            fanart_url=rich.fanart_url,
+                            alternate_names=rich.alternate_names,
                         )
+                        self._apply_competition_metadata(competition, rich, overwrite_description=True)
                         session.add(competition)
                         session.flush()
                         return competition
@@ -892,19 +896,38 @@ class OrganizerService:
         if rich is None:
             return
         competition.tsdb_id = tsdb_id
-        if not competition.poster_url and rich.poster_url:
-            competition.poster_url = rich.poster_url
-        if not competition.banner_url and rich.banner_url:
-            competition.banner_url = rich.banner_url
-        if not competition.fanart_url and rich.fanart_url:
-            competition.fanart_url = rich.fanart_url
-        if not competition.description and rich.description:
-            competition.description = rich.description
+        self._apply_competition_metadata(competition, rich, overwrite_description=False)
         logger.info(
             "competition_upgraded competition=%s tsdb_id=%s",
             competition.name,
             tsdb_id,
         )
+
+    def _apply_competition_metadata(
+        self,
+        competition: Competition,
+        rich: UpstreamCompetition,
+        *,
+        overwrite_description: bool,
+    ) -> None:
+        if rich.alternate_names:
+            competition.alternate_names = rich.alternate_names
+        if rich.sport:
+            competition.sport = rich.sport
+        if rich.country:
+            competition.country = rich.country
+        if rich.formed_year is not None:
+            competition.formed_year = rich.formed_year
+        if rich.poster_url:
+            competition.poster_url = rich.poster_url
+        if rich.banner_url:
+            competition.banner_url = rich.banner_url
+        if rich.fanart_url:
+            competition.fanart_url = rich.fanart_url
+        if rich.description and (overwrite_description or not competition.description):
+            competition.description = rich.description
+        if rich.source_payload:
+            competition.upstream_metadata = rich.source_payload
 
     def _refresh_competition_details(self, competition: Competition, *, overwrite: bool = False) -> bool:
         if self.metadata_source is None:
@@ -925,20 +948,7 @@ class OrganizerService:
             return False
         if rich is None:
             return False
-        if rich.sport:
-            competition.sport = rich.sport
-        if rich.country:
-            competition.country = rich.country
-        if rich.formed_year is not None:
-            competition.formed_year = rich.formed_year
-        if rich.poster_url:
-            competition.poster_url = rich.poster_url
-        if rich.banner_url:
-            competition.banner_url = rich.banner_url
-        if rich.fanart_url:
-            competition.fanart_url = rich.fanart_url
-        if rich.description and (overwrite or not competition.description):
-            competition.description = rich.description
+        self._apply_competition_metadata(competition, rich, overwrite_description=overwrite)
         return True
 
     def _refresh_competition_metadata(self, session: Session, competition: Competition) -> None:
@@ -1308,6 +1318,8 @@ class OrganizerService:
         event.away_score = upstream.away_score
         event.description = upstream.description
         event.thumb_url = upstream.thumb_url
+        if upstream.source_payload:
+            event.upstream_metadata = upstream.source_payload
         event.weekend_group = upstream.weekend_group or derive_weekend_group(upstream.name)
         session.flush()
         return event

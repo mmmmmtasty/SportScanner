@@ -21,12 +21,14 @@
 </section>
 
 <section class="actions">
-  <form method="post" action="{{ request.url_for('rescan') }}">
-    <button type="submit" class="compact-button">Rescan Incoming</button>
+  <form method="post" action="{{ request.url_for('rescan') }}" hx-post="{{ request.url_for('rescan') }}" hx-swap="none">
+    <button type="submit" class="compact-button" data-loading-label="Queueing Rescan..." data-queued-label="Rescan Queued">Rescan Incoming</button>
   </form>
   <form method="post" action="{{ request.url_for('resolve_high_confidence') }}"
-        onsubmit="return confirm('Accept all Needs Match files with confidence ≥ 70%?')">
-    <button type="submit" class="secondary compact-button">Resolve High-Confidence</button>
+        onsubmit="return confirm('Accept all Needs Match files with confidence ≥ 70%?')"
+        hx-post="{{ request.url_for('resolve_high_confidence') }}"
+        hx-swap="none">
+    <button type="submit" class="secondary compact-button" data-loading-label="Queueing..." data-queued-label="Queued">Resolve High-Confidence</button>
   </form>
   <a href="{{ request.url_for('review_queue') }}" role="button" class="secondary compact-button">Open Review Queue</a>
 </section>
@@ -37,7 +39,7 @@
   </div>
   <form id="inbox-filter-form" method="get" class="header-filter-form"></form>
   <div class="table-wrap">
-    <table>
+    <table class="inbox-table">
       <thead>
         <tr>
           <th class="table-header-filter">
@@ -98,12 +100,12 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td>
+          <td class="inbox-cell-filename">
             <strong title="{{ row.recording.source_path }}">{{ row.recording.source_path.split("/")[-1] }}</strong>
             <div class="muted-line">{{ row.competition.name if row.competition else "Unknown competition" }}</div>
           </td>
           <td><span class="status-chip {{ row.status.class_name }}">{{ row.status.label }}</span></td>
-          <td>
+          <td class="inbox-cell-match">
             {% if row.event %}
             <strong>{{ row.event.name }}</strong>
             <div class="muted-line">{{ row.competition.name if row.competition else "Unknown" }}{% if row.event.date %} · {{ row.event.date }}{% endif %}</div>
@@ -115,7 +117,7 @@
           <td>
             <span class="pill confidence-{{ row.confidence_class }}">{{ row.confidence_score }}%</span>
           </td>
-          <td class="muted-cell">{{ row.explanation }}</td>
+          <td class="muted-cell inbox-cell-why">{{ row.explanation }}</td>
           <td><a href="{{ row.action_href }}">{{ row.action_label }}</a></td>
         </tr>
         {% else %}

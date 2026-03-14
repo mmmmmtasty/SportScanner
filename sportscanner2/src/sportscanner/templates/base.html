@@ -75,7 +75,37 @@
         if (!loadingLabel) return;
         submitter.disabled = true;
         submitter.dataset.originalLabel = submitter.textContent;
+        submitter.dataset.pendingState = "true";
         submitter.textContent = loadingLabel;
+      });
+
+      const finishPendingButton = (root, useQueuedLabel = false) => {
+        if (!(root instanceof Element)) return;
+        const submitter = root.matches("button[data-pending-state='true']")
+          ? root
+          : root.querySelector("button[data-pending-state='true']");
+        if (!(submitter instanceof HTMLButtonElement)) return;
+        const originalLabel = submitter.dataset.originalLabel || submitter.textContent;
+        const queuedLabel = submitter.dataset.queuedLabel;
+        submitter.disabled = false;
+        delete submitter.dataset.pendingState;
+        delete submitter.dataset.originalLabel;
+        if (useQueuedLabel && queuedLabel) {
+          submitter.textContent = queuedLabel;
+          window.setTimeout(() => {
+            submitter.textContent = originalLabel;
+          }, 1600);
+          return;
+        }
+        submitter.textContent = originalLabel;
+      };
+
+      document.body.addEventListener("htmx:afterRequest", (event) => {
+        finishPendingButton(event.detail.elt, !event.detail.failed);
+      });
+
+      document.body.addEventListener("htmx:responseError", (event) => {
+        finishPendingButton(event.detail.elt, false);
       });
     </script>
   </body>

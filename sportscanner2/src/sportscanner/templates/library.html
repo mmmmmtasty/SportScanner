@@ -33,8 +33,10 @@
           <td>{{ row.recording_count }}</td>
           <td>{{ row.last_refreshed.strftime("%Y-%m-%d %H:%M") if row.last_refreshed else "Never" }}</td>
           <td>
-            <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=row.competition.id) }}">
-              <button type="submit" class="secondary compact-button" data-loading-label="Refreshing...">Refresh Competition</button>
+            <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=row.competition.id) }}"
+                  hx-post="{{ request.url_for('competition_refresh_metadata', competition_id=row.competition.id) }}"
+                  hx-swap="none">
+              <button type="submit" class="secondary compact-button" data-loading-label="Queueing..." data-queued-label="Queued">Refresh Competition</button>
             </form>
           </td>
         </tr>

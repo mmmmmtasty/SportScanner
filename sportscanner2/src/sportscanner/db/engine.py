@@ -88,6 +88,17 @@ def _migrate_legacy_schema(connection: Connection) -> None:
                 "CREATE INDEX IF NOT EXISTS ix_recording_file_fingerprint ON recording (file_fingerprint)"
             )
 
+    for table_name, additions in (
+        ("competition", {"upstream_metadata": "JSON"}),
+        ("event", {"upstream_metadata": "JSON"}),
+    ):
+        if table_name not in table_names:
+            continue
+        columns = _column_names(connection, table_name)
+        for column_name, column_type in additions.items():
+            if column_name not in columns:
+                connection.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+
     for table_name, old_column, new_column in (
         ("override", "segment_id", "recording_id"),
         ("review_task", "segment_id", "recording_id"),

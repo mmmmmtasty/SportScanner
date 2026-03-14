@@ -9,8 +9,10 @@
       {{ competition.description or "Inspect seasons, events, and the current local organization for this competition." }}
     </p>
   </div>
-  <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
-    <button type="submit" class="secondary compact-button" data-loading-label="Refreshing...">Refresh Competition</button>
+  <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}"
+        hx-post="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}"
+        hx-swap="none">
+    <button type="submit" class="secondary compact-button" data-loading-label="Queueing..." data-queued-label="Queued">Refresh Competition</button>
   </form>
 </section>
 
@@ -59,8 +61,10 @@
             <td>{{ recording.air_date or "" }}</td>
             <td><span class="status-chip {{ meta.class_name }}">{{ meta.label }}</span></td>
             <td>
-              <form method="post" action="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}">
-                <button type="submit" class="secondary compact-button" data-loading-label="Refreshing...">Refresh File</button>
+              <form method="post" action="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}"
+                    hx-post="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}"
+                    hx-swap="none">
+                <button type="submit" class="secondary compact-button" data-loading-label="Queueing..." data-queued-label="Queued">Refresh File</button>
               </form>
             </td>
           </tr>

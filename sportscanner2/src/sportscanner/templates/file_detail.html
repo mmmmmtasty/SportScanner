@@ -26,12 +26,16 @@
     <div class="action-stack">
       <span class="status-chip {{ status.class_name }}">{{ status.label }}</span>
       {% if event %}
-      <form method="post" action="{{ request.url_for('event_refresh_metadata', event_id=event.id) }}">
-        <button type="submit" class="secondary" data-loading-label="Refreshing Event...">Refresh Event Metadata</button>
+      <form method="post" action="{{ request.url_for('event_refresh_metadata', event_id=event.id) }}"
+            hx-post="{{ request.url_for('event_refresh_metadata', event_id=event.id) }}"
+            hx-swap="none">
+        <button type="submit" class="secondary" data-loading-label="Queueing Event..." data-queued-label="Queued">Refresh Event Metadata</button>
       </form>
       {% endif %}
-      <form method="post" action="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}">
-        <button type="submit" class="secondary" data-loading-label="Refreshing File...">Refresh File Metadata</button>
+      <form method="post" action="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}"
+            hx-post="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}"
+            hx-swap="none">
+        <button type="submit" class="secondary" data-loading-label="Queueing File..." data-queued-label="Queued">Refresh File Metadata</button>
       </form>
     </div>
     {% if artwork_cards %}

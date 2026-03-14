@@ -55,3 +55,22 @@ def test_adapt_event_csv_tolerates_null_score_fields() -> None:
     assert event.round == 4
     assert event.home_score is None
     assert event.away_score is None
+
+
+def test_adapt_event_csv_ignores_url_like_team_cells() -> None:
+    event = adapt_event_csv(
+        {
+            "idEvent": "1001",
+            "Event": "Australian Grand Prix",
+            "Home Team": "Australian Grand Prix",
+            "Away Team": "https://www.thesportsdb.com/event/1001",
+            "Round": "Round 11",
+            "dateEvent": "2025-06-29",
+        },
+        competition_name="Formula 1",
+        competition_tsdb_id=4370,
+    )
+
+    assert event is not None
+    assert event.name == "Australian Grand Prix"
+    assert event.away_team is None

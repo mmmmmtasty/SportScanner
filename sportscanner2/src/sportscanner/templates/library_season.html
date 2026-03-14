@@ -11,8 +11,10 @@
     </p>
   </div>
   <div class="action-stack">
-    <form method="post" action="{{ request.url_for('season_refresh_metadata', competition_id=competition.id, season_id=season.id) }}">
-      <button type="submit" class="secondary compact-button" data-loading-label="Refreshing Season...">Refresh Season</button>
+    <form method="post" action="{{ request.url_for('season_refresh_metadata', competition_id=competition.id, season_id=season.id) }}"
+          hx-post="{{ request.url_for('season_refresh_metadata', competition_id=competition.id, season_id=season.id) }}"
+          hx-swap="none">
+      <button type="submit" class="secondary compact-button" data-loading-label="Queueing Season..." data-queued-label="Queued">Refresh Season</button>
     </form>
   </div>
 </section>
@@ -31,6 +33,7 @@
             <th>Round</th>
             <th>Date</th>
             <th>Event</th>
+            <th>Confidence</th>
             <th>Status</th>
             <th>Episode</th>
             <th></th>
@@ -38,10 +41,13 @@
         </thead>
         <tbody>
           {% for row in rows %}
-          <tr class="{% if row.recordings %}event-row-has-recording{% else %}event-row-missing{% endif %}">
+          <tr class="{{ row.row_class }}">
             <td>{{ row.event.round or "—" }}</td>
             <td>{{ row.event.date or "—" }}</td>
             <td>{{ row.event.name }}</td>
+            <td>
+              <span class="pill confidence-{{ row.confidence.class_name }}">{{ row.confidence.label }}</span>
+            </td>
             <td>
               {% if row.recordings %}
                 {% for r in row.recordings %}
@@ -60,8 +66,11 @@
               {% for r in row.recordings %}
               <a href="{{ request.url_for('file_detail', recording_id=r.id) }}" class="secondary compact-button">View</a>
               {% endfor %}
-              <form method="post" action="{{ request.url_for('event_refresh_metadata', event_id=row.event.id) }}" style="display:inline;">
-                <button type="submit" class="secondary compact-button" data-loading-label="Refreshing...">Refresh Event</button>
+              <form method="post" action="{{ request.url_for('event_refresh_metadata', event_id=row.event.id) }}"
+                    hx-post="{{ request.url_for('event_refresh_metadata', event_id=row.event.id) }}"
+                    hx-swap="none"
+                    style="display:inline;">
+                <button type="submit" class="secondary compact-button" data-loading-label="Queueing..." data-queued-label="Queued">Refresh Event</button>
               </form>
             </td>
           </tr>

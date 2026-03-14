@@ -92,8 +92,10 @@
           <td class="muted-cell">{{ section.scanner }}</td>
           <td>
             {% if section.type == "show" %}
-            <form method="post" action="{{ request.url_for('plex_refresh_section', section_id=section.key) }}">
-              <button type="submit" class="secondary compact-button">Force Refresh</button>
+            <form method="post" action="{{ request.url_for('plex_refresh_section', section_id=section.key) }}"
+                  hx-post="{{ request.url_for('plex_refresh_section', section_id=section.key) }}"
+                  hx-swap="none">
+              <button type="submit" class="secondary compact-button" data-loading-label="Queueing..." data-queued-label="Queued">Force Refresh</button>
             </form>
             {% endif %}
           </td>
