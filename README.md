@@ -5,16 +5,11 @@ This top-level README is for the legacy Plex scanner and metadata agent.
 
 [![Join the chat at https://gitter.im/mmmmmtasty/SportScanner](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/mmmmmtasty/SportScanner?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-# Status Update
+# Legacy Status
 
-I am intending to make some improvements to this scanner and metadata agent. Please feel free to raise issues with requests. Support may still be patchy ;)
-
-Whish list:
-  - Shell script for fast unraid testing
-  - Consider writing tests to enable more refactoring/expansion without breaking existing functionality
-  - Consider new thesportsdb.com APIs to see if they add value
-  - Consider support for multi-part events, double headers and cup competitions
-  - Investigate alternatives or improvements to season setup
+`SportScanner.bundle` and `Scanners/` are the original Plex scanner and metadata agent.
+They are still here for existing installs, but new self-hosted development happens in `sportscanner2/`.
+Treat this top-level README as legacy setup documentation.
 
 -------------
 

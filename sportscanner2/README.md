@@ -267,12 +267,8 @@ Go to:
 http://YOUR-SERVER-IP:32699/admin/
 ```
 
-You should see these top navigation links:
-
-- `Dashboard`
-- `Review`
-- `Competitions`
-- `Settings`
+You should see the main admin areas for `Inbox`, `Review Queue`, `Library`, `Plex`, `Settings`, and `Logs`.
+The dashboard still exists at `/admin/`, but the day-to-day navigation is inbox-first.
 
 #### 2. Save The Plex Connection Settings
 
@@ -420,14 +416,14 @@ Formula1-2025-20250629-Austrian-Grand-Prix.mp4
 
 ### 2. Trigger A Scan
 
-1. Open `Dashboard`.
+1. Open `Inbox` or `/admin/`.
 2. Click `Rescan Incoming`.
 
 ### 3. Check What Happened
 
 If the file matched cleanly:
 
-- the competition appears under `Competitions`
+- the competition appears under `Library`
 - the managed file appears under `library`
 - `.plexmatch` files are written at the show and season levels
 - Plex can discover the file on its next library scan
@@ -505,7 +501,7 @@ It verifies:
 - rescheduled fixtures update Plex ordering and `originallyAvailableAt`
 - log messages confirm each transition
 
-The harness expects log messages such as `rescan_started`, `review_task_open`, `segment_published`,
+The harness expects log messages such as `rescan_started`, `review_task_open`, `recording_published`,
 `season_publish_reconciled`, and `review_task_resolved`.
 
 ## Filename Tips
@@ -658,4 +654,4 @@ share, or pool if you want hardlinks.
 - Unraid Community Applications and template storage:
   https://docs.unraid.net/unraid-os/community-applications/
 - TheSportsDB API docs:
-  https://www.thesportsdb.com/api/v2/json/123/all/livescore/boxing
+  https://www.thesportsdb.com/api.php

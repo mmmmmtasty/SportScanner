@@ -58,26 +58,38 @@ class ScenarioMetadataSource:
     def probe(self) -> str:
         return "scenario"
 
-    def all_competitions(self) -> list[UpstreamCompetition]:
+    def all_competitions(self, *, force_refresh: bool = False) -> list[UpstreamCompetition]:
         return [self._competition]
 
-    def search_filename(self, query: str) -> list[UpstreamEvent]:
+    def search_filename(self, query: str, *, force_refresh: bool = False) -> list[UpstreamEvent]:
         lowered = query.lower()
         return [event for event in self._all_events() if event.name.lower() in lowered]
 
-    def events_on_day(self, competition_name: str, event_date: date) -> list[UpstreamEvent]:
+    def events_on_day(
+        self,
+        competition_name: str,
+        event_date: date,
+        *,
+        force_refresh: bool = False,
+    ) -> list[UpstreamEvent]:
         return [
             event
             for event in self._all_events()
             if event.competition_name == competition_name and event.date == event_date
         ]
 
-    def season_events(self, competition: UpstreamCompetition, season_label: str) -> tuple[list[UpstreamEvent], bool]:
+    def season_events(
+        self,
+        competition: UpstreamCompetition,
+        season_label: str,
+        *,
+        force_refresh: bool = False,
+    ) -> tuple[list[UpstreamEvent], bool]:
         if competition.tsdb_id != self._competition.tsdb_id:
             return ([], False)
         return (list(self._season_events.get(season_label, [])), self._season_complete.get(season_label, False))
 
-    def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
+    def lookup_event(self, tsdb_event_id: int, *, force_refresh: bool = False) -> UpstreamEvent | None:
         for event in self._all_events():
             if event.tsdb_id == tsdb_event_id:
                 return event

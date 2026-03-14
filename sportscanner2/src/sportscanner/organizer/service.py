@@ -143,7 +143,6 @@ class OrganizerService:
         self.session_factory = session_factory
         self.metadata_source = metadata_source
         self._ingest_lock = threading.RLock()
-        self._upstream_competitions_cache: list[UpstreamCompetition] | None = None
 
     def _effective_plex_provider_identifier(self, session: Session) -> str:
         configured = session.get(AppSetting, "plex_provider_identifier")
@@ -162,9 +161,7 @@ class OrganizerService:
     def _all_upstream_competitions(self) -> list[UpstreamCompetition]:
         if self.metadata_source is None:
             return []
-        if self._upstream_competitions_cache is None:
-            self._upstream_competitions_cache = self.metadata_source.all_competitions()
-        return self._upstream_competitions_cache
+        return self.metadata_source.all_competitions()
 
     def rescan_incoming(self) -> list[str]:
         with self._ingest_lock:
@@ -659,10 +656,17 @@ class OrganizerService:
         self._publish_recording(session, recording)
         return recording
 
-    def _resolve_review_lookup_event(self, session: Session, recording: Recording, tsdb_event_id: int) -> Event:
+    def _resolve_review_lookup_event(
+        self,
+        session: Session,
+        recording: Recording,
+        tsdb_event_id: int,
+        *,
+        force_refresh: bool = False,
+    ) -> Event:
         if self.metadata_source is None:
             raise ValueError("Metadata source is not configured")
-        upstream = self.metadata_source.lookup_event(tsdb_event_id)
+        upstream = self.metadata_source.lookup_event(tsdb_event_id, force_refresh=force_refresh)
         if upstream is None:
             raise KeyError(f"Unknown upstream event: {tsdb_event_id}")
 
@@ -893,13 +897,22 @@ class OrganizerService:
                         rich = self.metadata_source.lookup_competition(upstream_match.tsdb_id)
                     except Exception:
                         pass
-                competition = Competition(
+                fallback_competition = UpstreamCompetition(
                     id=upstream_match.competition_id or f"manual_{slugify(show_name)}",
+                    name=upstream_match.name,
+                    tsdb_id=upstream_match.tsdb_id,
+                )
+                competition = Competition(
+                    id=fallback_competition.id,
                     tsdb_id=upstream_match.tsdb_id,
                     name=upstream_match.name,
-                    alternate_names=(rich.alternate_names if rich else upstream_match.alternate_names),
+                    alternate_names=(rich.alternate_names if rich else fallback_competition.alternate_names),
                 )
-                self._apply_competition_metadata(competition, rich or upstream_match, overwrite_description=True)
+                self._apply_competition_metadata(
+                    competition,
+                    rich or fallback_competition,
+                    overwrite_description=True,
+                )
                 session.add(competition)
                 session.flush()
                 return competition
@@ -1006,7 +1019,7 @@ class OrganizerService:
         if not overwrite and (competition.poster_url or competition.fanart_url):
             return False
         try:
-            rich = self.metadata_source.lookup_competition(competition.tsdb_id)
+            rich = self.metadata_source.lookup_competition(competition.tsdb_id, force_refresh=overwrite)
         except Exception as exc:
             logger.warning(
                 "competition_refresh_lookup_failed competition=%s tsdb_id=%s error=%s",
@@ -1040,7 +1053,11 @@ class OrganizerService:
                 if season.season_number == 0:
                     continue
                 try:
-                    events, is_complete = self.metadata_source.season_events(upstream_competition, season.label)
+                    events, is_complete = self.metadata_source.season_events(
+                        upstream_competition,
+                        season.label,
+                        force_refresh=True,
+                    )
                 except Exception as exc:
                     logger.warning(
                         "competition_refresh_season_failed competition=%s season=%s error=%s",
@@ -1109,7 +1126,11 @@ class OrganizerService:
                 alternate_names=competition.alternate_names,
             )
             try:
-                events, is_complete = self.metadata_source.season_events(upstream_competition, season.label)
+                events, is_complete = self.metadata_source.season_events(
+                    upstream_competition,
+                    season.label,
+                    force_refresh=True,
+                )
             except Exception as exc:
                 logger.warning(
                     "season_refresh_failed competition=%s season=%s error=%s",
@@ -1173,7 +1194,7 @@ class OrganizerService:
 
         original_season_id = event.competition_season_id
         if self.metadata_source is not None and event.tsdb_id is not None:
-            upstream = self.metadata_source.lookup_event(event.tsdb_id)
+            upstream = self.metadata_source.lookup_event(event.tsdb_id, force_refresh=True)
             if upstream is not None:
                 competition = current_competition
                 if upstream.competition_name and upstream.competition_name != current_competition.name:
@@ -1225,7 +1246,12 @@ class OrganizerService:
         current_season_id = recording.competition_season_id
         if self.metadata_source is not None and event is not None and event.tsdb_id is not None:
             try:
-                refreshed_event = self._resolve_review_lookup_event(session, recording, event.tsdb_id)
+                refreshed_event = self._resolve_review_lookup_event(
+                    session,
+                    recording,
+                    event.tsdb_id,
+                    force_refresh=True,
+                )
             except Exception as exc:
                 logger.warning(
                     "recording_refresh_lookup_failed recording_id=%s tsdb_id=%s error=%s",

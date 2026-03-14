@@ -50,20 +50,32 @@ class MetadataSource(Protocol):
     def probe(self) -> str:
         ...
 
-    def all_competitions(self) -> list[UpstreamCompetition]:
+    def all_competitions(self, *, force_refresh: bool = False) -> list[UpstreamCompetition]:
         ...
 
-    def search_filename(self, query: str) -> list[UpstreamEvent]:
+    def search_filename(self, query: str, *, force_refresh: bool = False) -> list[UpstreamEvent]:
         ...
 
-    def events_on_day(self, competition_name: str, event_date: date) -> list[UpstreamEvent]:
+    def events_on_day(
+        self,
+        competition_name: str,
+        event_date: date,
+        *,
+        force_refresh: bool = False,
+    ) -> list[UpstreamEvent]:
         ...
 
-    def season_events(self, competition: UpstreamCompetition, season_label: str) -> tuple[list[UpstreamEvent], bool]:
+    def season_events(
+        self,
+        competition: UpstreamCompetition,
+        season_label: str,
+        *,
+        force_refresh: bool = False,
+    ) -> tuple[list[UpstreamEvent], bool]:
         ...
 
-    def lookup_competition(self, tsdb_id: int) -> UpstreamCompetition | None:
+    def lookup_competition(self, tsdb_id: int, *, force_refresh: bool = False) -> UpstreamCompetition | None:
         ...
 
-    def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
+    def lookup_event(self, tsdb_event_id: int, *, force_refresh: bool = False) -> UpstreamEvent | None:
         ...

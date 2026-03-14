@@ -28,38 +28,81 @@ class MutableMetadataSource:
     def probe(self) -> str:
         return "v1"
 
-    def all_competitions(self) -> list[UpstreamCompetition]:
+    def all_competitions(self, *, force_refresh: bool = False) -> list[UpstreamCompetition]:
         return [self._competition]
 
-    def search_filename(self, query: str) -> list[UpstreamEvent]:
+    def search_filename(self, query: str, *, force_refresh: bool = False) -> list[UpstreamEvent]:
         lowered = query.lower()
         return [event for event in self.events if event.name.lower() in lowered]
 
-    def events_on_day(self, competition_name: str, event_date: date) -> list[UpstreamEvent]:
+    def events_on_day(
+        self,
+        competition_name: str,
+        event_date: date,
+        *,
+        force_refresh: bool = False,
+    ) -> list[UpstreamEvent]:
         return [
             event
             for event in self.events
             if event.competition_name == competition_name and event.date == event_date
         ]
 
-    def season_events(self, competition: UpstreamCompetition, season_label: str) -> tuple[list[UpstreamEvent], bool]:
+    def season_events(
+        self,
+        competition: UpstreamCompetition,
+        season_label: str,
+        *,
+        force_refresh: bool = False,
+    ) -> tuple[list[UpstreamEvent], bool]:
         if competition.tsdb_id == 4370 and season_label == "2025":
             return (self.events, self.complete)
         return ([], False)
 
-    def lookup_competition(self, tsdb_id: int) -> UpstreamCompetition | None:
+    def lookup_competition(self, tsdb_id: int, *, force_refresh: bool = False) -> UpstreamCompetition | None:
         if tsdb_id == self._competition.tsdb_id:
             return self._competition
         return None
 
-    def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
+    def lookup_event(self, tsdb_event_id: int, *, force_refresh: bool = False) -> UpstreamEvent | None:
         return next((event for event in self.events if event.tsdb_id == tsdb_event_id), None)
 
 
 class SlowMetadataSource(MutableMetadataSource):
-    def all_competitions(self) -> list[UpstreamCompetition]:
+    def all_competitions(self, *, force_refresh: bool = False) -> list[UpstreamCompetition]:
         time.sleep(0.05)
-        return super().all_competitions()
+        return super().all_competitions(force_refresh=force_refresh)
+
+
+class TrackingMetadataSource(MutableMetadataSource):
+    def __init__(self, *, complete: bool, events: list[UpstreamEvent] | None = None) -> None:
+        super().__init__(complete=complete, events=events)
+        self.lookup_competition_calls: list[bool] = []
+        self.season_event_calls: list[bool] = []
+        self.lookup_event_calls: list[bool] = []
+
+    def season_events(
+        self,
+        competition: UpstreamCompetition,
+        season_label: str,
+        *,
+        force_refresh: bool = False,
+    ) -> tuple[list[UpstreamEvent], bool]:
+        self.season_event_calls.append(force_refresh)
+        return super().season_events(competition, season_label, force_refresh=force_refresh)
+
+    def lookup_competition(self, tsdb_id: int, *, force_refresh: bool = False) -> UpstreamCompetition | None:
+        self.lookup_competition_calls.append(force_refresh)
+        return super().lookup_competition(tsdb_id, force_refresh=force_refresh)
+
+    def lookup_event(self, tsdb_event_id: int, *, force_refresh: bool = False) -> UpstreamEvent | None:
+        self.lookup_event_calls.append(force_refresh)
+        return super().lookup_event(tsdb_event_id, force_refresh=force_refresh)
+
+
+class NoRichCompetitionMetadataSource(MutableMetadataSource):
+    def lookup_competition(self, tsdb_id: int, *, force_refresh: bool = False) -> UpstreamCompetition | None:
+        raise RuntimeError("lookup_competition unavailable")
 
 
 def test_ingest_publishes_matched_file(settings, organizer, session_factory) -> None:
@@ -471,3 +514,62 @@ def test_resolve_review_task_accepts_upstream_lookup_event(settings, session_fac
 
     assert resolved.status == RecordingStatus.PUBLISHED.value
     assert resolved.event_id == "tsdb_1001"
+
+
+def test_manual_refreshes_force_upstream_reloads(settings, session_factory) -> None:
+    source = TrackingMetadataSource(
+        complete=True,
+        events=[
+            UpstreamEvent(
+                id="tsdb_1001",
+                tsdb_id=1001,
+                name="Austrian Grand Prix",
+                competition_name="Formula 1",
+                date=date(2025, 6, 29),
+            )
+        ],
+    )
+    organizer = OrganizerService(settings, session_factory, metadata_source=source)
+    recording_path = settings.incoming_dir / "Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv"
+    recording_path.write_text("video", encoding="utf-8")
+
+    recording = organizer.ingest_path(recording_path)
+    source.lookup_competition_calls.clear()
+    source.season_event_calls.clear()
+    source.lookup_event_calls.clear()
+
+    organizer.refresh_competition_metadata("tsdb_4370")
+    organizer.refresh_recording_metadata(recording.id)
+
+    assert True in source.lookup_competition_calls
+    assert True in source.season_event_calls
+    assert True in source.lookup_event_calls
+
+
+def test_ingest_handles_missing_rich_competition_lookup(settings, session_factory) -> None:
+    organizer = OrganizerService(
+        settings,
+        session_factory,
+        metadata_source=NoRichCompetitionMetadataSource(
+            complete=True,
+            events=[
+                UpstreamEvent(
+                    id="tsdb_1001",
+                    tsdb_id=1001,
+                    name="Austrian Grand Prix",
+                    competition_name="Formula 1",
+                    date=date(2025, 6, 29),
+                )
+            ],
+        ),
+    )
+    source = settings.incoming_dir / "Formula 1 2025-06-29 Austrian Grand Prix - Race.mkv"
+    source.write_text("video", encoding="utf-8")
+
+    recording = organizer.ingest_path(source)
+
+    assert recording.status == RecordingStatus.PUBLISHED.value
+    with session_factory() as session:
+        competition = session.scalar(select(Competition).where(Competition.id == "tsdb_4370"))
+        assert competition is not None
+        assert competition.name == "Formula 1"

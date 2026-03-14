@@ -83,10 +83,10 @@ class FakeMetadataSource:
     def probe(self) -> str:
         return "v1"
 
-    def all_competitions(self) -> list[UpstreamCompetition]:
+    def all_competitions(self, *, force_refresh: bool = False) -> list[UpstreamCompetition]:
         return [self._f1, self._epl, self._nba, self._ufc]
 
-    def search_filename(self, query: str) -> list[UpstreamEvent]:
+    def search_filename(self, query: str, *, force_refresh: bool = False) -> list[UpstreamEvent]:
         if "Austrian" in query:
             return [self._f1_event]
         if "Arsenal" in query or "Tottenham" in query:
@@ -97,7 +97,13 @@ class FakeMetadataSource:
             return [self._ufc_event]
         return []
 
-    def events_on_day(self, competition_name: str, event_date: date) -> list[UpstreamEvent]:
+    def events_on_day(
+        self,
+        competition_name: str,
+        event_date: date,
+        *,
+        force_refresh: bool = False,
+    ) -> list[UpstreamEvent]:
         mapping = {
             ("Formula 1", self._f1_event.date): self._f1_event,
             ("English Premier League", self._epl_event.date): self._epl_event,
@@ -107,7 +113,13 @@ class FakeMetadataSource:
         result = mapping.get((competition_name, event_date))
         return [result] if result else []
 
-    def season_events(self, competition: UpstreamCompetition, season_label: str) -> tuple[list[UpstreamEvent], bool]:
+    def season_events(
+        self,
+        competition: UpstreamCompetition,
+        season_label: str,
+        *,
+        force_refresh: bool = False,
+    ) -> tuple[list[UpstreamEvent], bool]:
         if competition.tsdb_id == 4370 and season_label == "2025":
             return ([self._f1_event], True)
         if competition.tsdb_id == 4328 and season_label == "2025":
@@ -118,7 +130,7 @@ class FakeMetadataSource:
             return ([self._ufc_event], True)
         return ([], False)
 
-    def lookup_competition(self, tsdb_id: int) -> UpstreamCompetition | None:
+    def lookup_competition(self, tsdb_id: int, *, force_refresh: bool = False) -> UpstreamCompetition | None:
         lookup = {
             4370: self._f1,
             4328: self._epl,
@@ -127,7 +139,7 @@ class FakeMetadataSource:
         }
         return lookup.get(tsdb_id)
 
-    def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
+    def lookup_event(self, tsdb_event_id: int, *, force_refresh: bool = False) -> UpstreamEvent | None:
         lookup = {
             1001: self._f1_event,
             2001: self._epl_event,

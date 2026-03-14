@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     asset_cache_dir: Path = Field(default=Path("/data/cache"))
     log_level: str = Field(default="info")
     watcher_debounce_seconds: float = Field(default=5.0)
-    tsdb_api_mode: Literal["auto", "v1", "v2"] = Field(default="auto")
+    tsdb_api_mode: Literal["auto", "v1"] = Field(default="auto")
     tsdb_api_key: str = Field(default="", alias="TSDB_API_KEY")
     pms_url: str | None = Field(default=None)
     pms_token: str | None = Field(default=None)
@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_plex_provider_identifier(cls, value: str) -> str:
         return validate_plex_provider_identifier(value)
+
+    @field_validator("tsdb_api_mode", mode="before")
+    @classmethod
+    def _normalize_tsdb_api_mode(cls, value: object) -> object:
+        if value is None:
+            return "auto"
+        normalized = str(value).strip().lower()
+        if normalized == "v2":
+            return "v1"
+        return normalized
 
     @property
     def sqlite_url(self) -> str:

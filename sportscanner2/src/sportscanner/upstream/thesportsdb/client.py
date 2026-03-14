@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from html import unescape
 import io
 import json
 import logging
@@ -40,65 +41,83 @@ class TheSportsDbClient(MetadataSource):
         self.session_factory = session_factory
         api_key = settings.tsdb_api_key or "123"
         self.base_v1_url = f"https://www.thesportsdb.com/api/v1/json/{api_key}"
-        self.base_v2_url = f"https://www.thesportsdb.com/api/v2/json/{api_key}"
         self._mode: str | None = None
 
     def probe(self) -> str:
         if self._mode is not None:
             return self._mode
-        if self.settings.tsdb_api_mode == "v1":
-            self._mode = "v1"
-            return self._mode
-        if self.settings.tsdb_api_mode == "v2":
-            logger.warning("thesportsdb_v2_probe_unsupported_falling_back_to_v1")
-        # The request layer still uses v1 endpoints. Auto mode should report the
-        # working path instead of probing the unsupported v2 route and logging 404s.
         self._mode = "v1"
         return self._mode
 
-    def all_competitions(self) -> list[UpstreamCompetition]:
-        payload = self._get_json("all_leagues.php")
+    def all_competitions(self, *, force_refresh: bool = False) -> list[UpstreamCompetition]:
+        payload = self._get_json("all_leagues.php", cache=not force_refresh)
         return [adapt_competition(item) for item in payload.get("leagues", [])]
 
-    def search_filename(self, query: str) -> list[UpstreamEvent]:
-        payload = self._get_json("searchfilename.php", params={"e": query})
+    def search_filename(self, query: str, *, force_refresh: bool = False) -> list[UpstreamEvent]:
+        payload = self._get_json("searchfilename.php", params={"e": query}, cache=not force_refresh)
         return [adapt_event(item) for item in payload.get("event") or []]
 
-    def events_on_day(self, competition_name: str, event_date: date) -> list[UpstreamEvent]:
+    def events_on_day(
+        self,
+        competition_name: str,
+        event_date: date,
+        *,
+        force_refresh: bool = False,
+    ) -> list[UpstreamEvent]:
         payload = self._get_json(
             "eventsday.php",
             params={"d": event_date.isoformat(), "l": competition_name},
+            cache=not force_refresh,
         )
         return [adapt_event(item, competition_name=competition_name) for item in payload.get("events", []) or []]
 
-    def season_events(self, competition: UpstreamCompetition, season_label: str) -> tuple[list[UpstreamEvent], bool]:
+    def season_events(
+        self,
+        competition: UpstreamCompetition,
+        season_label: str,
+        *,
+        force_refresh: bool = False,
+    ) -> tuple[list[UpstreamEvent], bool]:
         if competition.tsdb_id is None:
             return ([], False)
-        csv_events = self._fetch_season_csv(competition.tsdb_id, season_label, competition.name)
+        csv_events = self._fetch_season_csv(
+            competition.tsdb_id,
+            season_label,
+            competition.name,
+            force_refresh=force_refresh,
+        )
         if csv_events:
             return (csv_events, True)
         payload = self._get_json(
             "eventsseason.php",
             params={"id": competition.tsdb_id, "s": season_label},
+            cache=not force_refresh,
         )
         events = [adapt_event(item, competition_name=competition.name) for item in payload.get("events", []) or []]
         return (events, bool(events))
 
-    def lookup_competition(self, tsdb_id: int) -> UpstreamCompetition | None:
-        payload = self._get_json("lookupleague.php", params={"id": tsdb_id})
+    def lookup_competition(self, tsdb_id: int, *, force_refresh: bool = False) -> UpstreamCompetition | None:
+        payload = self._get_json("lookupleague.php", params={"id": tsdb_id}, cache=not force_refresh)
         leagues = payload.get("leagues", []) or []
         if not leagues:
             return None
         return adapt_competition(leagues[0])
 
-    def lookup_event(self, tsdb_event_id: int) -> UpstreamEvent | None:
-        payload = self._get_json("lookupevent.php", params={"id": tsdb_event_id})
+    def lookup_event(self, tsdb_event_id: int, *, force_refresh: bool = False) -> UpstreamEvent | None:
+        payload = self._get_json("lookupevent.php", params={"id": tsdb_event_id}, cache=not force_refresh)
         events = payload.get("events", []) or []
         if not events:
             return None
         return adapt_event(events[0])
 
-    def _fetch_season_csv(self, tsdb_id: int, season_label: str, competition_name: str) -> list[UpstreamEvent]:
+    def _fetch_season_csv(
+        self,
+        tsdb_id: int,
+        season_label: str,
+        competition_name: str,
+        *,
+        force_refresh: bool = False,
+    ) -> list[UpstreamEvent]:
         """Fetch all season events via the TheSportsDB website CSV export.
 
         This bypasses the free-tier API cap (15 events) by downloading the full
@@ -106,14 +125,15 @@ class TheSportsDbClient(MetadataSource):
         """
         cache_key = f"season_csv:{tsdb_id}:{season_label}"
         now = datetime.now(UTC)
-        try:
-            with self.session_factory() as session:
-                cached = session.get(ApiCache, cache_key)
-                expires_at = self._as_utc(cached.expires_at) if cached is not None else None
-                if cached is not None and expires_at is not None and expires_at >= now:
-                    return self._parse_csv_events(cached.response_body, competition_name, tsdb_id)
-        except OperationalError:
-            pass
+        if not force_refresh:
+            try:
+                with self.session_factory() as session:
+                    cached = session.get(ApiCache, cache_key)
+                    expires_at = self._as_utc(cached.expires_at) if cached is not None else None
+                    if cached is not None and expires_at is not None and expires_at >= now:
+                        return self._parse_csv_events(cached.response_body, competition_name, tsdb_id)
+            except OperationalError:
+                pass
 
         slug = re.sub(r"[^a-z0-9]+", "-", competition_name.lower()).strip("-")
         url = f"https://www.thesportsdb.com/season/{tsdb_id}-{slug}/{season_label}?csv=1&all=1"
@@ -126,7 +146,7 @@ class TheSportsDbClient(MetadataSource):
         match = re.search(r"<textarea[^>]*>(.*?)</textarea>", response.text, re.DOTALL | re.IGNORECASE)
         if not match:
             return []
-        csv_content = match.group(1).strip()
+        csv_content = unescape(match.group(1)).strip()
         if not csv_content:
             return []
 
@@ -198,8 +218,7 @@ class TheSportsDbClient(MetadataSource):
                 # SQLite write contention should not break live metadata fetches.
                 pass
 
-        base_url = self.base_v2_url if version == "v2" else self.base_v1_url
-        url = f"{base_url}/{endpoint.lstrip('/')}"
+        url = f"{self.base_v1_url}/{endpoint.lstrip('/')}"
         logger.info(
             "thesportsdb_request endpoint=%s version=%s cache=%s",
             endpoint,

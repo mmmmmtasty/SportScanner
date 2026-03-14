@@ -6,8 +6,10 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
+from sportscanner.config import Settings
 from sportscanner.db.models import ApiCache
 from sportscanner.log_buffer import LogBuffer
+from sportscanner.upstream.base import UpstreamCompetition
 from sportscanner.upstream.thesportsdb.client import TheSportsDbClient
 
 
@@ -81,6 +83,96 @@ def test_probe_defaults_to_v1_without_hitting_v2(settings, session_factory, monk
     client = TheSportsDbClient(settings, session_factory)
 
     assert client.probe() == "v1"
+
+
+def test_settings_normalize_legacy_v2_mode(tmp_path) -> None:
+    settings = Settings(
+        db_path=tmp_path / "sportscanner.db",
+        incoming_dir=tmp_path / "incoming",
+        library_dir=tmp_path / "library",
+        asset_cache_dir=tmp_path / "cache",
+        tsdb_api_mode="v2",
+    )
+
+    assert settings.tsdb_api_mode == "v1"
+
+
+def test_lookup_event_force_refresh_bypasses_cached_response(settings, session_factory, monkeypatch) -> None:
+    now = datetime.now(UTC)
+    with session_factory() as session:
+        session.add(
+            ApiCache(
+                cache_key="v1:lookupevent.php?id=1001",
+                response_body=json.dumps({"events": [{"idEvent": "1001", "strEvent": "Cached Grand Prix"}]}),
+                fetched_at=now,
+                expires_at=now + timedelta(hours=1),
+            )
+        )
+        session.commit()
+
+    calls = 0
+
+    def fake_http_get(url, *, params=None, timeout=None, **kwargs):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            request=httpx.Request("GET", url, params=params),
+            json={"events": [{"idEvent": "1001", "strEvent": "Fresh Grand Prix"}]},
+        )
+
+    monkeypatch.setattr("sportscanner.upstream.thesportsdb.client.httpx.get", fake_http_get)
+    client = TheSportsDbClient(settings, session_factory)
+
+    cached = client.lookup_event(1001)
+    refreshed = client.lookup_event(1001, force_refresh=True)
+
+    assert cached is not None
+    assert refreshed is not None
+    assert cached.name == "Cached Grand Prix"
+    assert refreshed.name == "Fresh Grand Prix"
+    assert calls == 1
+
+
+def test_season_events_force_refresh_bypasses_cached_csv(settings, session_factory, monkeypatch) -> None:
+    now = datetime.now(UTC)
+    cached_csv = "idEvent,Event,dateEvent\n1001,Cached Grand Prix,2025-06-29\n"
+    with session_factory() as session:
+        session.add(
+            ApiCache(
+                cache_key="season_csv:4370:2025",
+                response_body=cached_csv,
+                fetched_at=now,
+                expires_at=now + timedelta(hours=1),
+            )
+        )
+        session.commit()
+
+    calls = 0
+
+    def fake_http_get(url, *, timeout=None, follow_redirects=None, **kwargs):
+        nonlocal calls
+        calls += 1
+        html = (
+            "<html><body><textarea>"
+            "idEvent,Event,dateEvent\n1001,Fresh Grand &amp; Prix,2025-06-30\n"
+            "</textarea></body></html>"
+        )
+        return httpx.Response(200, request=httpx.Request("GET", url), text=html)
+
+    monkeypatch.setattr("sportscanner.upstream.thesportsdb.client.httpx.get", fake_http_get)
+    client = TheSportsDbClient(settings, session_factory)
+    competition = UpstreamCompetition(id="tsdb_4370", tsdb_id=4370, name="Formula 1")
+
+    cached_events, cached_complete = client.season_events(competition, "2025")
+    refreshed_events, refreshed_complete = client.season_events(competition, "2025", force_refresh=True)
+
+    assert cached_complete is True
+    assert refreshed_complete is True
+    assert cached_events[0].name == "Cached Grand Prix"
+    assert refreshed_events[0].name == "Fresh Grand & Prix"
+    assert refreshed_events[0].date.isoformat() == "2025-06-30"
+    assert calls == 1
 
 
 def test_parse_csv_events_accepts_null_score_values(settings, session_factory) -> None:
