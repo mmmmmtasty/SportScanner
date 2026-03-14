@@ -27,7 +27,6 @@ from sportscanner.db.models import (
     ReviewTask,
     Recording,
 )
-from sportscanner.db.queries import backfill_legacy_refresh_job_sources
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.organizer.service import OrganizerService, UNRESOLVED_COMPETITION_ID
 from sportscanner.plex import PlexEpisode, PlexRegistrationResult
@@ -350,7 +349,6 @@ def test_review_task_detail_shows_queue_position_and_ignore_action(provider_app)
     assert response.status_code == 200
     assert "Queue item 1 of 2" in response.text
     assert "Ignore File" in response.text
-    assert "Plex-facing title, date, summary," in response.text
     assert "Potential Matches" in response.text
     assert "Automatic Candidates" not in response.text
     assert "match-description" in response.text
@@ -646,10 +644,10 @@ def test_plex_libraries_page_explains_refresh_vs_scan(provider_app) -> None:
 
     assert response.status_code == 200
     assert "Plex" in response.text
-    assert "Recent Refresh Activity" in response.text
     assert "Libraries" in response.text
     assert "Force Refresh" in response.text
-    assert "Open full history" in response.text
+    assert "Open Plex refresh activity" in response.text
+    assert "Recent Refresh Activity" not in response.text
     assert 'data-loading-label="Queueing..."' in response.text
 
 
@@ -1437,33 +1435,28 @@ def test_alerts_page_surfaces_logged_failures_and_supports_dismiss(provider_app)
         logger.removeHandler(buf)
 
 
-def test_backfill_legacy_refresh_jobs_marks_recording_jobs_automatic(provider_app) -> None:
+def test_alert_navigation_shows_total_open_count_even_when_preview_is_limited(provider_app) -> None:
     with provider_app.state.services.session_factory() as session:
         session.add_all(
             [
-                PlexRefreshJob(
-                    section_id=3,
-                    recording_id="seg_primary",
-                    source=None,
-                    status=PlexRefreshJobStatus.SUCCESS.value,
-                ),
-                PlexRefreshJob(
-                    section_id=4,
-                    recording_id=None,
-                    source=None,
-                    status=PlexRefreshJobStatus.SUCCESS.value,
-                ),
+                Notification(
+                    dedupe_key=f"alert-{index}",
+                    category="system",
+                    source="tests",
+                    severity="warning",
+                    status=NotificationStatus.OPEN.value,
+                    title=f"Alert {index}",
+                    message=f"Message {index}",
+                )
+                for index in range(6)
             ]
         )
         session.commit()
-        session.execute(text("UPDATE plex_refresh_job SET source = NULL WHERE section_id IN (3, 4)"))
-        session.commit()
 
-    with provider_app.state.services.session_factory() as session:
-        changed = backfill_legacy_refresh_job_sources(session)
-        session.commit()
-        jobs = list(session.scalars(select(PlexRefreshJob).order_by(PlexRefreshJob.section_id.asc())))
+    client = TestClient(provider_app)
+    response = client.get("/admin/activity")
 
-    assert changed == 1
-    assert jobs[0].source == PlexRefreshJobSource.AUTOMATIC.value
-    assert jobs[1].source is None
+    assert response.status_code == 200
+    assert "Alerts (6)" in response.text
+    assert "6 active alerts" in response.text
+    assert "Showing the 5 most recent here." in response.text

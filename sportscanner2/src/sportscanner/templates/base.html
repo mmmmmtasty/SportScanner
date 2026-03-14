@@ -35,6 +35,9 @@
           {{ notification.title }}{% if not loop.last %} · {% endif %}
           {% endfor %}
         </p>
+        {% if notification_summary.open_count > notification_summary.preview_count %}
+        <p>Showing the {{ notification_summary.preview_count }} most recent here.</p>
+        {% endif %}
         <a href="{{ request.url_for('alerts_page') }}">Open alerts</a>
       </article>
       {% endif %}

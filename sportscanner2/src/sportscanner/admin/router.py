@@ -48,6 +48,7 @@ from sportscanner.db.queries import (
 from sportscanner.metadata_snapshot import sync_recording_metadata_snapshot
 from sportscanner.notifications import (
     NotificationEvent,
+    count_notifications,
     dismiss_all_notifications,
     dismiss_notification,
     list_notifications,
@@ -535,10 +536,12 @@ def _notification_context(request: Request) -> dict[str, object]:
             status=NotificationStatus.OPEN.value,
             limit=5,
         )
+        open_count = count_notifications(session, status=NotificationStatus.OPEN.value)
     return {
         "open_notifications": notifications,
         "notification_summary": {
-            "open_count": len(notifications),
+            "open_count": open_count,
+            "preview_count": len(notifications),
         },
     }
 
@@ -1972,17 +1975,21 @@ def alerts_page(request: Request) -> HTMLResponse:
             status=NotificationStatus.OPEN.value,
             limit=100,
         )
+        open_count = count_notifications(session, status=NotificationStatus.OPEN.value)
         dismissed_notifications = list_notifications(
             session,
             status=NotificationStatus.DISMISSED.value,
             limit=25,
         )
+        dismissed_count = count_notifications(session, status=NotificationStatus.DISMISSED.value)
     return _render(
         request,
         "alerts.html",
         {
             "alerts": open_notifications,
+            "open_alert_count": open_count,
             "dismissed_alerts": dismissed_notifications,
+            "dismissed_alert_count": dismissed_count,
             "breadcrumbs": [_crumb("Alerts")],
         },
     )
@@ -2141,14 +2148,6 @@ def plex_page(request: Request) -> HTMLResponse:
         provider_identifier = _setting(
             session, "plex_provider_identifier", services.settings.plex_provider_identifier
         )
-        refresh_jobs = list(
-            session.scalars(
-                select(PlexRefreshJob)
-                .options(joinedload(PlexRefreshJob.recording))
-                .order_by(PlexRefreshJob.created_at.desc())
-                .limit(10)
-            )
-        )
     plex = services.plex.with_credentials(pms_url, pms_token)
     sections = []
     error = None
@@ -2167,7 +2166,6 @@ def plex_page(request: Request) -> HTMLResponse:
             "sections": sections,
             "error": error,
             "provider_identifier": provider_identifier,
-            "refresh_jobs": refresh_jobs,
             "breadcrumbs": [_crumb("Plex")],
         },
     )

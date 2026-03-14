@@ -6,7 +6,7 @@
     <p class="eyebrow">Plex Integration</p>
     <h1>Plex</h1>
     <p class="hero-copy">
-      Check connection status, recent refresh activity, and available libraries in one place before asking Plex to scan or refresh metadata.
+      Check connection status and available libraries in one place before asking Plex to scan or refresh metadata.
     </p>
   </div>
 </section>
@@ -31,57 +31,6 @@
     <p><a href="{{ request.url_for('plex_registration_page') }}">Open registration and library creation</a></p>
     <p><a href="{{ request.url_for('plex_drift_page') }}">Open Missing From Plex scan</a></p>
     <p><a href="{{ request.url_for('refresh_activity_page') }}?kind=plex">Open Plex refresh activity</a></p>
-  </article>
-
-  <article class="panel">
-    <div class="panel-header">
-      <h2>Recent Refresh Activity</h2>
-      <a href="{{ request.url_for('refresh_activity_page') }}?kind=plex">Open full history</a>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Source</th>
-            <th>Recording</th>
-            <th>Section</th>
-            <th>Status</th>
-            <th>Created</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for job in refresh_jobs %}
-          <tr>
-            <td>{{ job.id }}</td>
-            <td>
-              {% if job.source == "manual" %}
-              <span class="status-chip status-plex">Manual</span>
-              {% elif job.source == "automatic" %}
-              <span class="status-chip status-published">Automatic</span>
-              {% else %}
-              <span class="status-chip status-neutral">Legacy</span>
-              {% endif %}
-            </td>
-            <td>
-              {% if job.recording %}
-              <a href="{{ request.url_for('file_detail', recording_id=job.recording.id) }}">{{ job.recording.title }}</a>
-              {% else %}
-              {{ job.recording_id or "Library-wide" }}
-              {% endif %}
-            </td>
-            <td>{{ job.section_id }}</td>
-            <td><span class="status-chip status-{{ job.status }}">{{ job.status }}</span></td>
-            <td>{{ job.created_at.strftime("%Y-%m-%d %H:%M") if job.created_at else "" }}</td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="6" class="empty-state">No refresh jobs have been recorded yet.</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
   </article>
 </section>
 

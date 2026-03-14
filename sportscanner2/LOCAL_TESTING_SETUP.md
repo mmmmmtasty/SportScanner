@@ -1,6 +1,6 @@
 # Local Testing Setup
 
-This checkout is configured to run `sportscanner2` locally on the MacBook and use the Unraid-hosted
+This checkout is configured to run `sportscanner2` locally and use the Unraid-hosted
 media folders over SMB.
 
 ## Local Runtime Files
@@ -17,7 +17,6 @@ media folders over SMB.
 From `sportscanner2/`:
 
 ```bash
-PYTHONPATH=src .venv/bin/alembic upgrade head
 PYTHONPATH=src .venv/bin/uvicorn sportscanner.main:create_app --factory --host 0.0.0.0 --port 32699
 ```
 

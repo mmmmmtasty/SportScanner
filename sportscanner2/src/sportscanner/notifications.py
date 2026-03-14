@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from sportscanner.db.models import Notification, NotificationSeverity, NotificationStatus
@@ -68,6 +68,17 @@ def list_notifications(
     if status:
         query = query.where(Notification.status == status)
     return list(session.scalars(query.limit(limit)))
+
+
+def count_notifications(
+    session: Session,
+    *,
+    status: str | None = None,
+) -> int:
+    query = select(func.count(Notification.id))
+    if status:
+        query = query.where(Notification.status == status)
+    return int(session.scalar(query) or 0)
 
 
 def dismiss_notification(session: Session, notification_id: int) -> bool:

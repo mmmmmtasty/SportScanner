@@ -225,12 +225,6 @@ export TSDB_API_KEY="123"
 .venv/bin/uvicorn sportscanner.main:create_app --factory --host 0.0.0.0 --port 32699
 ```
 
-If you are upgrading an existing database, run this first:
-
-```bash
-PYTHONPATH=src .venv/bin/alembic upgrade head
-```
-
 ## Configure
 
 ### What The Settings Screen Means
