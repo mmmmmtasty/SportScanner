@@ -11,19 +11,20 @@
   </head>
   <body>
     <main class="container">
+      {% set current_path = request.url.path %}
       <nav class="topnav">
         <ul>
-          <li><a href="{{ request.url_for('inbox') }}" class="brand">SportScanner 2</a></li>
+          <li><a href="{{ request.url_for('activity_page') }}" class="brand">SportScanner 2</a></li>
         </ul>
         <ul>
-          <li><a href="{{ request.url_for('inbox') }}" title="See every file, current state, and next action">Inbox</a></li>
-          <li><a href="{{ request.url_for('review_queue') }}" title="Resolve unmatched or uncertain files from anywhere">Review Queue</a></li>
-          <li><a href="{{ request.url_for('library_page') }}" title="Browse competitions, seasons, and published events">Library</a></li>
-          <li><a href="{{ request.url_for('refresh_jobs_page') }}" title="Review queued and completed TheSportsDB metadata refresh work">Refresh Jobs</a></li>
-          <li><a href="{{ request.url_for('plex_page') }}" title="Check Plex connection, library actions, and Plex refresh history">Plex</a></li>
-          <li><a href="{{ request.url_for('alerts_page') }}" title="Review persistent system alerts and connectivity failures">Alerts{% if notification_summary.open_count %} ({{ notification_summary.open_count }}){% endif %}</a></li>
-          <li><a href="{{ request.url_for('settings_page') }}" title="Save Plex settings and register the SportScanner provider">Settings</a></li>
-          <li><a href="{{ request.url_for('logs_page') }}" title="Inspect logs, debug output, and upstream API payloads">Logs</a></li>
+          <li><a href="{{ request.url_for('activity_page') }}" class="{% if current_path == '/admin/activity' %}is-active{% endif %}" {% if current_path == '/admin/activity' %}aria-current="page"{% endif %} title="See every file, current state, and next action">Activity</a></li>
+          <li><a href="{{ request.url_for('review_queue') }}" class="{% if current_path.startswith('/admin/review') %}is-active{% endif %}" {% if current_path.startswith('/admin/review') %}aria-current="page"{% endif %} title="Resolve unmatched or uncertain files from anywhere">Review Queue</a></li>
+          <li><a href="{{ request.url_for('library_page') }}" class="{% if current_path.startswith('/admin/library') or current_path.startswith('/admin/competitions') %}is-active{% endif %}" {% if current_path.startswith('/admin/library') or current_path.startswith('/admin/competitions') %}aria-current="page"{% endif %} title="Browse competitions, seasons, and published events">Library</a></li>
+          <li><a href="{{ request.url_for('refresh_activity_page') }}" class="{% if current_path.startswith('/admin/refresh-activity') %}is-active{% endif %}" {% if current_path.startswith('/admin/refresh-activity') %}aria-current="page"{% endif %} title="Review metadata and Plex refresh work together">Refresh Activity</a></li>
+          <li><a href="{{ request.url_for('plex_page') }}" class="{% if current_path.startswith('/admin/plex') or current_path.startswith('/admin/register-plex') %}is-active{% endif %}" {% if current_path.startswith('/admin/plex') or current_path.startswith('/admin/register-plex') %}aria-current="page"{% endif %} title="Check Plex connection, library actions, and refresh activity">Plex</a></li>
+          <li><a href="{{ request.url_for('alerts_page') }}" class="{% if current_path.startswith('/admin/alerts') %}is-active{% endif %}" {% if current_path.startswith('/admin/alerts') %}aria-current="page"{% endif %} title="Review persistent system alerts and connectivity failures">Alerts{% if notification_summary.open_count %} ({{ notification_summary.open_count }}){% endif %}</a></li>
+          <li><a href="{{ request.url_for('settings_page') }}" class="{% if current_path.startswith('/admin/settings') %}is-active{% endif %}" {% if current_path.startswith('/admin/settings') %}aria-current="page"{% endif %} title="Save Plex settings and register the SportScanner provider">Settings</a></li>
+          <li><a href="{{ request.url_for('logs_page') }}" class="{% if current_path.startswith('/admin/logs') or current_path.startswith('/admin/advanced') %}is-active{% endif %}" {% if current_path.startswith('/admin/logs') or current_path.startswith('/admin/advanced') %}aria-current="page"{% endif %} title="Inspect logs, debug output, and upstream API payloads">Logs</a></li>
         </ul>
       </nav>
       {% if notification_summary.open_count %}

@@ -78,6 +78,23 @@ _METADATA_REFRESH_TARGET_LABELS = {
     MetadataRefreshJobTarget.EVENT.value: "Event",
     MetadataRefreshJobTarget.RECORDING.value: "File",
 }
+_REFRESH_ACTIVITY_KIND_OPTIONS = {
+    "": "All activity",
+    "metadata": "Metadata",
+    "plex": "Plex",
+}
+_REFRESH_ACTIVITY_SOURCE_OPTIONS = {
+    "": "All sources",
+    MetadataRefreshJobSource.AUTOMATIC.value: "Automatic only",
+    MetadataRefreshJobSource.MANUAL.value: "Manual only",
+    "legacy": "Legacy / unknown",
+}
+_REFRESH_ACTIVITY_STATUS_OPTIONS = {
+    "": "All statuses",
+    MetadataRefreshJobStatus.PENDING.value: "Pending",
+    MetadataRefreshJobStatus.SUCCESS.value: "Success",
+    MetadataRefreshJobStatus.ERROR.value: "Error",
+}
 
 
 def _render(request: Request, template_name: str, context: dict) -> HTMLResponse:
@@ -269,6 +286,24 @@ def _with_flash(url: str, message: str) -> str:
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     query["flash"] = message
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _url_with_query(url: str, **params: object) -> str:
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    for key, value in params.items():
+        if value is None:
+            query.pop(key, None)
+            continue
+        if isinstance(value, str):
+            normalized = value.strip()
+            if not normalized:
+                query.pop(key, None)
+                continue
+            query[key] = normalized
+            continue
+        query[key] = str(value)
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
@@ -731,18 +766,13 @@ def _system_status(request: Request) -> tuple[dict[str, int], dict[str, object],
     return stats, plex_status, values, next_steps
 
 
-@router.get("/", response_class=HTMLResponse, name="dashboard")
-def dashboard(request: Request) -> RedirectResponse:
-    return RedirectResponse(url=str(request.url_for("inbox")), status_code=307)
-
-
-@router.get("/inbox", response_class=HTMLResponse, name="inbox")
-def inbox(
+def _activity_context(
     request: Request,
+    *,
     status: str | None = None,
     competition_id: str | None = None,
     confidence: str | None = None,
-) -> HTMLResponse:
+) -> dict[str, object]:
     stats, plex_status, values, next_steps = _system_status(request)
     with _session_factory(request)() as session:
         competitions = list(session.scalars(select(Competition).order_by(Competition.name.asc())))
@@ -784,8 +814,6 @@ def inbox(
                 )
             elif recording.status == RecordingStatus.STAGED.value:
                 action_label = "Browse Events ->"
-            elif recording.status == RecordingStatus.IGNORED.value:
-                action_label = "View"
             elif recording.status == RecordingStatus.ERROR.value:
                 action_label = "Retry"
             explanation = None
@@ -812,23 +840,261 @@ def inbox(
                 }
             )
 
-    return _render(
-        request,
-        "inbox.html",
-        {
-            "rows": rows,
-            "stats": stats,
-            "plex_status": plex_status,
-            "values": values,
-            "next_steps": next_steps,
-            "filters": {
-                "status": status or "",
-                "competition_id": competition_id or "",
-                "confidence": confidence or "",
-            },
-            "competitions": competitions,
-            "breadcrumbs": [_crumb("Inbox")],
+    return {
+        "rows": rows,
+        "stats": stats,
+        "plex_status": plex_status,
+        "values": values,
+        "next_steps": next_steps,
+        "filters": {
+            "status": status or "",
+            "competition_id": competition_id or "",
+            "confidence": confidence or "",
         },
+        "competitions": competitions,
+        "breadcrumbs": [_crumb("Activity")],
+    }
+
+
+def _refresh_activity_source_badge(source: str | None) -> tuple[str, str]:
+    if source == MetadataRefreshJobSource.MANUAL.value:
+        return ("Manual", "status-plex")
+    if source == MetadataRefreshJobSource.AUTOMATIC.value:
+        return ("Automatic", "status-published")
+    return ("Legacy", "status-neutral")
+
+
+def _metadata_refresh_link(
+    request: Request,
+    session,
+    job: MetadataRefreshJob,
+) -> tuple[str | None, str | None]:
+    if job.target_type == MetadataRefreshJobTarget.RECORDING.value:
+        recording = session.get(Recording, job.target_id)
+        if recording is not None:
+            return (str(request.url_for("file_detail", recording_id=recording.id)), "Open file")
+        return (None, None)
+    if job.target_type == MetadataRefreshJobTarget.COMPETITION.value:
+        competition = session.get(Competition, job.target_id)
+        if competition is not None:
+            return (
+                str(request.url_for("library_competition_detail", competition_id=competition.id)),
+                "Open competition",
+            )
+        return (None, None)
+    if job.target_type == MetadataRefreshJobTarget.SEASON.value:
+        season = session.get(CompetitionSeason, job.target_id)
+        if season is None:
+            return (None, None)
+        competition = session.get(Competition, season.competition_id)
+        if competition is None:
+            return (None, None)
+        return (
+            str(request.url_for("library_season_detail", competition_id=competition.id, season_id=season.id)),
+            "Open season",
+        )
+    if job.target_type == MetadataRefreshJobTarget.EVENT.value:
+        event = session.get(Event, job.target_id)
+        if event is None:
+            return (None, None)
+        recording = session.scalar(
+            select(Recording)
+            .where(Recording.event_id == event.id)
+            .order_by(Recording.updated_at.desc(), Recording.created_at.desc())
+            .limit(1)
+        )
+        if recording is not None:
+            return (str(request.url_for("file_detail", recording_id=recording.id)), "Open file")
+        season = session.get(CompetitionSeason, event.competition_season_id)
+        if season is None:
+            return (None, None)
+        competition = session.get(Competition, season.competition_id)
+        if competition is None:
+            return (None, None)
+        return (
+            str(request.url_for("library_season_detail", competition_id=competition.id, season_id=season.id)),
+            "Open season",
+        )
+    return (None, None)
+
+
+def _refresh_activity_context(
+    request: Request,
+    *,
+    kind: str | None = None,
+    source: str | None = None,
+    status: str | None = None,
+    recording_id: str | None = None,
+    target_type: str | None = None,
+    target_id: str | None = None,
+) -> dict[str, object]:
+    kind_filter = (kind or "").strip().lower()
+    if kind_filter not in _REFRESH_ACTIVITY_KIND_OPTIONS:
+        kind_filter = ""
+    source_filter = (source or "").strip().lower()
+    if source_filter not in _REFRESH_ACTIVITY_SOURCE_OPTIONS:
+        source_filter = ""
+    status_filter = (status or "").strip().lower()
+    if status_filter not in _REFRESH_ACTIVITY_STATUS_OPTIONS:
+        status_filter = ""
+    target_type_filter = (target_type or "").strip().lower()
+    valid_target_types = set(_METADATA_REFRESH_TARGET_LABELS)
+    if target_type_filter not in valid_target_types:
+        target_type_filter = ""
+    recording_filter = (recording_id or "").strip() or None
+    target_id_filter = (target_id or "").strip() or None
+
+    rows: list[dict[str, object]] = []
+    with _session_factory(request)() as session:
+        if kind_filter != "plex":
+            metadata_query = select(MetadataRefreshJob).order_by(MetadataRefreshJob.created_at.desc()).limit(250)
+            if source_filter in {
+                MetadataRefreshJobSource.AUTOMATIC.value,
+                MetadataRefreshJobSource.MANUAL.value,
+            }:
+                metadata_query = metadata_query.where(MetadataRefreshJob.source == source_filter)
+            elif source_filter == "legacy":
+                metadata_query = metadata_query.where(False)
+            if status_filter:
+                metadata_query = metadata_query.where(MetadataRefreshJob.status == status_filter)
+            if recording_filter:
+                metadata_query = metadata_query.where(
+                    MetadataRefreshJob.target_type == MetadataRefreshJobTarget.RECORDING.value,
+                    MetadataRefreshJob.target_id == recording_filter,
+                )
+            if target_type_filter:
+                metadata_query = metadata_query.where(MetadataRefreshJob.target_type == target_type_filter)
+            if target_id_filter:
+                metadata_query = metadata_query.where(MetadataRefreshJob.target_id == target_id_filter)
+            for job in session.scalars(metadata_query):
+                href, href_label = _metadata_refresh_link(request, session, job)
+                source_label, source_class = _refresh_activity_source_badge(job.source)
+                rows.append(
+                    {
+                        "kind": "metadata",
+                        "kind_label": "Metadata",
+                        "kind_class": "status-published",
+                        "source_label": source_label,
+                        "source_class": source_class,
+                        "item_label": job.target_label,
+                        "scope_label": _METADATA_REFRESH_TARGET_LABELS.get(job.target_type, job.target_type.title()),
+                        "status_label": job.status.title(),
+                        "status_class": f"status-{job.status}",
+                        "created_at": job.created_at,
+                        "completed_at": job.completed_at,
+                        "error_message": job.error_message,
+                        "href": href,
+                        "href_label": href_label,
+                    }
+                )
+
+        if kind_filter != "metadata":
+            plex_query = select(PlexRefreshJob).options(joinedload(PlexRefreshJob.recording))
+            if source_filter == PlexRefreshJobSource.AUTOMATIC.value:
+                plex_query = plex_query.where(PlexRefreshJob.source == PlexRefreshJobSource.AUTOMATIC.value)
+            elif source_filter == PlexRefreshJobSource.MANUAL.value:
+                plex_query = plex_query.where(PlexRefreshJob.source == PlexRefreshJobSource.MANUAL.value)
+            elif source_filter == "legacy":
+                plex_query = plex_query.where(PlexRefreshJob.source.is_(None))
+            if status_filter:
+                plex_query = plex_query.where(PlexRefreshJob.status == status_filter)
+            if recording_filter:
+                plex_query = plex_query.where(PlexRefreshJob.recording_id == recording_filter)
+            plex_query = plex_query.order_by(PlexRefreshJob.created_at.desc()).limit(250)
+            for job in session.scalars(plex_query):
+                source_label, source_class = _refresh_activity_source_badge(job.source)
+                href = None
+                href_label = None
+                item_label = f"Library {job.section_id}"
+                if job.recording is not None:
+                    href = str(request.url_for("file_detail", recording_id=job.recording.id))
+                    href_label = "Open file"
+                    item_label = job.recording.title
+                rows.append(
+                    {
+                        "kind": "plex",
+                        "kind_label": "Plex",
+                        "kind_class": "status-plex",
+                        "source_label": source_label,
+                        "source_class": source_class,
+                        "item_label": item_label,
+                        "scope_label": (
+                            f"Section {job.section_id} · {job.recording_id}"
+                            if job.recording_id
+                            else f"Section {job.section_id} · Library-wide"
+                        ),
+                        "status_label": job.status.title(),
+                        "status_class": f"status-{job.status}",
+                        "created_at": job.created_at,
+                        "completed_at": job.completed_at,
+                        "error_message": job.error_message,
+                        "href": href,
+                        "href_label": href_label,
+                    }
+                )
+
+        rows.sort(key=lambda row: row["created_at"] or datetime.min.replace(tzinfo=UTC), reverse=True)
+        rows = rows[:250]
+
+        metadata_total = session.scalar(select(func.count(MetadataRefreshJob.id))) or 0
+        plex_total = session.scalar(select(func.count(PlexRefreshJob.id))) or 0
+        metadata_pending = session.scalar(
+            select(func.count(MetadataRefreshJob.id)).where(
+                MetadataRefreshJob.status == MetadataRefreshJobStatus.PENDING.value
+            )
+        ) or 0
+        plex_pending = session.scalar(
+            select(func.count(PlexRefreshJob.id)).where(PlexRefreshJob.status == PlexRefreshJobStatus.PENDING.value)
+        ) or 0
+
+    return {
+        "rows": rows,
+        "filters": {
+            "kind": kind_filter,
+            "source": source_filter,
+            "status": status_filter,
+        },
+        "kind_options": _REFRESH_ACTIVITY_KIND_OPTIONS,
+        "source_options": _REFRESH_ACTIVITY_SOURCE_OPTIONS,
+        "status_options": _REFRESH_ACTIVITY_STATUS_OPTIONS,
+        "recording_filter": recording_filter or "",
+        "target_type_filter": target_type_filter or "",
+        "target_id_filter": target_id_filter or "",
+        "stats": {
+            "total_jobs": metadata_total + plex_total,
+            "pending_jobs": metadata_pending + plex_pending,
+            "metadata_jobs": metadata_total,
+            "plex_jobs": plex_total,
+        },
+        "breadcrumbs": [_crumb("Refresh Activity")],
+    }
+
+
+@router.get("/", response_class=HTMLResponse, name="dashboard")
+def dashboard(request: Request) -> RedirectResponse:
+    return RedirectResponse(url=str(request.url_for("activity_page")), status_code=307)
+
+
+@router.get("/activity", response_class=HTMLResponse, name="activity_page")
+def activity_page(
+    request: Request,
+    status: str | None = None,
+    competition_id: str | None = None,
+    confidence: str | None = None,
+) -> HTMLResponse:
+    return _render(request, "activity.html", _activity_context(
+        request,
+        status=status,
+        competition_id=competition_id,
+        confidence=confidence,
+    ))
+
+
+@router.get("/inbox", response_class=HTMLResponse, name="inbox")
+def inbox(request: Request) -> RedirectResponse:
+    return RedirectResponse(
+        url=_url_with_query(str(request.url_for("activity_page")), **dict(request.query_params)),
+        status_code=307,
     )
 
 
@@ -893,15 +1159,6 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
     queue_position = open_task_ids.index(task_id) + 1 if task_id in open_task_ids else None
     prev_task_id = open_task_ids[queue_position - 2] if queue_position and queue_position > 1 else None
     next_task_id = open_task_ids[queue_position] if queue_position and queue_position < len(open_task_ids) else None
-    suggested_query = " ".join(
-        part
-        for part in (
-            parsed_competition_name or (competition.name if competition else None),
-            recording.title if recording else None,
-            recording.air_date.isoformat() if recording and recording.air_date else None,
-        )
-        if part
-    )
     competition_suggestions = _competition_import_suggestions(metadata_source, parsed_competition_name)
     return _render(
         request,
@@ -919,7 +1176,6 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
             "queue_total": len(open_task_ids),
             "prev_task_id": prev_task_id,
             "next_task_id": next_task_id,
-            "suggested_query": suggested_query,
             "breadcrumbs": [
                 _crumb("Review Queue", str(request.url_for("review_queue"))),
                 _crumb(f"Task {task.id}"),
@@ -954,7 +1210,7 @@ def review_season_events(request: Request, task_id: int) -> HTMLResponse:
             raise HTTPException(status_code=404, detail="Unknown review task")
         recording = session.get(Recording, task.recording_id)
         season = session.get(CompetitionSeason, recording.competition_season_id) if recording else None
-        events = []
+        rows = []
         if season:
             events = list(
                 session.scalars(
@@ -963,13 +1219,40 @@ def review_season_events(request: Request, task_id: int) -> HTMLResponse:
                     .order_by(Event.date.asc().nulls_last(), Event.round.asc().nulls_last(), Event.name.asc())
                 )
             )
+            candidate_scores: dict[str, float] = {}
+            for candidate in task.candidates or []:
+                if not isinstance(candidate, dict):
+                    continue
+                event_id = candidate.get("event_id")
+                confidence = candidate.get("confidence")
+                if not isinstance(event_id, str):
+                    continue
+                try:
+                    score = float(confidence)
+                except (TypeError, ValueError):
+                    continue
+                candidate_scores[event_id] = max(score, candidate_scores.get(event_id, 0.0))
+            for event in events:
+                score = candidate_scores.get(event.id)
+                confidence_label = f"{round(score * 100)}%" if score is not None else "No score"
+                class_name = _confidence_class(score or 0.0)
+                rows.append(
+                    {
+                        "event": event,
+                        "confidence": {
+                            "label": confidence_label,
+                            "class_name": class_name,
+                        },
+                        "row_class": f"season-event-row-{class_name}",
+                    }
+                )
     return _render(
         request,
         "review_season_events.html",
         {
             "task_id": task_id,
             "season": season,
-            "events": events,
+            "rows": rows,
         },
     )
 
@@ -998,167 +1281,6 @@ def reassign_review_task(
     return RedirectResponse(
         url=str(request.url_for("review_task_detail", task_id=task_id)),
         status_code=303,
-    )
-
-
-@router.get("/review/{task_id}/search", response_class=HTMLResponse)
-def search_events_for_review(
-    request: Request,
-    task_id: int,
-    q: str = "",
-    date_from: date | None = None,
-    date_to: date | None = None,
-) -> HTMLResponse:
-    services = request.app.state.services
-    with _session_factory(request)() as session:
-        task = session.get(ReviewTask, task_id)
-        if task is None:
-            raise HTTPException(status_code=404, detail="Unknown review task")
-        recording = session.get(Recording, task.recording_id)
-        season = session.get(CompetitionSeason, recording.competition_season_id) if recording else None
-        competition = session.get(Competition, season.competition_id) if season else None
-        results = []
-        query = q.strip()
-        seen: set[tuple[str, str | None]] = set()
-        if query:
-            rows = list(
-                session.scalars(
-                    select(Event)
-                    .join(CompetitionSeason, CompetitionSeason.id == Event.competition_season_id)
-                    .join(Competition, Competition.id == CompetitionSeason.competition_id)
-                    .where(or_(Event.name.ilike(f"%{query}%"), Competition.name.ilike(f"%{query}%")))
-                    .order_by(Event.date.desc())
-                    .limit(40)
-                )
-            )
-            ranked_rows = []
-            for ev in rows:
-                row_season = session.get(CompetitionSeason, ev.competition_season_id)
-                row_comp = session.get(Competition, row_season.competition_id) if row_season else None
-                score = _review_search_score(
-                    query,
-                    ev.name,
-                    row_comp.name if row_comp else "",
-                    preferred_competition=competition.name if competition else None,
-                    preferred_date=recording.air_date if recording else None,
-                    event_date=ev.date,
-                )
-                ranked_rows.append(
-                    (
-                        score,
-                        {
-                            "event_id": ev.id,
-                            "tsdb_event_id": None,
-                            "name": ev.name,
-                            "description": ev.description,
-                            "date": ev.date,
-                            "round": ev.round,
-                            "home_team": ev.home_team,
-                            "away_team": ev.away_team,
-                            "competition": row_comp.name if row_comp else "Unknown",
-                            "season": row_season.label if row_season else "Unknown",
-                            "source": "Cached event",
-                            "action_label": "Use This Event",
-                            "score_pct": round(score * 100),
-                            "confidence_class": _confidence_class(score),
-                        },
-                    )
-                )
-            for raw_score, item in sorted(ranked_rows, key=lambda row: (row[0], row[1]["date"] or date.min), reverse=True):
-                if date_from is not None and item["date"] is not None and item["date"] < date_from:
-                    continue
-                if date_to is not None and item["date"] is not None and item["date"] > date_to:
-                    continue
-                dedupe_key = (item["name"], item["date"].isoformat() if item["date"] else None)
-                if dedupe_key in seen:
-                    continue
-                seen.add(dedupe_key)
-                results.append(item)
-                if len(results) >= 12:
-                    break
-
-            if services.metadata_source is not None:
-                upstream_rows = services.metadata_source.search_filename(query)
-                ranked_upstream = []
-                for upstream in upstream_rows:
-                    existing = (
-                        session.scalar(select(Event).where(Event.tsdb_id == upstream.tsdb_id))
-                        if upstream.tsdb_id is not None
-                        else None
-                    )
-                    if existing is not None:
-                        dedupe_key = (upstream.name, upstream.date.isoformat() if upstream.date else None)
-                        if dedupe_key in seen:
-                            continue
-                        existing_season = session.get(CompetitionSeason, existing.competition_season_id)
-                        existing_comp = session.get(Competition, existing_season.competition_id) if existing_season else None
-                        season_label = existing_season.label if existing_season else "Unknown"
-                        source_label = "Cached event"
-                        action_label = "Use Cached Event"
-                        event_id = existing.id
-                        tsdb_lookup_id = None
-                    else:
-                        season_label = "Unknown"
-                        if upstream.date is not None:
-                            if competition is not None and (
-                                not upstream.competition_name or similarity(competition.name, upstream.competition_name) >= 0.6
-                            ):
-                                _, season_label = season_for_date(upstream.date, competition)
-                            else:
-                                season_label = str(upstream.date.year)
-                        source_label = "TheSportsDB"
-                        action_label = "Load From TheSportsDB"
-                        event_id = None
-                        tsdb_lookup_id = upstream.tsdb_id
-                    score = _review_search_score(
-                        query,
-                        upstream.name,
-                        upstream.competition_name,
-                        preferred_competition=competition.name if competition else None,
-                        preferred_date=recording.air_date if recording else None,
-                        event_date=upstream.date,
-                    )
-                    ranked_upstream.append(
-                        (
-                            score,
-                            {
-                                "event_id": event_id,
-                                "tsdb_event_id": tsdb_lookup_id,
-                                "name": upstream.name,
-                                "description": upstream.description,
-                                "date": upstream.date,
-                                "round": getattr(upstream, "round", None),
-                                "home_team": upstream.home_team,
-                                "away_team": upstream.away_team,
-                                "competition": upstream.competition_name or (competition.name if competition else "Unknown"),
-                                "season": season_label,
-                                "source": source_label,
-                                "action_label": action_label,
-                                "score_pct": round(score * 100),
-                                "confidence_class": _confidence_class(score),
-                            },
-                        )
-                    )
-                for raw_score, item in sorted(
-                    ranked_upstream,
-                    key=lambda row: (row[0], row[1]["date"] or date.min),
-                    reverse=True,
-                ):
-                    if date_from is not None and item["date"] is not None and item["date"] < date_from:
-                        continue
-                    if date_to is not None and item["date"] is not None and item["date"] > date_to:
-                        continue
-                    dedupe_key = (item["name"], item["date"].isoformat() if item["date"] else None)
-                    if dedupe_key in seen:
-                        continue
-                    seen.add(dedupe_key)
-                    results.append(item)
-                    if len(results) >= 18:
-                        break
-    return _render(
-        request,
-        "review_event_search.html",
-        {"task_id": task_id, "recording_id": None, "results": results, "query": q.strip()},
     )
 
 
@@ -1266,7 +1388,7 @@ def event_refresh_metadata(
     background_tasks: BackgroundTasks,
 ) -> Response:
     services = request.app.state.services
-    fallback = str(request.url_for("inbox"))
+    fallback = str(request.url_for("activity_page"))
     with _session_factory(request)() as session:
         event = session.get(Event, event_id)
         if event is None:
@@ -1418,7 +1540,11 @@ def file_detail(request: Request, recording_id: str) -> HTMLResponse:
                     _crumb(recording.title),
                 ]
                 if competition is not None and season is not None
-                else [_crumb("Inbox", str(request.url_for("inbox"))), _crumb(recording.title)]
+                else [_crumb("Activity", str(request.url_for("activity_page"))), _crumb(recording.title)]
+            ),
+            "refresh_activity_href": _url_with_query(
+                str(request.url_for("refresh_activity_page")),
+                recording_id=recording.id,
             ),
         },
     )
@@ -1942,7 +2068,7 @@ def rescan(request: Request, background_tasks: BackgroundTasks) -> Response:
         task=services.organizer.rescan_incoming,
     )
     message = "Incoming rescan queued." if queued else "Incoming rescan already queued."
-    return _action_response(request, fallback=str(request.url_for("inbox")), message=message)
+    return _action_response(request, fallback=str(request.url_for("activity_page")), message=message)
 
 
 @router.get("/plex-libraries", response_class=HTMLResponse, name="plex_libraries_page")
@@ -2123,101 +2249,58 @@ def plex_refresh_section(request: Request, section_id: int) -> Response:
     )
 
 
-@router.get("/plex-refresh-jobs", response_class=HTMLResponse, name="plex_refresh_jobs_page")
-def plex_refresh_jobs_page(request: Request) -> HTMLResponse:
-    source_filter = request.query_params.get("source", "").strip().lower()
-    if source_filter not in _REFRESH_JOB_SOURCE_OPTIONS:
-        source_filter = ""
-
-    with _session_factory(request)() as session:
-        jobs_query = select(PlexRefreshJob).options(joinedload(PlexRefreshJob.recording))
-        if source_filter:
-            jobs_query = jobs_query.where(PlexRefreshJob.source == source_filter)
-        jobs_query = jobs_query.order_by(PlexRefreshJob.created_at.desc()).limit(200)
-
-        refresh_jobs = list(session.scalars(jobs_query))
-        total_jobs = session.scalar(select(func.count(PlexRefreshJob.id))) or 0
-        pending_jobs = session.scalar(
-            select(func.count(PlexRefreshJob.id)).where(PlexRefreshJob.status == "pending")
-        ) or 0
-        automatic_jobs = session.scalar(
-            select(func.count(PlexRefreshJob.id)).where(
-                PlexRefreshJob.source == PlexRefreshJobSource.AUTOMATIC.value
-            )
-        ) or 0
-        manual_jobs = session.scalar(
-            select(func.count(PlexRefreshJob.id)).where(PlexRefreshJob.source == PlexRefreshJobSource.MANUAL.value)
-        ) or 0
-        legacy_jobs = session.scalar(
-            select(func.count(PlexRefreshJob.id)).where(PlexRefreshJob.source.is_(None))
-        ) or 0
-
+@router.get("/refresh-activity", response_class=HTMLResponse, name="refresh_activity_page")
+def refresh_activity_page(
+    request: Request,
+    kind: str | None = None,
+    source: str | None = None,
+    status: str | None = None,
+    recording_id: str | None = None,
+    target_type: str | None = None,
+    target_id: str | None = None,
+) -> HTMLResponse:
     return _render(
         request,
-        "plex_refresh_jobs.html",
-        {
-            "refresh_jobs": refresh_jobs,
-            "filters": {"source": source_filter},
-            "source_options": _REFRESH_JOB_SOURCE_OPTIONS,
-            "stats": {
-                "total_jobs": total_jobs,
-                "pending_jobs": pending_jobs,
-                "automatic_jobs": automatic_jobs,
-                "manual_jobs": manual_jobs,
-                "legacy_jobs": legacy_jobs,
-            },
-            "breadcrumbs": [
-                _crumb("Plex", str(request.url_for("plex_page"))),
-                _crumb("Refresh Jobs"),
-            ],
-        },
+        "refresh_activity.html",
+        _refresh_activity_context(
+            request,
+            kind=kind,
+            source=source,
+            status=status,
+            recording_id=recording_id,
+            target_type=target_type,
+            target_id=target_id,
+        ),
+    )
+
+
+@router.get("/plex-refresh-jobs", response_class=HTMLResponse, name="plex_refresh_jobs_page")
+def plex_refresh_jobs_page(request: Request) -> RedirectResponse:
+    return RedirectResponse(
+        url=_url_with_query(
+            str(request.url_for("refresh_activity_page")),
+            kind="plex",
+            source=request.query_params.get("source"),
+            status=request.query_params.get("status"),
+            recording_id=request.query_params.get("recording_id"),
+        ),
+        status_code=307,
     )
 
 
 @router.get("/refresh-jobs", response_class=HTMLResponse, name="refresh_jobs_page")
-def refresh_jobs_page(request: Request) -> HTMLResponse:
-    source_filter = request.query_params.get("source", "").strip().lower()
-    if source_filter not in _METADATA_REFRESH_SOURCE_OPTIONS:
-        source_filter = ""
-
-    with _session_factory(request)() as session:
-        jobs_query = select(MetadataRefreshJob).order_by(MetadataRefreshJob.created_at.desc())
-        if source_filter:
-            jobs_query = jobs_query.where(MetadataRefreshJob.source == source_filter)
-        refresh_jobs = list(session.scalars(jobs_query.limit(200)))
-        total_jobs = session.scalar(select(func.count(MetadataRefreshJob.id))) or 0
-        pending_jobs = session.scalar(
-            select(func.count(MetadataRefreshJob.id)).where(
-                MetadataRefreshJob.status == MetadataRefreshJobStatus.PENDING.value
-            )
-        ) or 0
-        automatic_jobs = session.scalar(
-            select(func.count(MetadataRefreshJob.id)).where(
-                MetadataRefreshJob.source == MetadataRefreshJobSource.AUTOMATIC.value
-            )
-        ) or 0
-        manual_jobs = session.scalar(
-            select(func.count(MetadataRefreshJob.id)).where(
-                MetadataRefreshJob.source == MetadataRefreshJobSource.MANUAL.value
-            )
-        ) or 0
-
-    return _render(
-        request,
-        "refresh_jobs.html",
-        {
-            "refresh_jobs": refresh_jobs,
-            "filters": {"source": source_filter},
-            "source_options": _METADATA_REFRESH_SOURCE_OPTIONS,
-            "target_labels": _METADATA_REFRESH_TARGET_LABELS,
-            "stats": {
-                "total_jobs": total_jobs,
-                "pending_jobs": pending_jobs,
-                "automatic_jobs": automatic_jobs,
-                "manual_jobs": manual_jobs,
-            },
-            "breadcrumbs": [_crumb("Refresh Jobs")],
-        },
+def refresh_jobs_page(request: Request) -> RedirectResponse:
+    return RedirectResponse(
+        url=_url_with_query(
+            str(request.url_for("refresh_activity_page")),
+            kind="metadata",
+            source=request.query_params.get("source"),
+            status=request.query_params.get("status"),
+            target_type=request.query_params.get("target_type"),
+            target_id=request.query_params.get("target_id"),
+            recording_id=request.query_params.get("recording_id"),
+        ),
+        status_code=307,
     )
 
 
@@ -2420,42 +2503,6 @@ def search_events_for_file(
         "review_event_search.html",
         {"recording_id": recording_id, "task_id": None, "results": results, "query": q.strip()},
     )
-
-
-# ---------------------------------------------------------------------------
-# Bulk auto-resolve endpoint (A8)
-# ---------------------------------------------------------------------------
-
-
-@router.post("/inbox/resolve-high-confidence", name="resolve_high_confidence")
-def resolve_high_confidence(request: Request, background_tasks: BackgroundTasks) -> Response:
-    services = request.app.state.services
-
-    def run() -> None:
-        resolved_ids = services.organizer.resolve_high_confidence_recordings(threshold=0.70)
-        if not resolved_ids:
-            return
-        with _session_factory(request)() as session:
-            pms_url = _setting(session, "pms_url", services.settings.pms_url)
-            pms_token = _setting(session, "pms_token", services.settings.pms_token)
-            plex = services.plex.with_credentials(pms_url, pms_token)
-            for section_id in plex.find_show_section_ids():
-                create_refresh_job(session, section_id=section_id, source=PlexRefreshJobSource.AUTOMATIC)
-            session.commit()
-
-    queued = _queue_background_job(
-        request,
-        background_tasks,
-        job_key="resolve-high-confidence",
-        task=run,
-    )
-    message = (
-        "High-confidence review resolutions queued."
-        if queued
-        else "High-confidence review resolutions already queued."
-    )
-    return _action_response(request, fallback=str(request.url_for("inbox")), message=message)
-
 
 # ---------------------------------------------------------------------------
 # Season detail page (D1 / A7)

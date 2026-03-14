@@ -19,7 +19,7 @@
     <p class="eyebrow">File {{ recording.id }}</p>
     <h1>{{ recording.title }}</h1>
     <p class="hero-copy">
-      Review the parsed file context, current match, downloaded artwork, and manual overrides in one place. Use the review queue for ranked alternatives when SportScanner still needs a decision.
+      One place for the current match, file paths, manual overrides, and metadata refresh controls. Use rematch search when SportScanner needs a different event.
     </p>
   </div>
   <aside class="hero-side-panel">
@@ -37,102 +37,39 @@
             hx-swap="none">
         <button type="submit" class="secondary" data-loading-label="Queueing File..." data-queued-label="Queued">Refresh File Metadata</button>
       </form>
+      <a href="{{ refresh_activity_href }}" role="button" class="secondary">Open Refresh Activity</a>
     </div>
-    {% if artwork_cards %}
-    <div class="hero-art-grid">
-      {% for card in artwork_cards %}
-      <figure class="hero-art-card">
-        <img src="{{ card.url }}" alt="{{ card.alt }}" loading="lazy" />
-        <figcaption>{{ card.label }}</figcaption>
-      </figure>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="helper-text">No downloaded artwork has been cached for this file yet.</p>
-    {% endif %}
+    <p class="helper-text">
+      After publish, the managed library path is the canonical copy. The incoming source path may disappear after linking or torrent cleanup.
+    </p>
   </aside>
 </section>
 
 <section class="split-grid">
   <article class="panel">
     <div class="panel-header">
-      <h2>File Details</h2>
+      <h2>Primary Summary</h2>
     </div>
     <div class="status-stack">
       <div class="status-line"><span>Source file</span><strong>{{ recording.source_path.split("/")[-1] }}</strong></div>
-      <div class="status-line"><span>Kind</span><strong>{{ recording.kind }}</strong></div>
-      <div class="status-line"><span>Event date</span><strong>{{ recording.air_date or "Unknown" }}</strong></div>
-      <div class="status-line"><span>Season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
-      <div class="status-line"><span>Managed path</span><strong>{{ recording.managed_path or "Not published yet" }}</strong></div>
-    </div>
-    <p class="helper-text">After publish, the managed library path is the canonical copy. The incoming source path may disappear after linking or torrent cleanup.</p>
-  </article>
-
-  <article class="panel">
-    <div class="panel-header">
-      <h2>Best Match</h2>
-    </div>
-    <div class="status-stack">
       <div class="status-line"><span>Competition</span><strong>{{ competition.name if competition else "Unknown" }}</strong></div>
       <div class="status-line"><span>Matched event</span><strong>{{ event.name if event else "Unmatched" }}</strong></div>
-      <div class="status-line"><span>TheSportsDB Event ID</span><strong>{{ event.tsdb_id if event and event.tsdb_id else "Unknown" }}</strong></div>
+      <div class="status-line"><span>Season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
       <div class="status-line"><span>Episode</span><strong>{{ format_episode_code(recording) }}</strong></div>
       <div class="status-line"><span>Confidence</span><strong>{{ ((recording.match_confidence or 0) * 100) | round | int }}%</strong></div>
+      <div class="status-line"><span>Kind</span><strong>{{ recording.kind }}</strong></div>
+      <div class="status-line"><span>Event date</span><strong>{{ recording.air_date or "Unknown" }}</strong></div>
+      {% if match_method_label %}
+      <div class="status-line"><span>Match method</span><strong>{{ match_method_label }}</strong></div>
+      {% endif %}
+      <div class="status-line"><span>Metadata refreshed</span><strong>{{ recording.metadata_refreshed_at.strftime("%Y-%m-%d %H:%M UTC") if recording.metadata_refreshed_at else "Never" }}</strong></div>
+      <div class="status-line"><span>Source path</span><strong>{{ recording.source_path }}</strong></div>
+      <div class="status-line"><span>Managed path</span><strong>{{ recording.managed_path or "Not published yet" }}</strong></div>
     </div>
     <p class="helper-text">{{ explanation }}</p>
     {% if review_task %}
     <p><a href="{{ request.url_for('review_task_detail', task_id=review_task.id) }}">Open ranked alternatives in the review queue</a></p>
     {% endif %}
-  </article>
-</section>
-
-<section>
-  <article class="panel">
-    <div class="panel-header">
-      <h2>Find Different Event</h2>
-    </div>
-    <form
-      hx-get="{{ request.url_for('search_events_for_file', recording_id=recording.id) }}"
-      hx-target="#file-search-results"
-      hx-trigger="input changed delay:300ms from:#file-search-q, change from:[name='date_from'], change from:[name='date_to']"
-      class="inline-search-form"
-    >
-      <input
-        id="file-search-q"
-        name="q"
-        type="search"
-        placeholder="Search events, competition name, or date..."
-        value="{{ event.name if event else '' }}"
-        autocomplete="off"
-      />
-      <div class="date-range-row">
-        <label>From <input type="date" name="date_from" /></label>
-        <label>To <input type="date" name="date_to" /></label>
-      </div>
-    </form>
-    <div id="file-search-results">
-      <p class="empty-state helper-text">Start typing to search cached events and TheSportsDB.</p>
-    </div>
-  </article>
-</section>
-
-<section class="split-grid">
-  <article class="panel">
-    <div class="panel-header">
-      <h2>Current Mapping</h2>
-    </div>
-    <div class="status-stack">
-      <div class="status-line"><span>Status</span><strong>{{ status.label }}</strong></div>
-      <div class="status-line"><span>Mapped season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
-      <div class="status-line"><span>Manual event date</span><strong>{{ recording.air_date or "Unknown" }}</strong></div>
-      {% if match_method_label %}
-      <div class="status-line"><span>Match method</span><strong>{{ match_method_label }}</strong></div>
-      {% endif %}
-      <div class="status-line"><span>Episode</span><strong>{{ format_episode_code(recording) }}</strong></div>
-      <div class="status-line"><span>Metadata refreshed</span><strong>{{ recording.metadata_refreshed_at.strftime("%Y-%m-%d %H:%M UTC") if recording.metadata_refreshed_at else "Never" }}</strong></div>
-    </div>
-    <p class="helper-text"><strong>Source:</strong> {{ recording.source_path }}</p>
-    <p class="helper-text"><strong>Managed:</strong> {{ recording.managed_path or "Not published yet" }}</p>
   </article>
 
   <article class="panel">
@@ -171,19 +108,35 @@
       <button type="submit" data-loading-label="Saving...">Save Manual Override</button>
     </form>
   </article>
+</section>
 
+<section>
   <article class="panel">
     <div class="panel-header">
-      <h2>Delete File</h2>
+      <h2>Find Different Event</h2>
     </div>
-    <p class="helper-text">
-      If Plex still has this published item, select Remove From Plex first. Delete Media File also removes the managed copy from disk when it still exists.
-    </p>
-    <form method="post" action="{{ request.url_for('delete_recording', recording_id=recording.id) }}" onsubmit="return confirm('Delete this file from SportScanner?');">
-      <label><input type="checkbox" name="remove_from_plex" value="1" /> Remove From Plex</label>
-      <label><input type="checkbox" name="delete_media" value="1" /> Delete Media File</label>
-      <button type="submit" class="secondary">Delete File</button>
+    <form
+      hx-get="{{ request.url_for('search_events_for_file', recording_id=recording.id) }}"
+      hx-target="#file-search-results"
+      hx-trigger="input changed delay:300ms from:#file-search-q, change from:[name='date_from'], change from:[name='date_to']"
+      class="inline-search-form"
+    >
+      <input
+        id="file-search-q"
+        name="q"
+        type="search"
+        placeholder="Search events, competition name, or date..."
+        value="{{ event.name if event else '' }}"
+        autocomplete="off"
+      />
+      <div class="date-range-row">
+        <label>From <input type="date" name="date_from" /></label>
+        <label>To <input type="date" name="date_to" /></label>
+      </div>
     </form>
+    <div id="file-search-results">
+      <p class="empty-state helper-text">Start typing to search cached events and TheSportsDB.</p>
+    </div>
   </article>
 </section>
 
@@ -217,23 +170,44 @@
 
   <article class="panel">
     <div class="panel-header">
-      <h2>Downloaded Artwork</h2>
+      <h2>Delete File</h2>
     </div>
-    {% if recording.metadata_images %}
-    <div class="metadata-gallery">
-      {% for image in recording.metadata_images %}
-      <figure class="metadata-image-card">
-        <img src="{{ image.url }}" alt="{{ image.alt or image.type }}" loading="lazy" />
-        <figcaption>
-          <strong>{{ image.type }}</strong>
-          <small>{{ image.url }}</small>
-        </figcaption>
-      </figure>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="empty-state">No cached images were stored for this recording.</p>
-    {% endif %}
+    <p class="helper-text">
+      If Plex still has this published item, select Remove From Plex first. Delete Media File also removes the managed copy from disk when it still exists.
+    </p>
+    <form method="post" action="{{ request.url_for('delete_recording', recording_id=recording.id) }}" onsubmit="return confirm('Delete this file from SportScanner?');">
+      <label><input type="checkbox" name="remove_from_plex" value="1" /> Remove From Plex</label>
+      <label><input type="checkbox" name="delete_media" value="1" /> Delete Media File</label>
+      <button type="submit" class="secondary">Delete File</button>
+    </form>
   </article>
 </section>
+
+<details class="panel">
+  <summary><strong>Downloaded Artwork</strong></summary>
+  {% if artwork_cards %}
+  <div class="hero-art-grid top-gap">
+    {% for card in artwork_cards %}
+    <figure class="hero-art-card">
+      <img src="{{ card.url }}" alt="{{ card.alt }}" loading="lazy" />
+      <figcaption>{{ card.label }}</figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+  {% elif recording.metadata_images %}
+  <div class="metadata-gallery top-gap">
+    {% for image in recording.metadata_images %}
+    <figure class="metadata-image-card">
+      <img src="{{ image.url }}" alt="{{ image.alt or image.type }}" loading="lazy" />
+      <figcaption>
+        <strong>{{ image.type }}</strong>
+        <small>{{ image.url }}</small>
+      </figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty-state top-gap">No cached images were stored for this recording.</p>
+  {% endif %}
+</details>
 {% endblock %}

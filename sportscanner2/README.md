@@ -267,8 +267,8 @@ Go to:
 http://YOUR-SERVER-IP:32699/admin/
 ```
 
-You should see the main admin areas for `Inbox`, `Review Queue`, `Library`, `Plex`, `Settings`, and `Logs`.
-The dashboard still exists at `/admin/`, but the day-to-day navigation is inbox-first.
+You should see the main admin areas for `Activity`, `Review Queue`, `Library`, `Refresh Activity`, `Plex`, `Settings`, and `Logs`.
+`/admin/` and the older `/admin/inbox` URL both redirect to `Activity`, which is the normal starting point.
 
 #### 2. Save The Plex Connection Settings
 
@@ -416,7 +416,7 @@ Formula1-2025-20250629-Austrian-Grand-Prix.mp4
 
 ### 2. Trigger A Scan
 
-1. Open `Inbox` or `/admin/`.
+1. Open `Activity` or `/admin/`.
 2. Click `Rescan Incoming`.
 
 ### 3. Check What Happened

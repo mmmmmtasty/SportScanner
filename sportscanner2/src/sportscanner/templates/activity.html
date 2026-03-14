@@ -1,19 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Inbox{% endblock %}
+{% block title %}Activity{% endblock %}
 {% block content %}
 <section class="page-header">
   <div>
     <p class="eyebrow">Primary Workflow</p>
-    <h1>Inbox</h1>
+    <h1>Activity</h1>
     <p class="hero-copy">
-      Start here for every file. Review status, confidence, current match, and the next action without bouncing between disconnected pages.
+      Start here for every file. Review status, confidence, current match, and the next action without bouncing between home screens.
     </p>
   </div>
   <article class="hero-card queue-card">
     <div class="status-line"><span>Total files</span><strong>{{ stats.recordings }}</strong></div>
     <div class="status-line">
-      <span><a href="{{ request.url_for('review_queue') }}">No Match</a></span>
-      <strong>{{ stats.review_recordings }}</strong>
+      <span><a href="{{ request.url_for('review_queue') }}">Open review tasks</a></span>
+      <strong>{{ stats.review_tasks }}</strong>
     </div>
     <div class="status-line"><span>Published events</span><strong>{{ stats.published_recordings }}</strong></div>
     <div class="status-line"><span>Plex refresh queue</span><strong>{{ stats.pending_refresh_jobs }}</strong></div>
@@ -24,36 +24,38 @@
   <form method="post" action="{{ request.url_for('rescan') }}" hx-post="{{ request.url_for('rescan') }}" hx-swap="none">
     <button type="submit" class="compact-button" data-loading-label="Queueing Rescan..." data-queued-label="Rescan Queued">Rescan Incoming</button>
   </form>
-  <form method="post" action="{{ request.url_for('resolve_high_confidence') }}"
-        onsubmit="return confirm('Accept all Needs Match files with confidence ≥ 70%?')"
-        hx-post="{{ request.url_for('resolve_high_confidence') }}"
-        hx-swap="none">
-    <button type="submit" class="secondary compact-button" data-loading-label="Queueing..." data-queued-label="Queued">Resolve High-Confidence</button>
-  </form>
   <a href="{{ request.url_for('review_queue') }}" role="button" class="secondary compact-button">Open Review Queue</a>
+  <a href="{{ request.url_for('refresh_activity_page') }}" role="button" class="secondary compact-button">Open Refresh Activity</a>
+</section>
+
+<section class="stat-grid compact-grid">
+  <article class="metric-card"><h2>{{ stats.competitions }}</h2><p>Competitions</p></article>
+  <article class="metric-card"><h2>{{ stats.seasons }}</h2><p>Seasons</p></article>
+  <article class="metric-card"><h2>{{ stats.review_recordings }}</h2><p>Needs Match</p></article>
+  <article class="metric-card"><h2>{{ stats.staged_recordings }}</h2><p>Waiting for Schedule</p></article>
 </section>
 
 <section class="panel">
   <div class="panel-header">
     <h2>All Files</h2>
   </div>
-  <form id="inbox-filter-form" method="get" class="header-filter-form"></form>
+  <form id="activity-filter-form" method="get" class="header-filter-form"></form>
   <div class="table-wrap">
     <table class="inbox-table">
       <thead>
         <tr>
           <th class="table-header-filter">
             <span class="table-header-title">Filename</span>
-            <a href="{{ request.url_for('inbox') }}" class="table-filter-reset">Clear</a>
+            <a href="{{ request.url_for('activity_page') }}" class="table-filter-reset">Clear</a>
           </th>
           <th class="table-header-filter">
             <span class="table-header-title">Status</span>
             <select
               name="status"
-              form="inbox-filter-form"
+              form="activity-filter-form"
               class="table-filter-control"
-              aria-label="Filter inbox by status"
-              onchange="document.getElementById('inbox-filter-form').submit()"
+              aria-label="Filter activity by status"
+              onchange="document.getElementById('activity-filter-form').submit()"
             >
               <option value="">All states</option>
               <option value="review" {% if filters.status == "review" %}selected{% endif %}>Needs Match</option>
@@ -67,10 +69,10 @@
             <span class="table-header-title">Best Match</span>
             <select
               name="competition_id"
-              form="inbox-filter-form"
+              form="activity-filter-form"
               class="table-filter-control"
-              aria-label="Filter inbox by competition"
-              onchange="document.getElementById('inbox-filter-form').submit()"
+              aria-label="Filter activity by competition"
+              onchange="document.getElementById('activity-filter-form').submit()"
             >
               <option value="">All competitions</option>
               {% for competition in competitions %}
@@ -82,10 +84,10 @@
             <span class="table-header-title">Confidence</span>
             <select
               name="confidence"
-              form="inbox-filter-form"
+              form="activity-filter-form"
               class="table-filter-control"
-              aria-label="Filter inbox by confidence"
-              onchange="document.getElementById('inbox-filter-form').submit()"
+              aria-label="Filter activity by confidence"
+              onchange="document.getElementById('activity-filter-form').submit()"
             >
               <option value="">Any confidence</option>
               <option value="high" {% if filters.confidence == "high" %}selected{% endif %}>High</option>

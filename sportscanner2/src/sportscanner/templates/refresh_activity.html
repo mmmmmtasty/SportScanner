@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Refresh Activity{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">Unified History</p>
+    <h1>Refresh Activity</h1>
+    <p class="hero-copy">
+      Review metadata and Plex refresh work together, with one timeline for manual requests, automatic follow-up jobs, and failures.
+    </p>
+  </div>
+  <article class="hero-card queue-card">
+    <div class="status-line"><span>Total jobs</span><strong>{{ stats.total_jobs }}</strong></div>
+    <div class="status-line"><span>Pending now</span><strong>{{ stats.pending_jobs }}</strong></div>
+    <div class="status-line"><span>Metadata</span><strong>{{ stats.metadata_jobs }}</strong></div>
+    <div class="status-line"><span>Plex</span><strong>{{ stats.plex_jobs }}</strong></div>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>History</h2>
+    <form method="get" class="inline-actions">
+      <label>
+        Kind
+        <select name="kind" class="table-filter-control" onchange="this.form.submit()">
+          {% for value, label in kind_options.items() %}
+          <option value="{{ value }}" {% if filters.kind == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Source
+        <select name="source" class="table-filter-control" onchange="this.form.submit()">
+          {% for value, label in source_options.items() %}
+          <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Status
+        <select name="status" class="table-filter-control" onchange="this.form.submit()">
+          {% for value, label in status_options.items() %}
+          <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if recording_filter %}
+      <input type="hidden" name="recording_id" value="{{ recording_filter }}" />
+      {% endif %}
+      {% if target_type_filter %}
+      <input type="hidden" name="target_type" value="{{ target_type_filter }}" />
+      {% endif %}
+      {% if target_id_filter %}
+      <input type="hidden" name="target_id" value="{{ target_id_filter }}" />
+      {% endif %}
+      <a href="{{ request.url_for('refresh_activity_page') }}" role="button" class="secondary outline compact-button">Clear</a>
+    </form>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Kind</th>
+          <th>Source</th>
+          <th>Item</th>
+          <th>Scope</th>
+          <th>Status</th>
+          <th>Queued</th>
+          <th>Completed</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><span class="status-chip {{ row.kind_class }}">{{ row.kind_label }}</span></td>
+          <td><span class="status-chip {{ row.source_class }}">{{ row.source_label }}</span></td>
+          <td>
+            <strong>{{ row.item_label }}</strong>
+            {% if row.href %}
+            <div class="muted-line"><a href="{{ row.href }}">{{ row.href_label }}</a></div>
+            {% endif %}
+          </td>
+          <td>{{ row.scope_label }}</td>
+          <td><span class="status-chip {{ row.status_class }}">{{ row.status_label }}</span></td>
+          <td>{{ row.created_at.strftime("%Y-%m-%d %H:%M") if row.created_at else "" }}</td>
+          <td>{{ row.completed_at.strftime("%Y-%m-%d %H:%M") if row.completed_at else "" }}</td>
+          <td class="muted-cell">{{ row.error_message or "" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" class="empty-state">No refresh jobs matched the current filters.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

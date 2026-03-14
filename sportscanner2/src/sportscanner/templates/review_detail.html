@@ -9,7 +9,7 @@
       {% if queue_position %}
       Queue item {{ queue_position }} of {{ queue_total }}.
       {% endif %}
-      Accept a potential match, search a better event, publish as a special, or ignore the file explicitly.
+      Accept a potential match, browse the season timeline, publish as a special, or ignore the file explicitly.
     </p>
   </div>
   <div class="inline-actions">
@@ -79,32 +79,6 @@
   </article>
 </section>
 
-<section class="guide-grid">
-  <article class="guide-card">
-    <div class="panel-header">
-      <h2>What Happens When You Accept A Match</h2>
-      <span
-        class="tooltip-chip"
-        tabindex="0"
-        title="Accepting a match assigns the file to an event, recomputes episode numbering for that event or season, and republishes the managed file state."
-      >Why it matters</span>
-    </div>
-    <p>
-      Picking the correct event updates SportScanner's local mapping first. Plex only shows the new
-      title, date, and artwork after the library or show metadata is refreshed.
-    </p>
-  </article>
-  <article class="guide-card">
-    <div class="panel-header">
-      <h2>How Search Works</h2>
-    </div>
-    <p>
-      Search checks cached local events first and then live TheSportsDB results. Choosing a cached
-      event is fastest. Choosing a TheSportsDB result imports that event and then links the file to it.
-    </p>
-  </article>
-</section>
-
 <section class="panel">
   <div class="panel-header">
     <h2>Potential Matches</h2>
@@ -152,95 +126,52 @@
   </div>
 </details>
 
-<details class="panel">
-  <summary>Reassign Competition</summary>
-  <div class="panel-body">
-    <p class="helper-text">
-      Use this if the competition was matched wrong at ingest or SportScanner could not identify it.
-      Choose an existing competition or import one by TheSportsDB competition ID, then re-match the file.
-    </p>
-    <form
-      method="post"
-      action="{{ request.url_for('reassign_review_task', task_id=task.id) }}"
-      class="reassign-form"
-    >
-      <label>
-        Existing competition
-        <select name="competition_id">
-          <option value="">— select —</option>
-          {% for c in all_competitions %}
-          <option value="{{ c.id }}"{% if competition and c.id == competition.id %} selected{% endif %}>{{ c.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        Or import by TheSportsDB competition ID
-        <input type="number" name="competition_tsdb_id" min="1" placeholder="4370" />
-      </label>
-      <label>
-        Season (e.g. 2025 or 2024/25)
-        <input name="season_label" value="{{ season.label if season else '' }}" placeholder="2025" required />
-      </label>
-      <button type="submit" class="secondary" data-loading-label="Reassigning...">Reassign</button>
-    </form>
-    <p class="helper-text">
-      Leave the dropdown empty if you are importing by ID. SportScanner will not create a new placeholder competition here.
-    </p>
-    {% if competition_suggestions %}
-    <p class="helper-text">
-      Possible TheSportsDB matches for <strong>{{ parsed_competition_name }}</strong>:
-      {% for suggestion in competition_suggestions %}
-      <span>{{ suggestion.name }} (ID {{ suggestion.tsdb_id }}){% if not loop.last %}; {% endif %}</span>
-      {% endfor %}
-    </p>
-    {% elif parsed_competition_name %}
-    <p class="helper-text">
-      Tip: search TheSportsDB for <strong>{{ parsed_competition_name }}</strong>, then paste the league ID here.
-    </p>
-    {% endif %}
-  </div>
-</details>
-
 <section class="panel">
   <div class="panel-header">
-    <h2>Search For Another Event</h2>
+    <h2>Reassign Competition</h2>
   </div>
   <p class="helper-text">
-    Search cached events first, then load a fresh TheSportsDB event directly into the review flow if needed.
+    Use this if the competition was matched wrong at ingest or SportScanner could not identify it.
+    Choose an existing competition or import one by TheSportsDB competition ID, then re-match the file.
   </p>
   <form
-    class="search-form"
-    hx-get="{{ request.url_for('search_events_for_review', task_id=task.id) }}"
-    hx-target="#event-search-results"
-    hx-swap="innerHTML"
-    hx-trigger="submit, input changed delay:300ms from:input[name='q']"
+    method="post"
+    action="{{ request.url_for('reassign_review_task', task_id=task.id) }}"
+    class="reassign-form"
   >
     <label>
-      Competition, event name, or date
-      <input
-        name="q"
-        value="{{ suggested_query }}"
-        placeholder="e.g. Formula 1 Monaco Grand Prix 2025-05-25"
-        title="Search cached local events first; SportScanner can also import a fresh TheSportsDB event from these results"
-      />
+      Existing competition
+      <select name="competition_id">
+        <option value="">— select —</option>
+        {% for c in all_competitions %}
+        <option value="{{ c.id }}"{% if competition and c.id == competition.id %} selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
     </label>
-    <div class="date-filter-row">
-      <label>
-        From
-        <input type="date" name="date_from" value="{{ recording.air_date.isoformat() if recording and recording.air_date else '' }}" />
-      </label>
-      <label>
-        To
-        <input type="date" name="date_to" value="" />
-      </label>
-    </div>
-    <button
-      type="submit"
-      class="secondary"
-      data-loading-label="Searching..."
-      title="Search cached events and live TheSportsDB results"
-    >Search</button>
+    <label>
+      Or import by TheSportsDB competition ID
+      <input type="number" name="competition_tsdb_id" min="1" placeholder="4370" />
+    </label>
+    <label>
+      Season (e.g. 2025 or 2024/25)
+      <input name="season_label" value="{{ season.label if season else '' }}" placeholder="2025" required />
+    </label>
+    <button type="submit" class="secondary" data-loading-label="Reassigning...">Reassign</button>
   </form>
-  <div id="event-search-results" class="search-results"></div>
+  <p class="helper-text">
+    Leave the dropdown empty if you are importing by ID. SportScanner will not create a new placeholder competition here.
+  </p>
+  {% if competition_suggestions %}
+  <p class="helper-text">
+    Possible TheSportsDB matches for <strong>{{ parsed_competition_name }}</strong>:
+    {% for suggestion in competition_suggestions %}
+    <span>{{ suggestion.name }} (ID {{ suggestion.tsdb_id }}){% if not loop.last %}; {% endif %}</span>
+    {% endfor %}
+  </p>
+  {% elif parsed_competition_name %}
+  <p class="helper-text">
+    Tip: search TheSportsDB for <strong>{{ parsed_competition_name }}</strong>, then paste the league ID here.
+  </p>
+  {% endif %}
 </section>
 {% endblock %}

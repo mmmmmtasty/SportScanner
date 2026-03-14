@@ -1,4 +1,4 @@
-{% if events %}
+{% if rows %}
 <div class="table-wrap">
   <table>
     <thead>
@@ -6,18 +6,20 @@
         <th>Date</th>
         <th>Round</th>
         <th>Event</th>
+        <th>Confidence</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
-      {% for event in events %}
-      <tr>
-        <td>{{ event.date or "—" }}</td>
-        <td>{{ event.round or "—" }}</td>
-        <td>{{ event.name }}</td>
+      {% for row in rows %}
+      <tr class="{{ row.row_class }}">
+        <td>{{ row.event.date or "—" }}</td>
+        <td>{{ row.event.round or "—" }}</td>
+        <td>{{ row.event.name }}</td>
+        <td><span class="pill confidence-{{ row.confidence.class_name }}">{{ row.confidence.label }}</span></td>
         <td>
           <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task_id) }}">
-            <input type="hidden" name="event_id" value="{{ event.id }}" />
+            <input type="hidden" name="event_id" value="{{ row.event.id }}" />
             <button
               type="submit"
               class="secondary compact-button"

@@ -30,12 +30,13 @@
     </div>
     <p><a href="{{ request.url_for('plex_registration_page') }}">Open registration and library creation</a></p>
     <p><a href="{{ request.url_for('plex_drift_page') }}">Open Missing From Plex scan</a></p>
+    <p><a href="{{ request.url_for('refresh_activity_page') }}?kind=plex">Open Plex refresh activity</a></p>
   </article>
 
   <article class="panel">
     <div class="panel-header">
       <h2>Recent Refresh Jobs</h2>
-      <a href="{{ request.url_for('plex_refresh_jobs_page') }}">Open full history</a>
+      <a href="{{ request.url_for('refresh_activity_page') }}?kind=plex">Open full history</a>
     </div>
     <div class="table-wrap">
       <table>

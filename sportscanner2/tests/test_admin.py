@@ -252,7 +252,7 @@ def test_dashboard_shows_connected_plex_state(provider_app) -> None:
 
     assert response.status_code == 200
     assert "Inbox-first flow" not in response.text
-    assert "Inbox" in response.text
+    assert "Activity" in response.text
     assert "Plex connection" in response.text
     assert "Connected" in response.text
     assert "Review Queue" in response.text
@@ -359,10 +359,9 @@ def test_review_task_detail_shows_queue_position_and_ignore_action(provider_app)
     assert 'data-loading-label="Ignoring..."' in response.text
     assert 'data-loading-label="Using Event..."' in response.text
     assert 'data-loading-label="Reassigning..."' in response.text
-    assert 'data-loading-label="Searching..."' in response.text
 
 
-def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
+def test_file_search_includes_upstream_lookup_action(provider_app) -> None:
     class SearchMetadataSource:
         name = "fake"
 
@@ -408,12 +407,8 @@ def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
             return None
 
     provider_app.state.services.metadata_source = SearchMetadataSource()
-    with provider_app.state.services.session_factory() as session:
-        session.add(ReviewTask(recording_id="seg_primary", task_type="match_review"))
-        session.commit()
-
     client = TestClient(provider_app)
-    response = client.get("/admin/review/1/search?q=Australian")
+    response = client.get("/admin/files/seg_primary/search?q=Australian")
 
     assert response.status_code == 200
     assert "Load From TheSportsDB" in response.text
@@ -425,13 +420,21 @@ def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
 
 def test_review_season_events_include_loading_state_on_use_event(provider_app) -> None:
     with provider_app.state.services.session_factory() as session:
-        session.add(ReviewTask(recording_id="seg_primary", task_type="match_review"))
+        session.add(
+            ReviewTask(
+                recording_id="seg_primary",
+                task_type="match_review",
+                candidates=[{"event_id": "tsdb_1001", "confidence": 0.84}],
+            )
+        )
         session.commit()
 
     client = TestClient(provider_app)
     response = client.get("/admin/review/1/season-events")
 
     assert response.status_code == 200
+    assert "84%" in response.text
+    assert "season-event-row-high" in response.text
     assert "Use This Event" in response.text
     assert 'data-loading-label="Using Event..."' in response.text
 
@@ -658,7 +661,8 @@ def test_plex_refresh_jobs_page_lists_and_filters_job_sources(provider_app) -> N
     response = client.get("/admin/plex-refresh-jobs")
 
     assert response.status_code == 200
-    assert "Plex Refresh Jobs" in response.text
+    assert "Refresh Activity" in response.text
+    assert "Plex" in response.text
     assert "Automatic" in response.text
     assert "Manual" in response.text
     assert "Library-wide" in response.text
@@ -731,7 +735,8 @@ def test_metadata_refresh_jobs_page_lists_and_filters_job_sources(provider_app) 
     response = client.get("/admin/refresh-jobs")
 
     assert response.status_code == 200
-    assert "TheSportsDB metadata refresh work" in response.text
+    assert "Refresh Activity" in response.text
+    assert "Metadata" in response.text
     assert "Austrian Grand Prix Race" in response.text
     assert "Formula 1" in response.text
     assert "File" in response.text
@@ -755,9 +760,7 @@ def test_segment_detail_shows_matched_event_context(provider_app) -> None:
     response = client.get("/admin/recordings/seg_primary")
 
     assert response.status_code == 200
-    assert "File Details" in response.text
-    assert "Best Match" in response.text
-    assert "Current Mapping" in response.text
+    assert "Primary Summary" in response.text
     assert "Manual Override" in response.text
     assert "Matched event" in response.text
     assert "Match method" in response.text
@@ -765,7 +768,7 @@ def test_segment_detail_shows_matched_event_context(provider_app) -> None:
     assert "Austrian Grand Prix Race" in response.text
     assert "Refresh Event Metadata" in response.text
     assert "Refresh File Metadata" in response.text
-    assert "Event" in response.text
+    assert "Open Refresh Activity" in response.text
     assert "Season 2025" in response.text
 
 
@@ -985,10 +988,10 @@ def test_inbox_uses_column_header_filters_and_links_no_match_to_review_queue(pro
     response = client.get("/admin/inbox")
 
     assert response.status_code == 200
-    assert 'id="inbox-filter-form"' in response.text
-    assert 'aria-label="Filter inbox by status"' in response.text
-    assert 'aria-label="Filter inbox by competition"' in response.text
-    assert 'aria-label="Filter inbox by confidence"' in response.text
+    assert 'id="activity-filter-form"' in response.text
+    assert 'aria-label="Filter activity by status"' in response.text
+    assert 'aria-label="Filter activity by competition"' in response.text
+    assert 'aria-label="Filter activity by confidence"' in response.text
     assert "Date from" not in response.text
     assert 'href="http://testserver/admin/review"' in response.text
 

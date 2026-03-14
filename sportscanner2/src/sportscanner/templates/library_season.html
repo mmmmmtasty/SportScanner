@@ -16,6 +16,7 @@
           hx-swap="none">
       <button type="submit" class="secondary compact-button" data-loading-label="Queueing Season..." data-queued-label="Queued">Refresh Season</button>
     </form>
+    <a href="{{ request.url_for('refresh_activity_page') }}?kind=metadata&target_type=season&target_id={{ season.id }}" role="button" class="secondary compact-button">View Refresh Activity</a>
     <form method="post" action="{{ request.url_for('delete_season', competition_id=competition.id, season_id=season.id) }}" onsubmit="return confirm('Delete this season and all nested files?');">
       <label><input type="checkbox" name="remove_from_plex" value="1" /> Remove From Plex</label>
       <label><input type="checkbox" name="delete_media" value="1" /> Delete Media Files</label>
