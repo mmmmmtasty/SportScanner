@@ -10,7 +10,17 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 import sportscanner.organizer.placer as placer
-from sportscanner.db.models import AppSetting, Competition, CompetitionSeason, Event, ReviewTask, Recording
+from sportscanner.db.models import (
+    AppSetting,
+    Competition,
+    CompetitionSeason,
+    Event,
+    PlexRefreshJob,
+    PlexRefreshJobSource,
+    PlexRefreshJobStatus,
+    ReviewTask,
+    Recording,
+)
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.plex import PlexRegistrationResult
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
@@ -415,9 +425,61 @@ def test_plex_libraries_page_explains_refresh_vs_scan(provider_app) -> None:
 
     assert response.status_code == 200
     assert "Plex" in response.text
-    assert "Refresh Queue" in response.text
+    assert "Recent Refresh Jobs" in response.text
     assert "Libraries" in response.text
     assert "Force Refresh" in response.text
+    assert "Open full history" in response.text
+
+
+def test_manual_plex_refresh_route_records_manual_job(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.post("/admin/plex-libraries/7/refresh", follow_redirects=False)
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        job = session.scalar(select(PlexRefreshJob).order_by(PlexRefreshJob.id.desc()))
+        assert job is not None
+        assert job.section_id == 7
+        assert job.source == PlexRefreshJobSource.MANUAL.value
+        assert job.status == PlexRefreshJobStatus.PENDING.value
+
+
+def test_refresh_jobs_page_lists_and_filters_job_sources(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        session.add_all(
+            [
+                PlexRefreshJob(
+                    section_id=1,
+                    recording_id="seg_primary",
+                    source=PlexRefreshJobSource.AUTOMATIC.value,
+                    status=PlexRefreshJobStatus.SUCCESS.value,
+                ),
+                PlexRefreshJob(
+                    section_id=2,
+                    source=PlexRefreshJobSource.MANUAL.value,
+                    status=PlexRefreshJobStatus.PENDING.value,
+                ),
+            ]
+        )
+        session.commit()
+
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/refresh-jobs")
+
+    assert response.status_code == 200
+    assert "Refresh Jobs" in response.text
+    assert "Automatic" in response.text
+    assert "Manual" in response.text
+    assert "Library-wide" in response.text
+    assert "Austrian Grand Prix Race" in response.text
+
+    filtered = client.get("/admin/refresh-jobs?source=automatic")
+
+    assert filtered.status_code == 200
+    assert "Austrian Grand Prix Race" in filtered.text
+    assert "Library-wide" not in filtered.text
 
 
 def test_segment_detail_shows_matched_event_context(provider_app) -> None:

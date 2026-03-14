@@ -13,6 +13,7 @@ from sportscanner.db.models import (
     CompetitionSeason,
     Event,
     PlexRefreshJob,
+    PlexRefreshJobSource,
     PlexRefreshJobStatus,
     Recording,
     RecordingStatus,
@@ -220,6 +221,7 @@ def create_refresh_job(
     *,
     section_id: int,
     recording_id: str | None = None,
+    source: PlexRefreshJobSource = PlexRefreshJobSource.AUTOMATIC,
     debounce_seconds: int = 60,
 ) -> PlexRefreshJob | None:
     """Create a PlexRefreshJob, debounced: returns None if a pending job for the same section already exists within debounce_seconds."""
@@ -236,6 +238,7 @@ def create_refresh_job(
     job = PlexRefreshJob(
         recording_id=recording_id,
         section_id=section_id,
+        source=source.value,
         status=PlexRefreshJobStatus.PENDING.value,
     )
     session.add(job)

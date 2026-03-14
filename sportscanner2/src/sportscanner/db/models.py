@@ -53,6 +53,11 @@ class PlexRefreshJobStatus(str, enum.Enum):
     ERROR = "error"
 
 
+class PlexRefreshJobSource(str, enum.Enum):
+    MANUAL = "manual"
+    AUTOMATIC = "automatic"
+
+
 class Competition(Base):
     __tablename__ = "competition"
 
@@ -192,6 +197,11 @@ class PlexRefreshJob(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     recording_id: Mapped[str | None] = mapped_column(ForeignKey("recording.id"), index=True)
     section_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    source: Mapped[PlexRefreshJobSource | None] = mapped_column(
+        String(32),
+        default=PlexRefreshJobSource.AUTOMATIC.value,
+        index=True,
+    )
     status: Mapped[PlexRefreshJobStatus] = mapped_column(
         String(32),
         nullable=False,

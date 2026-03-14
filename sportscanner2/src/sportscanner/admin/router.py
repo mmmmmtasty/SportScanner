@@ -22,6 +22,7 @@ from sportscanner.db.models import (
     CompetitionSeason,
     Event,
     PlexRefreshJob,
+    PlexRefreshJobSource,
     Recording,
     RecordingStatus,
     ReviewTask,
@@ -40,6 +41,11 @@ from sportscanner.plex import PlexRegistrationResult
 router = APIRouter(prefix="/admin", tags=["admin"])
 _LOG_LEVEL_OPTIONS = ("DEBUG", "INFO", "WARNING", "ERROR")
 logger = logging.getLogger("sportscanner.admin.router")
+_REFRESH_JOB_SOURCE_OPTIONS = {
+    "": "All jobs",
+    PlexRefreshJobSource.AUTOMATIC.value: "Automatic only",
+    PlexRefreshJobSource.MANUAL.value: "Manual only",
+}
 
 
 def _render(request: Request, template_name: str, context: dict) -> HTMLResponse:
@@ -1449,7 +1455,12 @@ def plex_page(request: Request) -> HTMLResponse:
             session, "plex_provider_identifier", services.settings.plex_provider_identifier
         )
         refresh_jobs = list(
-            session.scalars(select(PlexRefreshJob).order_by(PlexRefreshJob.created_at.desc()).limit(50))
+            session.scalars(
+                select(PlexRefreshJob)
+                .options(joinedload(PlexRefreshJob.recording))
+                .order_by(PlexRefreshJob.created_at.desc())
+                .limit(10)
+            )
         )
     plex = services.plex.with_credentials(pms_url, pms_token)
     sections = []
@@ -1478,7 +1489,7 @@ def plex_page(request: Request) -> HTMLResponse:
 @router.post("/plex-libraries/{section_id}/refresh")
 def plex_refresh_section(request: Request, section_id: int) -> Response:
     with _session_factory(request)() as session:
-        job = create_refresh_job(session, section_id=section_id)
+        job = create_refresh_job(session, section_id=section_id, source=PlexRefreshJobSource.MANUAL)
         session.commit()
     return _action_response(
         request,
@@ -1488,6 +1499,57 @@ def plex_refresh_section(request: Request, section_id: int) -> Response:
             if job is not None
             else f"Plex refresh already queued for library {section_id}."
         ),
+    )
+
+
+@router.get("/refresh-jobs", response_class=HTMLResponse, name="refresh_jobs_page")
+def refresh_jobs_page(request: Request) -> HTMLResponse:
+    source_filter = request.query_params.get("source", "").strip().lower()
+    if source_filter not in _REFRESH_JOB_SOURCE_OPTIONS:
+        source_filter = ""
+
+    with _session_factory(request)() as session:
+        jobs_query = select(PlexRefreshJob).options(joinedload(PlexRefreshJob.recording))
+        if source_filter:
+            jobs_query = jobs_query.where(PlexRefreshJob.source == source_filter)
+        jobs_query = jobs_query.order_by(PlexRefreshJob.created_at.desc()).limit(200)
+
+        refresh_jobs = list(session.scalars(jobs_query))
+        total_jobs = session.scalar(select(func.count(PlexRefreshJob.id))) or 0
+        pending_jobs = session.scalar(
+            select(func.count(PlexRefreshJob.id)).where(PlexRefreshJob.status == "pending")
+        ) or 0
+        automatic_jobs = session.scalar(
+            select(func.count(PlexRefreshJob.id)).where(
+                PlexRefreshJob.source == PlexRefreshJobSource.AUTOMATIC.value
+            )
+        ) or 0
+        manual_jobs = session.scalar(
+            select(func.count(PlexRefreshJob.id)).where(PlexRefreshJob.source == PlexRefreshJobSource.MANUAL.value)
+        ) or 0
+        legacy_jobs = session.scalar(
+            select(func.count(PlexRefreshJob.id)).where(PlexRefreshJob.source.is_(None))
+        ) or 0
+
+    return _render(
+        request,
+        "refresh_jobs.html",
+        {
+            "refresh_jobs": refresh_jobs,
+            "filters": {"source": source_filter},
+            "source_options": _REFRESH_JOB_SOURCE_OPTIONS,
+            "stats": {
+                "total_jobs": total_jobs,
+                "pending_jobs": pending_jobs,
+                "automatic_jobs": automatic_jobs,
+                "manual_jobs": manual_jobs,
+                "legacy_jobs": legacy_jobs,
+            },
+            "breadcrumbs": [
+                _crumb("Plex", str(request.url_for("plex_page"))),
+                _crumb("Refresh Jobs"),
+            ],
+        },
     )
 
 
@@ -1518,7 +1580,12 @@ def rematch_recording_endpoint(
         pms_token = _setting(session, "pms_token", services.settings.pms_token)
         plex = services.plex.with_credentials(pms_url, pms_token)
         for section_id in plex.find_show_section_ids():
-            create_refresh_job(session, section_id=section_id, recording_id=recording_id)
+            create_refresh_job(
+                session,
+                section_id=section_id,
+                recording_id=recording_id,
+                source=PlexRefreshJobSource.AUTOMATIC,
+            )
         session.commit()
     return RedirectResponse(
         url=str(request.url_for("file_detail", recording_id=recording_id)),
@@ -1705,7 +1772,7 @@ def resolve_high_confidence(request: Request, background_tasks: BackgroundTasks)
             pms_token = _setting(session, "pms_token", services.settings.pms_token)
             plex = services.plex.with_credentials(pms_url, pms_token)
             for section_id in plex.find_show_section_ids():
-                create_refresh_job(session, section_id=section_id)
+                create_refresh_job(session, section_id=section_id, source=PlexRefreshJobSource.AUTOMATIC)
             session.commit()
 
     queued = _queue_background_job(

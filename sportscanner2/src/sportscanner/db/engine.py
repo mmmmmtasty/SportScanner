@@ -88,6 +88,16 @@ def _migrate_legacy_schema(connection: Connection) -> None:
                 "CREATE INDEX IF NOT EXISTS ix_recording_file_fingerprint ON recording (file_fingerprint)"
             )
 
+    if "plex_refresh_job" in table_names:
+        refresh_job_columns = _column_names(connection, "plex_refresh_job")
+        if "source" not in refresh_job_columns:
+            connection.exec_driver_sql("ALTER TABLE plex_refresh_job ADD COLUMN source VARCHAR(32)")
+
+        if "ix_plex_refresh_job_source" not in _index_names(connection, "plex_refresh_job"):
+            connection.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_plex_refresh_job_source ON plex_refresh_job (source)"
+            )
+
     for table_name, additions in (
         ("competition", {"upstream_metadata": "JSON"}),
         ("event", {"upstream_metadata": "JSON"}),
