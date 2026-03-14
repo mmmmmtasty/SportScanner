@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Alerts{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <p class="eyebrow">System Health</p>
+    <h1>Alerts</h1>
+    <p class="hero-copy">
+      Persistent operational alerts from Plex connectivity, TheSportsDB requests, and background jobs.
+    </p>
+  </div>
+  <article class="hero-card queue-card">
+    <div class="status-line"><span>Open alerts</span><strong>{{ alerts|length }}</strong></div>
+    <div class="status-line"><span>Dismissed shown</span><strong>{{ dismissed_alerts|length }}</strong></div>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Open Alerts</h2>
+    {% if alerts %}
+    <form method="post" action="{{ request.url_for('dismiss_all_alerts') }}">
+      <button type="submit" class="secondary outline compact-button">Dismiss All</button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Severity</th>
+          <th>Title</th>
+          <th>Message</th>
+          <th>Seen</th>
+          <th>Count</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for alert in alerts %}
+        <tr>
+          <td><span class="status-chip status-{{ alert.severity }}">{{ alert.severity }}</span></td>
+          <td>{{ alert.title }}</td>
+          <td>{{ alert.message }}</td>
+          <td>{{ alert.last_seen_at.strftime("%Y-%m-%d %H:%M") if alert.last_seen_at else "" }}</td>
+          <td>{{ alert.occurrence_count }}</td>
+          <td>
+            <form method="post" action="{{ request.url_for('dismiss_alert', notification_id=alert.id) }}">
+              <button type="submit" class="secondary outline compact-button">Dismiss</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="empty-state">No active alerts.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Recently Dismissed</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Severity</th>
+          <th>Title</th>
+          <th>Message</th>
+          <th>Dismissed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for alert in dismissed_alerts %}
+        <tr>
+          <td><span class="status-chip status-{{ alert.severity }}">{{ alert.severity }}</span></td>
+          <td>{{ alert.title }}</td>
+          <td>{{ alert.message }}</td>
+          <td>{{ alert.dismissed_at.strftime("%Y-%m-%d %H:%M") if alert.dismissed_at else "" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="4" class="empty-state">No dismissed alerts yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

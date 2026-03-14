@@ -26,10 +26,12 @@ def _images_for_recording(competition: Competition, recording: Recording, event:
     thumb = effective_episode_thumb(recording, event)
     if thumb:
         images.append({"type": "snapshot", "url": thumb, "alt": title})
-    if competition.poster_url:
-        images.append({"type": "coverPoster", "url": competition.poster_url, "alt": competition.name})
-    if competition.fanart_url:
-        images.append({"type": "background", "url": competition.fanart_url, "alt": competition.name})
+    poster = event.poster_url if event is not None and event.poster_url else competition.poster_url
+    if poster:
+        images.append({"type": "coverPoster", "url": poster, "alt": title})
+    background = event.fanart_url if event is not None and event.fanart_url else competition.fanart_url
+    if background:
+        images.append({"type": "background", "url": background, "alt": competition.name})
     return images
 
 
@@ -93,6 +95,9 @@ def _record_for_recording(
             "awayScore": event.away_score,
             "summary": event.description,
             "thumb": event.thumb_url,
+            "poster": event.poster_url,
+            "banner": event.banner_url,
+            "fanart": event.fanart_url,
             "weekendGroup": event.weekend_group,
             "upstreamMetadata": event.upstream_metadata,
         },

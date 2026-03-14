@@ -263,10 +263,10 @@ def test_provider_episode_metadata_prefers_upstream_event_fields(provider_app) -
     metadata = response.json()["MediaContainer"]["Metadata"][0]
     assert metadata["title"] == "Australian Grand Prix - Qualifying"
     assert metadata["summary"] == "Upstream summary"
-    assert metadata["thumb"] == "https://example.com/event.jpg"
-    assert metadata["parentThumb"] == "https://example.com/show.jpg"
+    assert metadata["thumb"].startswith("http://testserver/provider/tv/assets/event/tsdb_1001/thumb")
+    assert metadata["parentThumb"].startswith("http://testserver/provider/tv/assets/competition/tsdb_4370/poster")
     assert metadata["grandparentType"] == "show"
-    assert metadata["grandparentThumb"] == "https://example.com/show.jpg"
+    assert metadata["grandparentThumb"].startswith("http://testserver/provider/tv/assets/competition/tsdb_4370/poster")
     assert metadata["year"] == 2025
 
 
@@ -382,5 +382,5 @@ def test_provider_show_and_season_metadata_include_original_dates(provider_app) 
     season_metadata = season_response.json()["MediaContainer"]["Metadata"][0]
     assert show_metadata["originallyAvailableAt"] == "1950-01-01"
     assert season_metadata["originallyAvailableAt"] == "2025-06-29"
-    assert season_metadata["parentThumb"] == "https://example.com/show.jpg"
-    assert season_metadata["thumb"] == "https://example.com/show.jpg"
+    assert season_metadata["parentThumb"].startswith("http://testserver/provider/tv/assets/competition/tsdb_4370/poster")
+    assert season_metadata["thumb"].startswith("http://testserver/provider/tv/assets/competition/tsdb_4370/poster")

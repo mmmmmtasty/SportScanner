@@ -20,9 +20,10 @@ from sportscanner.provider.schemas import MatchRequestModel, MetadataItemModel
 
 
 class ProviderMatchService:
-    def __init__(self, *, session_factory, provider_identifier: str) -> None:
+    def __init__(self, *, session_factory, provider_identifier: str, asset_url_builder=None) -> None:
         self.session_factory = session_factory
         self.provider_identifier = provider_identifier
+        self.asset_url_builder = asset_url_builder
 
     def match(self, payload: MatchRequestModel) -> list[MetadataItemModel]:
         with self.session_factory() as session:
@@ -148,6 +149,7 @@ class ProviderMatchService:
                         competition,
                         self.provider_identifier,
                         include_children=payload.includeChildren,
+                        asset_url_builder=self.asset_url_builder,
                     ),
                     score,
                 )
@@ -219,6 +221,7 @@ class ProviderMatchService:
                         season,
                         self.provider_identifier,
                         include_children=payload.includeChildren,
+                        asset_url_builder=self.asset_url_builder,
                     ),
                     score,
                 )
@@ -265,6 +268,7 @@ class ProviderMatchService:
                         event,
                         recording,
                         self.provider_identifier,
+                        self.asset_url_builder,
                     ),
                     100,
                 )
@@ -357,6 +361,7 @@ class ProviderMatchService:
                         event,
                         recording,
                         self.provider_identifier,
+                        self.asset_url_builder,
                     ),
                     score,
                 )

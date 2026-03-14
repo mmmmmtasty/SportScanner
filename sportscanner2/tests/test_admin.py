@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 import sportscanner.organizer.placer as placer
 from sportscanner.db.models import (
@@ -25,6 +25,7 @@ from sportscanner.db.models import (
     ReviewTask,
     Recording,
 )
+from sportscanner.db.queries import backfill_legacy_refresh_job_sources
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.plex import PlexRegistrationResult
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
@@ -1042,3 +1043,65 @@ def test_logs_page_renders_structured_payload(provider_app) -> None:
         assert "1234" in response.text
     finally:
         logger.removeHandler(buf)
+
+
+def test_alerts_page_surfaces_logged_failures_and_supports_dismiss(provider_app) -> None:
+    buf = LogBuffer(session_factory=provider_app.state.services.session_factory)
+    buf.setFormatter(logging.Formatter("%(message)s"))
+    logger = logging.getLogger("sportscanner.upstream.thesportsdb")
+    logger.setLevel(logging.WARNING)
+    logger.addHandler(buf)
+    provider_app.state.log_buffer = buf
+    try:
+        logger.warning(
+            "thesportsdb_request_failed endpoint=lookupevent.php version=v1 error=boom",
+            extra={"structured_data": {"endpoint": "lookupevent.php", "error": "boom"}},
+        )
+        client = TestClient(provider_app)
+
+        response = client.get("/admin/alerts")
+
+        assert response.status_code == 200
+        assert "TheSportsDB request failed" in response.text
+        assert "lookupevent.php failed" in response.text
+
+        dismiss = client.post("/admin/alerts/1/dismiss", follow_redirects=False)
+        assert dismiss.status_code == 303
+
+        dismissed_page = client.get("/admin/alerts")
+        assert "No active alerts." in dismissed_page.text
+        assert "TheSportsDB request failed" in dismissed_page.text
+    finally:
+        logger.removeHandler(buf)
+
+
+def test_backfill_legacy_refresh_jobs_marks_recording_jobs_automatic(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        session.add_all(
+            [
+                PlexRefreshJob(
+                    section_id=3,
+                    recording_id="seg_primary",
+                    source=None,
+                    status=PlexRefreshJobStatus.SUCCESS.value,
+                ),
+                PlexRefreshJob(
+                    section_id=4,
+                    recording_id=None,
+                    source=None,
+                    status=PlexRefreshJobStatus.SUCCESS.value,
+                ),
+            ]
+        )
+        session.commit()
+        session.execute(text("UPDATE plex_refresh_job SET source = NULL WHERE section_id IN (3, 4)"))
+        session.commit()
+
+    with provider_app.state.services.session_factory() as session:
+        changed = backfill_legacy_refresh_job_sources(session)
+        session.commit()
+        jobs = list(session.scalars(select(PlexRefreshJob).order_by(PlexRefreshJob.section_id.asc())))
+
+    assert changed == 1
+    assert jobs[0].source == PlexRefreshJobSource.AUTOMATIC.value
+    assert jobs[1].source is None

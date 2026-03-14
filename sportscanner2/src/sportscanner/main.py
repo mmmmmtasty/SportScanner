@@ -16,6 +16,7 @@ from sportscanner.admin.router import router as admin_router
 from sportscanner.config import get_settings
 from sportscanner.db.engine import create_session_factory, create_sqlite_engine, init_db
 from sportscanner.db.models import AppSetting, Event
+from sportscanner.db.queries import backfill_legacy_refresh_job_sources
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.organizer.service import OrganizerService
 from sportscanner.organizer.watcher import OrganizerWatcher
@@ -126,12 +127,26 @@ def _normalize_stored_event_names(session_factory) -> None:
         logging.getLogger("sportscanner").warning("normalize_stored_event_names_failed error=%s", exc)
 
 
+def _backfill_legacy_refresh_sources(session_factory) -> None:
+    try:
+        with session_factory() as session:
+            changed = backfill_legacy_refresh_job_sources(session)
+            if changed:
+                session.commit()
+                logging.getLogger("sportscanner").info("legacy_plex_refresh_sources_backfilled count=%s", changed)
+                return
+            session.rollback()
+    except Exception as exc:
+        logging.getLogger("sportscanner").warning("legacy_plex_refresh_sources_backfill_failed error=%s", exc)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     engine = create_sqlite_engine(settings)
     init_db(engine)
     session_factory = create_session_factory(engine)
     _normalize_stored_event_names(session_factory)
+    _backfill_legacy_refresh_sources(session_factory)
     settings.incoming_dir = _load_path_setting(session_factory, "incoming_dir", settings.incoming_dir)
     settings.library_dir = _load_path_setting(session_factory, "library_dir", settings.library_dir)
     sport_logger = logging.getLogger("sportscanner")

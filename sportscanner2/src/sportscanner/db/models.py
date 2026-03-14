@@ -76,6 +76,16 @@ class MetadataRefreshJobTarget(str, enum.Enum):
     RECORDING = "recording"
 
 
+class NotificationSeverity(str, enum.Enum):
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class NotificationStatus(str, enum.Enum):
+    OPEN = "open"
+    DISMISSED = "dismissed"
+
+
 class Competition(Base):
     __tablename__ = "competition"
 
@@ -161,6 +171,9 @@ class Event(Base):
     away_score: Mapped[int | None] = mapped_column(Integer)
     description: Mapped[str | None] = mapped_column(Text)
     thumb_url: Mapped[str | None] = mapped_column(String(1024))
+    poster_url: Mapped[str | None] = mapped_column(String(1024))
+    banner_url: Mapped[str | None] = mapped_column(String(1024))
+    fanart_url: Mapped[str | None] = mapped_column(String(1024))
     upstream_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     event_sequence: Mapped[int | None] = mapped_column(Integer, index=True)
     weekend_group: Mapped[str | None] = mapped_column(String(255))
@@ -323,3 +336,31 @@ class LogRecord(Base):
     level: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     logger_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     message: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class Notification(Base):
+    __tablename__ = "notification"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    severity: Mapped[NotificationSeverity] = mapped_column(
+        String(32),
+        nullable=False,
+        default=NotificationSeverity.WARNING.value,
+        index=True,
+    )
+    status: Mapped[NotificationStatus] = mapped_column(
+        String(32),
+        nullable=False,
+        default=NotificationStatus.OPEN.value,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), index=True)
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

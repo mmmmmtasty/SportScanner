@@ -38,6 +38,9 @@ class UpstreamEvent:
     away_score: int | None = None
     description: str | None = None
     thumb_url: str | None = None
+    poster_url: str | None = None
+    banner_url: str | None = None
+    fanart_url: str | None = None
     tsdb_id: int | None = None
     competition_tsdb_id: int | None = None
     weekend_group: str | None = None

@@ -1414,6 +1414,9 @@ class OrganizerService:
         event.away_score = upstream.away_score
         event.description = upstream.description
         event.thumb_url = upstream.thumb_url
+        event.poster_url = upstream.poster_url
+        event.banner_url = upstream.banner_url
+        event.fanart_url = upstream.fanart_url
         if upstream.source_payload:
             event.upstream_metadata = upstream.source_payload
         event.weekend_group = upstream.weekend_group or derive_weekend_group(event_name)
@@ -1438,6 +1441,9 @@ class OrganizerService:
             away_score=event.away_score,
             description=event.description,
             thumb_url=event.thumb_url,
+            poster_url=event.poster_url,
+            banner_url=event.banner_url,
+            fanart_url=event.fanart_url,
             weekend_group=event.weekend_group,
         )
 

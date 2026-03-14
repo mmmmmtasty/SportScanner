@@ -11,6 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from sportscanner.db.models import LogRecord
+from sportscanner.notifications import create_notification_from_log_record
 
 _STRUCTURED_PAYLOAD_MARKER = "\n[SPORTSCANNER_STRUCTURED_PAYLOAD]\n"
 
@@ -71,6 +72,8 @@ class LogBuffer(logging.Handler):
                     payload_json=payload_json,
                 )
             )
+        if self._session_factory is not None:
+            create_notification_from_log_record(self._session_factory, record)
 
     def _append_persistent_entry(
         self,

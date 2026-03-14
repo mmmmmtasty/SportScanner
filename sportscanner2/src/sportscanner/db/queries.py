@@ -250,6 +250,22 @@ def create_refresh_job(
     return job
 
 
+def backfill_legacy_refresh_job_sources(session: Session) -> int:
+    """Best-effort source backfill for jobs created before source tracking existed."""
+    legacy_jobs = list(
+        session.scalars(
+            select(PlexRefreshJob).where(
+                PlexRefreshJob.source.is_(None),
+                PlexRefreshJob.recording_id.is_not(None),
+            )
+        )
+    )
+    for job in legacy_jobs:
+        job.source = PlexRefreshJobSource.AUTOMATIC.value
+    session.flush()
+    return len(legacy_jobs)
+
+
 def create_metadata_refresh_job(
     session: Session,
     *,

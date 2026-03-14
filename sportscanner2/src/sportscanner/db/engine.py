@@ -100,7 +100,15 @@ def _migrate_legacy_schema(connection: Connection) -> None:
 
     for table_name, additions in (
         ("competition", {"upstream_metadata": "JSON"}),
-        ("event", {"upstream_metadata": "JSON"}),
+        (
+            "event",
+            {
+                "upstream_metadata": "JSON",
+                "poster_url": "VARCHAR(1024)",
+                "banner_url": "VARCHAR(1024)",
+                "fanart_url": "VARCHAR(1024)",
+            },
+        ),
     ):
         if table_name not in table_names:
             continue

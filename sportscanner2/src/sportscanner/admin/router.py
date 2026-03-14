@@ -25,6 +25,7 @@ from sportscanner.db.models import (
     MetadataRefreshJobSource,
     MetadataRefreshJobStatus,
     MetadataRefreshJobTarget,
+    NotificationStatus,
     PlexRefreshJob,
     PlexRefreshJobSource,
     Recording,
@@ -41,6 +42,7 @@ from sportscanner.db.queries import (
     list_competition_aliases,
 )
 from sportscanner.metadata_snapshot import sync_recording_metadata_snapshot
+from sportscanner.notifications import dismiss_all_notifications, dismiss_notification, list_notifications
 from sportscanner.organizer.matcher import season_for_date, similarity
 from sportscanner.plex import PlexRegistrationResult
 
@@ -67,11 +69,13 @@ _METADATA_REFRESH_TARGET_LABELS = {
 
 def _render(request: Request, template_name: str, context: dict) -> HTMLResponse:
     templates = request.app.state.templates
+    notification_context = _notification_context(request)
     merged = {
         "request": request,
         "status_meta": _status_meta,
         "format_episode_code": _format_episode_code,
         "breadcrumbs": context.get("breadcrumbs", []),
+        **notification_context,
         **context,
     }
     return templates.TemplateResponse(request, template_name, merged)
@@ -292,6 +296,10 @@ def _detail_artwork(recording: Recording, event: Event | None, season: Competiti
     event_thumb = recording.thumb_url or (event.thumb_url if event is not None else None)
     if event_thumb:
         cards.append({"label": "Event", "url": event_thumb, "alt": event.name if event is not None else recording.title})
+    if event is not None and event.poster_url:
+        cards.append({"label": "Event Poster", "url": event.poster_url, "alt": event.name})
+    if event is not None and event.fanart_url:
+        cards.append({"label": "Event Background", "url": event.fanart_url, "alt": event.name})
     if competition is not None and competition.poster_url:
         cards.append(
             {
@@ -318,6 +326,21 @@ def _current_log_level(request: Request) -> str:
     if level not in _LOG_LEVEL_OPTIONS:
         return "INFO"
     return level
+
+
+def _notification_context(request: Request) -> dict[str, object]:
+    with _session_factory(request)() as session:
+        notifications = list_notifications(
+            session,
+            status=NotificationStatus.OPEN.value,
+            limit=5,
+        )
+    return {
+        "open_notifications": notifications,
+        "notification_summary": {
+            "open_count": len(notifications),
+        },
+    }
 
 
 def _persist_log_level(request: Request, level: str) -> None:
@@ -1415,6 +1438,46 @@ def logs_page(request: Request) -> HTMLResponse:
             "breadcrumbs": [_crumb("Logs")],
         },
     )
+
+
+@router.get("/alerts", response_class=HTMLResponse, name="alerts_page")
+def alerts_page(request: Request) -> HTMLResponse:
+    with _session_factory(request)() as session:
+        open_notifications = list_notifications(
+            session,
+            status=NotificationStatus.OPEN.value,
+            limit=100,
+        )
+        dismissed_notifications = list_notifications(
+            session,
+            status=NotificationStatus.DISMISSED.value,
+            limit=25,
+        )
+    return _render(
+        request,
+        "alerts.html",
+        {
+            "alerts": open_notifications,
+            "dismissed_alerts": dismissed_notifications,
+            "breadcrumbs": [_crumb("Alerts")],
+        },
+    )
+
+
+@router.post("/alerts/{notification_id}/dismiss", name="dismiss_alert")
+def dismiss_alert(request: Request, notification_id: int) -> RedirectResponse:
+    with _session_factory(request)() as session:
+        dismiss_notification(session, notification_id)
+        session.commit()
+    return RedirectResponse(url=str(request.url_for("alerts_page")), status_code=303)
+
+
+@router.post("/alerts/dismiss-all", name="dismiss_all_alerts")
+def dismiss_all_alerts(request: Request) -> RedirectResponse:
+    with _session_factory(request)() as session:
+        dismiss_all_notifications(session)
+        session.commit()
+    return RedirectResponse(url=str(request.url_for("alerts_page")), status_code=303)
 
 
 @router.get("/advanced", response_class=HTMLResponse, name="advanced_page")

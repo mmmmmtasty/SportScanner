@@ -3,10 +3,12 @@ from __future__ import annotations
 import re
 from datetime import date
 from difflib import SequenceMatcher
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 
 from sportscanner.db.models import Competition, CompetitionSeason, Event, Recording, RecordingStatus
+from sportscanner.provider.artwork import competition_fanart_url, competition_poster_url, episode_background_url, event_thumb_url
 from sportscanner.provider.rating_keys import (
     make_episode_guid,
     make_episode_rating_key,
@@ -16,6 +18,9 @@ from sportscanner.provider.rating_keys import (
     make_show_rating_key,
 )
 from sportscanner.provider.schemas import ChildrenModel, MetadataItemModel
+
+if TYPE_CHECKING:
+    from sportscanner.provider.artwork import AssetUrlBuilder
 
 
 def sequence_score(left: str, right: str) -> int:
@@ -100,6 +105,7 @@ def episode_metadata(
     event: Event | None,
     recording: Recording,
     provider_identifier: str,
+    asset_url_builder: "AssetUrlBuilder | None" = None,
 ) -> MetadataItemModel:
     rating_key = make_episode_rating_key(recording.id)
     season_rating_key = make_season_rating_key(competition.id, season.season_number)
@@ -125,15 +131,16 @@ def episode_metadata(
         parentRatingKey=season_rating_key,
         parentTitle=season.label,
         parentType="season",
-        parentThumb=competition.poster_url,
+        parentThumb=competition_poster_url(competition, asset_url_builder),
         grandparentKey=f"/library/metadata/{show_rating_key}",
         grandparentGuid=make_show_guid(competition.id, provider_identifier),
         grandparentRatingKey=show_rating_key,
         grandparentTitle=competition.name,
         grandparentType="show",
-        grandparentThumb=competition.poster_url,
+        grandparentThumb=competition_poster_url(competition, asset_url_builder),
         originallyAvailableAt=aired_at,
-        thumb=recording.thumb_url or (event.thumb_url if event is not None else None),
+        thumb=event_thumb_url(recording, event, asset_url_builder),
+        art=episode_background_url(competition, event, asset_url_builder),
     )
 
 
@@ -142,6 +149,7 @@ def season_episode_items(
     competition: Competition,
     season: CompetitionSeason,
     provider_identifier: str,
+    asset_url_builder: "AssetUrlBuilder | None" = None,
 ) -> list[MetadataItemModel]:
     recordings = list(
         session.scalars(
@@ -160,6 +168,7 @@ def season_episode_items(
             session.get(Event, recording.event_id) if recording.event_id else None,
             recording,
             provider_identifier,
+            asset_url_builder,
         )
         for recording in recordings
     ]
@@ -172,13 +181,20 @@ def season_metadata(
     provider_identifier: str,
     *,
     include_children: bool = False,
+    asset_url_builder: "AssetUrlBuilder | None" = None,
 ) -> MetadataItemModel:
     rating_key = make_season_rating_key(competition.id, season.season_number)
     show_rating_key = make_show_rating_key(competition.id)
     season_aired_at = first_event_date(session, competition.id, season.season_number)
     children = None
     if include_children:
-        episode_items = season_episode_items(session, competition, season, provider_identifier)
+        episode_items = season_episode_items(
+            session,
+            competition,
+            season,
+            provider_identifier,
+            asset_url_builder,
+        )
         children = ChildrenModel(size=len(episode_items), Metadata=episode_items)
     return MetadataItemModel(
         ratingKey=rating_key,
@@ -193,14 +209,20 @@ def season_metadata(
         parentRatingKey=show_rating_key,
         parentTitle=competition.name,
         parentType="show",
-        parentThumb=competition.poster_url,
+        parentThumb=competition_poster_url(competition, asset_url_builder),
         originallyAvailableAt=season_aired_at,
-        thumb=competition.poster_url,
+        thumb=competition_poster_url(competition, asset_url_builder),
+        art=competition_fanart_url(competition, asset_url_builder),
         Children=children,
     )
 
 
-def show_season_items(session, competition: Competition, provider_identifier: str) -> list[MetadataItemModel]:
+def show_season_items(
+    session,
+    competition: Competition,
+    provider_identifier: str,
+    asset_url_builder: "AssetUrlBuilder | None" = None,
+) -> list[MetadataItemModel]:
     seasons = list(
         session.scalars(
             select(CompetitionSeason)
@@ -208,10 +230,24 @@ def show_season_items(session, competition: Competition, provider_identifier: st
             .order_by(CompetitionSeason.season_number.asc())
         )
     )
-    return [season_metadata(session, competition, season, provider_identifier) for season in seasons]
+    return [
+        season_metadata(
+            session,
+            competition,
+            season,
+            provider_identifier,
+            asset_url_builder=asset_url_builder,
+        )
+        for season in seasons
+    ]
 
 
-def show_episode_items(session, competition: Competition, provider_identifier: str) -> list[MetadataItemModel]:
+def show_episode_items(
+    session,
+    competition: Competition,
+    provider_identifier: str,
+    asset_url_builder: "AssetUrlBuilder | None" = None,
+) -> list[MetadataItemModel]:
     seasons = {
         season.id: season
         for season in session.scalars(
@@ -238,6 +274,7 @@ def show_episode_items(session, competition: Competition, provider_identifier: s
             session.get(Event, recording.event_id) if recording.event_id else None,
             recording,
             provider_identifier,
+            asset_url_builder,
         )
         for recording in recordings
     ]
@@ -249,6 +286,7 @@ def show_metadata(
     provider_identifier: str,
     *,
     include_children: bool = False,
+    asset_url_builder: "AssetUrlBuilder | None" = None,
 ) -> MetadataItemModel:
     rating_key = make_show_rating_key(competition.id)
     show_aired_at = None
@@ -258,7 +296,12 @@ def show_metadata(
         show_aired_at = first_event_date(session, competition.id)
     children = None
     if include_children:
-        season_items = show_season_items(session, competition, provider_identifier)
+        season_items = show_season_items(
+            session,
+            competition,
+            provider_identifier,
+            asset_url_builder,
+        )
         children = ChildrenModel(size=len(season_items), Metadata=season_items)
     return MetadataItemModel(
         ratingKey=rating_key,
@@ -270,8 +313,8 @@ def show_metadata(
         year=competition.formed_year,
         leafCount=show_leaf_count(session, competition.id),
         originallyAvailableAt=show_aired_at,
-        thumb=competition.poster_url,
-        art=competition.fanart_url,
+        thumb=competition_poster_url(competition, asset_url_builder),
+        art=competition_fanart_url(competition, asset_url_builder),
         Children=children,
     )
 

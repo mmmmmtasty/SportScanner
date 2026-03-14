@@ -730,6 +730,12 @@ table tbody tr {
   border-color: rgba(160, 34, 40, 0.18);
 }
 
+.status-warning {
+  background: rgba(169, 105, 0, 0.14);
+  color: var(--warm);
+  border-color: rgba(169, 105, 0, 0.2);
+}
+
 .status-pending {
   background: rgba(10, 99, 201, 0.14);
   color: var(--accent-strong);

@@ -64,17 +64,25 @@ class PlexPmsClient:
             headers={"X-Plex-Token": self.token, "Accept": "application/json"},
             timeout=20.0,
         ) as client:
-            response = client.post(
-                "/media/providers/metadata",
-                params={**self._auth_params(), "uri": provider_uri},
-            )
+            try:
+                response = client.post(
+                    "/media/providers/metadata",
+                    params={**self._auth_params(), "uri": provider_uri},
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("plex_register_provider_failed provider_uri=%s error=%s", provider_uri, exc)
+                raise
             if response.status_code != 409:
                 response.raise_for_status()
                 logger.info("plex_provider_registered provider_identifier=%s provider_uri=%s", provider_identifier, provider_uri)
             else:
                 logger.info("plex_provider_conflict_reused provider_identifier=%s provider_uri=%s", provider_identifier, provider_uri)
 
-            groups_response = client.get("/media/providers/metadata/group", params=self._auth_params())
+            try:
+                groups_response = client.get("/media/providers/metadata/group", params=self._auth_params())
+            except httpx.HTTPError as exc:
+                logger.warning("plex_group_lookup_failed provider_identifier=%s error=%s", provider_identifier, exc)
+                raise
             groups_response.raise_for_status()
             container = groups_response.json().get("MediaContainer", {})
             groups = container.get("MetadataAgentProviderGroup", []) or []
@@ -90,14 +98,18 @@ class PlexPmsClient:
                 group_id = int(existing_group["id"])
                 logger.info("plex_group_reused provider_group_name=%s provider_group_id=%s", provider_group_name, group_id)
             else:
-                create_response = client.post(
-                    "/media/providers/metadata/group",
-                    params={
-                        **self._auth_params(),
-                        "title": provider_group_name,
-                        "primaryIdentifier": provider_identifier,
-                    },
-                )
+                try:
+                    create_response = client.post(
+                        "/media/providers/metadata/group",
+                        params={
+                            **self._auth_params(),
+                            "title": provider_group_name,
+                            "primaryIdentifier": provider_identifier,
+                        },
+                    )
+                except httpx.HTTPError as exc:
+                    logger.warning("plex_group_create_failed provider_group_name=%s error=%s", provider_group_name, exc)
+                    raise
                 create_response.raise_for_status()
                 group_id = self._extract_group_id(create_response.json())
                 if group_id is None:
@@ -126,20 +138,24 @@ class PlexPmsClient:
             headers={"X-Plex-Token": self.token, "Accept": "application/json"},
             timeout=20.0,
         ) as client:
-            response = client.post(
-                "/library/sections",
-                params={
-                    "name": name,
-                    "type": "show",
-                    "agent": agent or "tv.plex.agents.series",
-                    "scanner": "Plex TV Series",
-                    "language": "en-US",
-                    "location": location,
-                    "metadataAgentProviderGroupId": provider_group_id,
-                    "flattenSeasons": "0",
-                    "X-Plex-Token": self.token,
-                },
-            )
+            try:
+                response = client.post(
+                    "/library/sections",
+                    params={
+                        "name": name,
+                        "type": "show",
+                        "agent": agent or "tv.plex.agents.series",
+                        "scanner": "Plex TV Series",
+                        "language": "en-US",
+                        "location": location,
+                        "metadataAgentProviderGroupId": provider_group_id,
+                        "flattenSeasons": "0",
+                        "X-Plex-Token": self.token,
+                    },
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("plex_create_library_failed name=%s location=%s error=%s", name, location, exc)
+                raise
             response.raise_for_status()
             directories = response.json().get("MediaContainer", {}).get("Directory", [])
             if isinstance(directories, dict):
@@ -160,7 +176,11 @@ class PlexPmsClient:
         if not self.configured():
             raise ValueError("Plex PMS URL and token are required")
         with httpx.Client(base_url=self.base_url, headers={"X-Plex-Token": self.token, "Accept": "application/json"}, timeout=20.0) as client:
-            response = client.get("/library/sections", params=self._auth_params())
+            try:
+                response = client.get("/library/sections", params=self._auth_params())
+            except httpx.HTTPError as exc:
+                logger.warning("plex_list_sections_failed error=%s", exc)
+                raise
             response.raise_for_status()
         directories = response.json().get("MediaContainer", {}).get("Directory", [])
         if isinstance(directories, dict):
@@ -181,7 +201,14 @@ class PlexPmsClient:
         if not self.configured():
             raise ValueError("Plex PMS URL and token are required")
         with httpx.Client(base_url=self.base_url, headers={"X-Plex-Token": self.token}, timeout=20.0) as client:
-            response = client.get(f"/library/sections/{section_id}/refresh", params={**self._auth_params(), "force": "1"})
+            try:
+                response = client.get(
+                    f"/library/sections/{section_id}/refresh",
+                    params={**self._auth_params(), "force": "1"},
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("plex_section_refresh_failed section_id=%s error=%s", section_id, exc)
+                raise
             response.raise_for_status()
         logger.info("plex_library_refresh_triggered section_id=%s", section_id)
 

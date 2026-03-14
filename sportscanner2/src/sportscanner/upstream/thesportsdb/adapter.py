@@ -74,6 +74,9 @@ def adapt_event(payload: dict, *, competition_name: str | None = None) -> Upstre
         away_score=int(payload["intAwayScore"]) if payload.get("intAwayScore") else None,
         description=payload.get("strDescriptionEN"),
         thumb_url=payload.get("strThumb"),
+        poster_url=payload.get("strPoster"),
+        banner_url=payload.get("strBanner"),
+        fanart_url=payload.get("strFanart") or payload.get("strFanart1"),
         source_payload=dict(payload),
     )
 
@@ -151,5 +154,8 @@ def adapt_event_csv(row: dict, *, competition_name: str, competition_tsdb_id: in
         away_score=int(away_score_raw) if away_score_raw and away_score_raw.lstrip("-").isdigit() else None,
         description=_clean_csv_text(row, "Description", "strDescriptionEN") or None,
         thumb_url=_clean_csv_text(row, "Thumb", "strThumb") or None,
+        poster_url=_clean_csv_text(row, "Poster", "strPoster") or None,
+        banner_url=_clean_csv_text(row, "Banner", "strBanner") or None,
+        fanart_url=_clean_csv_text(row, "Fanart", "strFanart", "strFanart1") or None,
         source_payload=dict(row),
     )

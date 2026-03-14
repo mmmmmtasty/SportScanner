@@ -172,6 +172,7 @@ def test_init_db_migrates_legacy_segment_schema(tmp_path) -> None:
         assert "competition_alias" in inspector.get_table_names()
         assert "plex_refresh_job" in inspector.get_table_names()
         assert "metadata_refresh_job" in inspector.get_table_names()
+        assert "notification" in inspector.get_table_names()
 
         recording_columns = {column["name"]: column for column in inspector.get_columns("recording")}
         refresh_job_columns = {column["name"] for column in inspector.get_columns("plex_refresh_job")}
@@ -193,6 +194,7 @@ def test_init_db_migrates_legacy_segment_schema(tmp_path) -> None:
         event_columns = {column["name"] for column in inspector.get_columns("event")}
         assert "upstream_metadata" in competition_columns
         assert "upstream_metadata" in event_columns
+        assert {"poster_url", "banner_url", "fanart_url"} <= event_columns
 
         override_columns = {column["name"] for column in inspector.get_columns("override")}
         review_task_columns = {column["name"] for column in inspector.get_columns("review_task")}
