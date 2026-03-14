@@ -550,13 +550,13 @@ def test_inbox_uses_column_header_filters_and_links_no_match_to_review_queue(pro
     assert 'href="http://testserver/admin/review"' in response.text
 
 
-def test_season_page_removes_refresh_competition_button_and_shows_breadcrumbs(provider_app) -> None:
+def test_season_page_removes_refresh_competition_button_and_hides_breadcrumb_panel(provider_app) -> None:
     client = TestClient(provider_app)
 
     response = client.get("/admin/library/tsdb_4370/seasons/season_tsdb_4370_2025")
 
     assert response.status_code == 200
-    assert 'aria-label="Breadcrumb"' in response.text
+    assert 'aria-label="Breadcrumb"' not in response.text
     assert "Formula 1" in response.text
     assert "2025" in response.text
     assert "Refresh Season" in response.text

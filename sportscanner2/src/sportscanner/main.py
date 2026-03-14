@@ -10,18 +10,19 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 
 from sportscanner.admin.router import router as admin_router
 from sportscanner.config import get_settings
 from sportscanner.db.engine import create_session_factory, create_sqlite_engine, init_db
-from sportscanner.db.models import AppSetting
+from sportscanner.db.models import AppSetting, Event
 from sportscanner.log_buffer import LogBuffer
 from sportscanner.organizer.service import OrganizerService
 from sportscanner.organizer.watcher import OrganizerWatcher
 from sportscanner.plex import PlexPmsClient
 from sportscanner.provider.router import router as provider_router
 from sportscanner.services import SportScannerServices
+from sportscanner.text import sanitize_event_name
 from sportscanner.upstream.thesportsdb.client import TheSportsDbClient
 
 
@@ -96,11 +97,41 @@ def _load_path_setting(session_factory, key: str, fallback: Path) -> Path:
     return fallback
 
 
+def _normalize_stored_event_names(session_factory) -> None:
+    try:
+        with session_factory() as session:
+            events = list(
+                session.scalars(
+                    select(Event).where(
+                        or_(
+                            Event.name.contains("http://"),
+                            Event.name.contains("https://"),
+                            Event.name.contains("www."),
+                        )
+                    )
+                )
+            )
+            changed = 0
+            for event in events:
+                cleaned = sanitize_event_name(event.name)
+                if cleaned and cleaned != event.name:
+                    event.name = cleaned
+                    changed += 1
+            if changed:
+                session.commit()
+                logging.getLogger("sportscanner").info("normalized_stored_event_names count=%s", changed)
+                return
+            session.rollback()
+    except Exception as exc:
+        logging.getLogger("sportscanner").warning("normalize_stored_event_names_failed error=%s", exc)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     engine = create_sqlite_engine(settings)
     init_db(engine)
     session_factory = create_session_factory(engine)
+    _normalize_stored_event_names(session_factory)
     settings.incoming_dir = _load_path_setting(session_factory, "incoming_dir", settings.incoming_dir)
     settings.library_dir = _load_path_setting(session_factory, "library_dir", settings.library_dir)
     sport_logger = logging.getLogger("sportscanner")

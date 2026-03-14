@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sportscanner.text import sanitize_event_name
 from sportscanner.upstream.thesportsdb.adapter import adapt_competition, adapt_event, adapt_event_csv
 
 
@@ -32,6 +33,18 @@ def test_adapt_event() -> None:
     assert event.id == "tsdb_1001"
     assert event.round == 11
     assert event.date.isoformat() == "2025-06-29"
+
+
+def test_adapt_event_strips_embedded_url_suffix() -> None:
+    event = adapt_event(
+        {
+            "idEvent": "1002",
+            "strEvent": "UFC 326 Holloway vs Oliveira 2 vs https://www.thesportsdb.com/images/media/event/thumb/7yx5pk1772957209.jpg",
+        },
+        competition_name="UFC",
+    )
+
+    assert event.name == "UFC 326 Holloway vs Oliveira 2"
 
 
 def test_adapt_event_csv_tolerates_null_score_fields() -> None:
@@ -74,3 +87,12 @@ def test_adapt_event_csv_ignores_url_like_team_cells() -> None:
     assert event is not None
     assert event.name == "Australian Grand Prix"
     assert event.away_team is None
+
+
+def test_sanitize_event_name_strips_trailing_url_and_separator() -> None:
+    assert (
+        sanitize_event_name(
+            "Australian Grand Prix Qualifying vs https://r2.thesportsdb.com/images/media/event/thumb/g9dyu11740496426.jpg"
+        )
+        == "Australian Grand Prix Qualifying"
+    )

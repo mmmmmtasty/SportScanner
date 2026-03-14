@@ -24,21 +24,6 @@
           <li><a href="{{ request.url_for('logs_page') }}" title="Inspect logs, debug output, and upstream API payloads">Logs</a></li>
         </ul>
       </nav>
-      {% if breadcrumbs %}
-      <nav class="breadcrumb-bar" aria-label="Breadcrumb">
-        <ol class="breadcrumb-list">
-          {% for crumb in breadcrumbs %}
-          <li>
-            {% if crumb.href and not loop.last %}
-            <a href="{{ crumb.href }}">{{ crumb.label }}</a>
-            {% else %}
-            <span {% if loop.last %}aria-current="page"{% endif %}>{{ crumb.label }}</span>
-            {% endif %}
-          </li>
-          {% endfor %}
-        </ol>
-      </nav>
-      {% endif %}
       <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
       {% block content %}{% endblock %}
     </main>

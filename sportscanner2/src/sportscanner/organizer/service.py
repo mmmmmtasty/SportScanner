@@ -46,6 +46,7 @@ from sportscanner.organizer.numbering import EventSequenceInput, RecordingCodeIn
 from sportscanner.organizer.parser import ParsedFile, is_media_file, parse_filename
 from sportscanner.organizer.placer import build_managed_filename, move_managed_file, place_file, season_directory_name
 from sportscanner.organizer.plexmatch import render_season_plexmatch, render_show_plexmatch, write_atomic_if_changed
+from sportscanner.text import sanitize_event_name
 from sportscanner.upstream.base import MetadataSource, UpstreamCompetition, UpstreamEvent
 
 try:
@@ -1302,10 +1303,11 @@ class OrganizerService:
         if event is None:
             event = Event(id=upstream.id if upstream.id.startswith("tsdb_") else f"manual_{uuid4().hex}")
             session.add(event)
+        event_name = sanitize_event_name(upstream.name) or "Unknown Event"
         event.tsdb_id = upstream.tsdb_id
         event.competition_season_id = competition_season_id
         event.origin = EventOrigin.UPSTREAM.value
-        event.name = upstream.name
+        event.name = event_name
         event.date = upstream.date
         event.time = upstream.time
         event.round = upstream.round
@@ -1320,7 +1322,7 @@ class OrganizerService:
         event.thumb_url = upstream.thumb_url
         if upstream.source_payload:
             event.upstream_metadata = upstream.source_payload
-        event.weekend_group = upstream.weekend_group or derive_weekend_group(upstream.name)
+        event.weekend_group = upstream.weekend_group or derive_weekend_group(event_name)
         session.flush()
         return event
 

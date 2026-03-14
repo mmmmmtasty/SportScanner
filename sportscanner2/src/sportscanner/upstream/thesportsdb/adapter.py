@@ -4,6 +4,7 @@ import re
 from datetime import date, time
 from urllib.parse import urlparse
 
+from sportscanner.text import sanitize_event_name
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
 
 
@@ -59,7 +60,7 @@ def adapt_event(payload: dict, *, competition_name: str | None = None) -> Upstre
         id=f"tsdb_{tsdb_id}" if tsdb_id else f"manual_{payload.get('strEvent', 'event')}",
         tsdb_id=int(tsdb_id) if tsdb_id else None,
         competition_tsdb_id=int(league_id) if league_id else None,
-        name=payload.get("strEvent") or payload.get("strFilename") or "Unknown Event",
+        name=sanitize_event_name(payload.get("strEvent") or payload.get("strFilename")) or "Unknown Event",
         competition_name=competition_name or payload.get("strLeague") or "",
         date=_parse_date(payload.get("dateEvent") or payload.get("dateEventLocal")),
         time=_parse_time(payload.get("strTime") or payload.get("strTimeLocal")),
@@ -97,19 +98,21 @@ def _clean_team_name(value: str) -> str:
 
 
 def _csv_event_name(row: dict, home_team: str, away_team: str) -> str:
-    explicit_name = _clean_csv_text(
-        row,
-        "Event",
-        "Event Name",
-        "Name",
-        "strEvent",
-        "Description",
+    explicit_name = sanitize_event_name(
+        _clean_csv_text(
+            row,
+            "Event",
+            "Event Name",
+            "Name",
+            "strEvent",
+            "Description",
+        )
     )
     if explicit_name and not _looks_like_url(explicit_name):
         return explicit_name
     if home_team and away_team:
-        return f"{home_team} vs {away_team}"
-    return home_team or away_team or "Unknown Event"
+        return sanitize_event_name(f"{home_team} vs {away_team}") or "Unknown Event"
+    return sanitize_event_name(home_team or away_team) or "Unknown Event"
 
 
 def adapt_event_csv(row: dict, *, competition_name: str, competition_tsdb_id: int) -> UpstreamEvent | None:
