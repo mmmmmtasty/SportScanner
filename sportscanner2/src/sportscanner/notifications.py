@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from sportscanner.db.models import Notification, NotificationSeverity, NotificationStatus
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(slots=True)
 class NotificationEvent:
@@ -103,7 +105,8 @@ def create_notification_from_log_record(
         with session_factory() as session:
             record_notification(session, event)
             session.commit()
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to create notification from log record: %s", exc)
         return
 
 

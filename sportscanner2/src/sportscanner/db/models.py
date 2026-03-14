@@ -272,6 +272,15 @@ class MetadataRefreshJob(Base):
 
 class Asset(Base):
     __tablename__ = "asset"
+    __table_args__ = (
+        UniqueConstraint(
+            "entity_type",
+            "entity_id",
+            "asset_type",
+            "sort_order",
+            name="uq_asset_entity_type_slot",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False)

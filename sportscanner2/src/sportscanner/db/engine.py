@@ -41,8 +41,74 @@ def _index_names(connection: Connection, table_name: str) -> set[str]:
     return {index["name"] for index in inspect(connection).get_indexes(table_name)}
 
 
+def _index_definitions(connection: Connection, table_name: str) -> list[dict[str, object]]:
+    index_rows = connection.exec_driver_sql(f"PRAGMA index_list('{table_name}')").mappings().all()
+    definitions: list[dict[str, object]] = []
+    for index_row in index_rows:
+        index_name = str(index_row["name"])
+        column_rows = connection.exec_driver_sql(f"PRAGMA index_info('{index_name}')").mappings().all()
+        definitions.append(
+            {
+                "name": index_name,
+                "unique": bool(index_row["unique"]),
+                "columns": [str(column_row["name"]) for column_row in column_rows],
+            }
+        )
+    return definitions
+
+
+def _has_covering_index(
+    connection: Connection,
+    table_name: str,
+    columns: tuple[str, ...],
+    *,
+    unique: bool | None = None,
+) -> bool:
+    for definition in _index_definitions(connection, table_name):
+        if tuple(definition["columns"]) != columns:
+            continue
+        if unique is None or bool(definition["unique"]) is unique:
+            return True
+    return False
+
+
 def _row_count(connection: Connection, table_name: str) -> int:
     return int(connection.exec_driver_sql(f"SELECT COUNT(*) FROM {table_name}").scalar_one())
+
+
+def _dedupe_asset_rows(connection: Connection) -> None:
+    duplicate_groups = connection.exec_driver_sql(
+        """
+        SELECT entity_type, entity_id, asset_type, sort_order
+        FROM asset
+        GROUP BY entity_type, entity_id, asset_type, sort_order
+        HAVING COUNT(*) > 1
+        """
+    ).mappings()
+
+    for group in duplicate_groups:
+        rows = connection.exec_driver_sql(
+            """
+            SELECT id, source_url, cached_path
+            FROM asset
+            WHERE entity_type = ? AND entity_id = ? AND asset_type = ? AND sort_order = ?
+            ORDER BY CASE WHEN cached_path IS NULL THEN 1 ELSE 0 END, id DESC
+            """,
+            (
+                group["entity_type"],
+                group["entity_id"],
+                group["asset_type"],
+                group["sort_order"],
+            ),
+        ).mappings().all()
+        duplicate_ids = [int(row["id"]) for row in rows[1:]]
+        if not duplicate_ids:
+            continue
+        placeholders = ", ".join("?" for _ in duplicate_ids)
+        connection.exec_driver_sql(
+            f"DELETE FROM asset WHERE id IN ({placeholders})",
+            tuple(duplicate_ids),
+        )
 
 
 def _migrate_legacy_schema(connection: Connection) -> None:
@@ -127,6 +193,17 @@ def _migrate_legacy_schema(connection: Connection) -> None:
         if old_column in columns and new_column not in columns:
             connection.exec_driver_sql(
                 f"ALTER TABLE {table_name} RENAME COLUMN {old_column} TO {new_column}"
+            )
+
+    if "asset" in table_names:
+        asset_lookup_columns = ("entity_type", "entity_id", "asset_type", "sort_order")
+        if not _has_covering_index(connection, "asset", asset_lookup_columns, unique=True):
+            _dedupe_asset_rows(connection)
+            connection.exec_driver_sql(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_asset_entity_type_slot
+                ON asset (entity_type, entity_id, asset_type, sort_order)
+                """
             )
 
 

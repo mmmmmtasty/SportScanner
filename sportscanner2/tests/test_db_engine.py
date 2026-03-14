@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import create_engine, inspect
+from sqlalchemy.exc import IntegrityError
 
 from sportscanner.db.engine import init_db
 
@@ -221,5 +223,67 @@ def test_init_db_migrates_legacy_segment_schema(tmp_path) -> None:
 
         index_names = {index["name"] for index in inspector.get_indexes("recording")}
         assert "ix_recording_file_fingerprint" in index_names
+
+    engine.dispose()
+
+
+def test_init_db_backfills_asset_lookup_uniqueness_for_existing_databases(tmp_path) -> None:
+    db_path = tmp_path / "asset-legacy.db"
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE asset (
+                id INTEGER NOT NULL PRIMARY KEY,
+                entity_type VARCHAR(32) NOT NULL,
+                entity_id VARCHAR(255) NOT NULL,
+                asset_type VARCHAR(64) NOT NULL,
+                source_url VARCHAR(1024) NOT NULL,
+                cached_path VARCHAR(2048),
+                sort_order INTEGER DEFAULT 0
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO asset (id, entity_type, entity_id, asset_type, source_url, cached_path, sort_order)
+            VALUES
+                (1, 'competition', 'tsdb_4370', 'poster', 'https://example.com/old.jpg', NULL, 0),
+                (2, 'competition', 'tsdb_4370', 'poster', 'https://example.com/new.jpg', '/tmp/new.jpg', 0),
+                (3, 'competition', 'tsdb_4370', 'fanart', 'https://example.com/fanart.jpg', NULL, 1)
+            """
+        )
+
+    init_db(engine)
+
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        asset_indexes = connection.exec_driver_sql("PRAGMA index_list('asset')").mappings().all()
+        matching_unique_indexes = [
+            row for row in asset_indexes if row["unique"] and row["name"] == "uq_asset_entity_type_slot"
+        ]
+        assert matching_unique_indexes
+
+        duplicate_rows = connection.exec_driver_sql(
+            """
+            SELECT id, source_url, cached_path
+            FROM asset
+            WHERE entity_type = 'competition' AND entity_id = 'tsdb_4370' AND asset_type = 'poster' AND sort_order = 0
+            ORDER BY id
+            """
+        ).all()
+        assert duplicate_rows == [(2, "https://example.com/new.jpg", "/tmp/new.jpg")]
+
+        index_names = {index["name"] for index in inspector.get_indexes("asset")}
+        assert "uq_asset_entity_type_slot" in index_names
+
+        with pytest.raises(IntegrityError):
+            connection.exec_driver_sql(
+                """
+                INSERT INTO asset (entity_type, entity_id, asset_type, source_url, sort_order)
+                VALUES ('competition', 'tsdb_4370', 'poster', 'https://example.com/dupe.jpg', 0)
+                """
+            )
 
     engine.dispose()
