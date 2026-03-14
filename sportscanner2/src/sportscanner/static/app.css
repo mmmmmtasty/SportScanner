@@ -445,9 +445,33 @@ main.container > p a:hover {
   align-items: start;
 }
 
+.candidate-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.candidate-copy strong,
+.result-heading strong {
+  overflow-wrap: anywhere;
+}
+
 .result-heading {
   justify-content: flex-start;
+  min-width: 0;
+  flex-wrap: wrap;
   margin-bottom: 0.25rem;
+}
+
+.match-description {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .pill {

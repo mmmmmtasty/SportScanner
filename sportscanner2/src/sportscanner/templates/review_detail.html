@@ -9,7 +9,7 @@
       {% if queue_position %}
       Queue item {{ queue_position }} of {{ queue_total }}.
       {% endif %}
-      Accept a candidate, search a better event, publish as a special, or ignore the file explicitly.
+      Accept a potential match, search a better event, publish as a special, or ignore the file explicitly.
     </p>
   </div>
   <div class="inline-actions">
@@ -102,15 +102,18 @@
 
 <section class="panel">
   <div class="panel-header">
-    <h2>Automatic Candidates</h2>
-    <span class="pill">{{ task.candidates|length }} candidate{% if task.candidates|length != 1 %}s{% endif %}</span>
+    <h2>Potential Matches</h2>
+    <span class="pill">{{ candidate_cards|length }} potential match{% if candidate_cards|length != 1 %}es{% endif %}</span>
   </div>
   <div class="card-grid">
-    {% for candidate in task.candidates %}
+    {% for candidate in candidate_cards %}
     <article class="candidate-card">
-      <div>
+      <div class="candidate-copy">
         <strong>{{ candidate.name or candidate["name"] }}</strong>
         <p class="helper-text">Confidence {{ candidate.confidence or candidate["confidence"] }}</p>
+        {% if candidate.description or candidate["description"] %}
+        <p class="match-description helper-text">{{ candidate.description or candidate["description"] }}</p>
+        {% endif %}
       </div>
       <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task.id) }}">
         <input type="hidden" name="event_id" value="{{ candidate.event_id or candidate['event_id'] }}" />
@@ -121,7 +124,7 @@
       </form>
     </article>
     {% else %}
-    <p class="empty-state">No automatic candidates were confident enough to auto-publish.</p>
+    <p class="empty-state">No potential matches were confident enough to auto-publish.</p>
     {% endfor %}
   </div>
 </section>

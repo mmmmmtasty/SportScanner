@@ -251,6 +251,7 @@ def test_review_queue_explains_resolution_flow(provider_app) -> None:
     assert response.status_code == 200
     assert "How To Work The Queue" in response.text
     assert "Choose The Right Outcome" in response.text
+    assert "Potential Matches" in response.text
 
 
 def test_create_plex_library_registers_provider_group_before_creation(provider_app) -> None:
@@ -302,9 +303,19 @@ def test_create_plex_library_registers_provider_group_before_creation(provider_a
 
 def test_review_task_detail_shows_queue_position_and_ignore_action(provider_app) -> None:
     with provider_app.state.services.session_factory() as session:
+        event = session.get(Event, "tsdb_1001")
+        assert event is not None
+        event.description = (
+            "Race recap " * 20
+            + "withaverylongunbrokenstretchoftextthatshouldwrapinsidethecardwithoutblowingupthelayout"
+        )
         session.add_all(
             [
-                ReviewTask(recording_id="seg_primary", task_type="match_review"),
+                ReviewTask(
+                    recording_id="seg_primary",
+                    task_type="match_review",
+                    candidates=[{"event_id": "tsdb_1001", "name": event.name, "confidence": 0.84}],
+                ),
                 ReviewTask(recording_id="seg_primary", task_type="match_review"),
             ]
         )
@@ -317,6 +328,10 @@ def test_review_task_detail_shows_queue_position_and_ignore_action(provider_app)
     assert "Queue item 1 of 2" in response.text
     assert "Ignore File" in response.text
     assert "Plex-facing title, date, summary," in response.text
+    assert "Potential Matches" in response.text
+    assert "Automatic Candidates" not in response.text
+    assert "match-description" in response.text
+    assert "withaverylongunbrokenstretchoftextthatshouldwrapinsidethecardwithoutblowingupthelayout" in response.text
 
 
 def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
@@ -339,6 +354,7 @@ def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
                     name="Australian Grand Prix Qualifying",
                     competition_name="Formula 1",
                     date=date(2025, 6, 28),
+                    description="Extended session notes " * 8,
                 )
             ]
 
@@ -362,6 +378,8 @@ def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
     assert response.status_code == 200
     assert "Load From TheSportsDB" in response.text
     assert "TheSportsDB" in response.text
+    assert "Extended session notes" in response.text
+    assert "match-description" in response.text
 
 
 def test_plex_libraries_page_explains_refresh_vs_scan(provider_app) -> None:

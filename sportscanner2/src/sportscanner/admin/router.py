@@ -225,6 +225,24 @@ def _confidence_class(score: float) -> str:
     return "low"
 
 
+def _review_candidate_cards(session, candidates: list[dict] | None) -> list[dict[str, object]]:
+    cards: list[dict[str, object]] = []
+    for candidate in candidates or []:
+        if not isinstance(candidate, dict):
+            continue
+        event_id = candidate.get("event_id")
+        event = session.get(Event, event_id) if event_id else None
+        cards.append(
+            {
+                "event_id": event_id,
+                "name": candidate.get("name") or (event.name if event is not None else "Unknown event"),
+                "confidence": candidate.get("confidence"),
+                "description": candidate.get("description") or (event.description if event is not None else None),
+            }
+        )
+    return cards
+
+
 def _status_meta(status: str, *, has_refresh_pending: bool = False) -> dict[str, str]:
     if status == RecordingStatus.PUBLISHED.value:
         label = "In Plex"
@@ -475,6 +493,7 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
         season = session.get(CompetitionSeason, recording.competition_season_id) if recording else None
         competition = session.get(Competition, season.competition_id) if season else None
         all_competitions = list(session.scalars(select(Competition).order_by(Competition.name.asc())))
+        candidate_cards = _review_candidate_cards(session, task.candidates)
         open_task_ids = list(
             session.scalars(
                 select(ReviewTask.id).where(ReviewTask.status == "open").order_by(ReviewTask.created_at.asc())
@@ -501,6 +520,7 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
             "season": season,
             "competition": competition,
             "all_competitions": all_competitions,
+            "candidate_cards": candidate_cards,
             "queue_position": queue_position,
             "queue_total": len(open_task_ids),
             "prev_task_id": prev_task_id,
@@ -659,6 +679,7 @@ def search_events_for_review(
                             "event_id": ev.id,
                             "tsdb_event_id": None,
                             "name": ev.name,
+                            "description": ev.description,
                             "date": ev.date,
                             "round": ev.round,
                             "home_team": ev.home_team,
@@ -733,6 +754,7 @@ def search_events_for_review(
                                 "event_id": event_id,
                                 "tsdb_event_id": tsdb_lookup_id,
                                 "name": upstream.name,
+                                "description": upstream.description,
                                 "date": upstream.date,
                                 "round": getattr(upstream, "round", None),
                                 "home_team": upstream.home_team,
@@ -1484,6 +1506,7 @@ def search_events_for_file(
                             "event_id": ev.id,
                             "tsdb_event_id": None,
                             "name": ev.name,
+                            "description": ev.description,
                             "date": ev.date,
                             "round": ev.round,
                             "home_team": ev.home_team,
@@ -1559,6 +1582,7 @@ def search_events_for_file(
                                 "event_id": event_id,
                                 "tsdb_event_id": tsdb_lookup_id,
                                 "name": upstream.name,
+                                "description": upstream.description,
                                 "date": upstream.date,
                                 "round": getattr(upstream, "round", None),
                                 "home_team": upstream.home_team,

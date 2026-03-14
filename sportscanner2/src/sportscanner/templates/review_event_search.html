@@ -2,7 +2,7 @@
 <div class="card-grid">
   {% for r in results %}
   <article class="candidate-card confidence-{{ r.confidence_class }}">
-    <div>
+    <div class="candidate-copy">
       <div class="result-heading">
         <strong>{{ r.name }}</strong>
         <span
@@ -16,6 +16,9 @@
         {% if r.round %} · Round {{ r.round }}{% endif %}
         {% if r.home_team and r.away_team %} · {{ r.home_team }} vs {{ r.away_team }}{% endif %}
       </p>
+      {% if r.description %}
+      <p class="match-description helper-text">{{ r.description }}</p>
+      {% endif %}
     </div>
     {% if recording_id %}
     <form method="post" action="{{ request.url_for('rematch_recording', recording_id=recording_id) }}">
