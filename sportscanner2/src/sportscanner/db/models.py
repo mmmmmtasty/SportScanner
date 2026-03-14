@@ -58,6 +58,24 @@ class PlexRefreshJobSource(str, enum.Enum):
     AUTOMATIC = "automatic"
 
 
+class MetadataRefreshJobStatus(str, enum.Enum):
+    PENDING = "pending"
+    SUCCESS = "success"
+    ERROR = "error"
+
+
+class MetadataRefreshJobSource(str, enum.Enum):
+    MANUAL = "manual"
+    AUTOMATIC = "automatic"
+
+
+class MetadataRefreshJobTarget(str, enum.Enum):
+    COMPETITION = "competition"
+    SEASON = "season"
+    EVENT = "event"
+    RECORDING = "recording"
+
+
 class Competition(Base):
     __tablename__ = "competition"
 
@@ -213,6 +231,30 @@ class PlexRefreshJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
 
     recording: Mapped[Recording | None] = relationship(back_populates="refresh_jobs")
+
+
+class MetadataRefreshJob(Base):
+    __tablename__ = "metadata_refresh_job"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    target_type: Mapped[MetadataRefreshJobTarget] = mapped_column(String(32), nullable=False, index=True)
+    target_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    target_label: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[MetadataRefreshJobSource] = mapped_column(
+        String(32),
+        nullable=False,
+        default=MetadataRefreshJobSource.AUTOMATIC.value,
+        index=True,
+    )
+    status: Mapped[MetadataRefreshJobStatus] = mapped_column(
+        String(32),
+        nullable=False,
+        default=MetadataRefreshJobStatus.PENDING.value,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
 
 
 class Asset(Base):

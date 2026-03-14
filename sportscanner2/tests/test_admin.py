@@ -15,6 +15,10 @@ from sportscanner.db.models import (
     Competition,
     CompetitionSeason,
     Event,
+    MetadataRefreshJob,
+    MetadataRefreshJobSource,
+    MetadataRefreshJobStatus,
+    MetadataRefreshJobTarget,
     PlexRefreshJob,
     PlexRefreshJobSource,
     PlexRefreshJobStatus,
@@ -445,7 +449,7 @@ def test_manual_plex_refresh_route_records_manual_job(provider_app) -> None:
         assert job.status == PlexRefreshJobStatus.PENDING.value
 
 
-def test_refresh_jobs_page_lists_and_filters_job_sources(provider_app) -> None:
+def test_plex_refresh_jobs_page_lists_and_filters_job_sources(provider_app) -> None:
     with provider_app.state.services.session_factory() as session:
         session.add_all(
             [
@@ -466,20 +470,95 @@ def test_refresh_jobs_page_lists_and_filters_job_sources(provider_app) -> None:
 
     client = TestClient(provider_app)
 
-    response = client.get("/admin/refresh-jobs")
+    response = client.get("/admin/plex-refresh-jobs")
 
     assert response.status_code == 200
-    assert "Refresh Jobs" in response.text
+    assert "Plex Refresh Jobs" in response.text
     assert "Automatic" in response.text
     assert "Manual" in response.text
     assert "Library-wide" in response.text
     assert "Austrian Grand Prix Race" in response.text
 
-    filtered = client.get("/admin/refresh-jobs?source=automatic")
+    filtered = client.get("/admin/plex-refresh-jobs?source=automatic")
 
     assert filtered.status_code == 200
     assert "Austrian Grand Prix Race" in filtered.text
     assert "Library-wide" not in filtered.text
+
+
+def test_manual_competition_refresh_route_records_metadata_job(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.post("/admin/competitions/tsdb_4370/refresh-metadata", follow_redirects=False)
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        job = session.scalar(select(MetadataRefreshJob).order_by(MetadataRefreshJob.id.desc()))
+        assert job is not None
+        assert job.target_type == MetadataRefreshJobTarget.COMPETITION.value
+        assert job.target_id == "tsdb_4370"
+        assert job.target_label == "Formula 1"
+        assert job.source == MetadataRefreshJobSource.MANUAL.value
+        assert job.status == MetadataRefreshJobStatus.SUCCESS.value
+
+
+def test_rescan_records_automatic_metadata_refresh_jobs(provider_app) -> None:
+    client = TestClient(provider_app)
+
+    response = client.post("/admin/rescan", follow_redirects=False)
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        jobs = list(
+            session.scalars(
+                select(MetadataRefreshJob)
+                .where(MetadataRefreshJob.source == MetadataRefreshJobSource.AUTOMATIC.value)
+                .order_by(MetadataRefreshJob.id.asc())
+            )
+        )
+        assert jobs
+        assert all(job.target_type == MetadataRefreshJobTarget.RECORDING.value for job in jobs)
+        assert all(job.status == MetadataRefreshJobStatus.SUCCESS.value for job in jobs)
+
+
+def test_metadata_refresh_jobs_page_lists_and_filters_job_sources(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        session.add_all(
+            [
+                MetadataRefreshJob(
+                    target_type=MetadataRefreshJobTarget.RECORDING.value,
+                    target_id="seg_primary",
+                    target_label="Austrian Grand Prix Race",
+                    source=MetadataRefreshJobSource.AUTOMATIC.value,
+                    status=MetadataRefreshJobStatus.SUCCESS.value,
+                ),
+                MetadataRefreshJob(
+                    target_type=MetadataRefreshJobTarget.COMPETITION.value,
+                    target_id="tsdb_4370",
+                    target_label="Formula 1",
+                    source=MetadataRefreshJobSource.MANUAL.value,
+                    status=MetadataRefreshJobStatus.PENDING.value,
+                ),
+            ]
+        )
+        session.commit()
+
+    client = TestClient(provider_app)
+
+    response = client.get("/admin/refresh-jobs")
+
+    assert response.status_code == 200
+    assert "TheSportsDB metadata refresh work" in response.text
+    assert "Austrian Grand Prix Race" in response.text
+    assert "Formula 1" in response.text
+    assert "File" in response.text
+    assert "Competition" in response.text
+
+    filtered = client.get("/admin/refresh-jobs?source=automatic")
+
+    assert filtered.status_code == 200
+    assert "Austrian Grand Prix Race" in filtered.text
+    assert "Formula 1" not in filtered.text
 
 
 def test_segment_detail_shows_matched_event_context(provider_app) -> None:

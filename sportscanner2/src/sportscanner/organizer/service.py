@@ -19,6 +19,10 @@ from sportscanner.db.models import (
     Event,
     EventOrder,
     EventOrigin,
+    MetadataRefreshJob,
+    MetadataRefreshJobSource,
+    MetadataRefreshJobStatus,
+    MetadataRefreshJobTarget,
     Override,
     Recording,
     RecordingStatus,
@@ -26,8 +30,9 @@ from sportscanner.db.models import (
     ReviewTaskStatus,
 )
 from sportscanner.db.queries import (
+    complete_metadata_refresh_job,
     create_alias,
-    create_refresh_job,
+    create_metadata_refresh_job,
     get_alias_for_text,
     get_or_create_competition_season,
     get_recording_by_fingerprint,
@@ -164,6 +169,7 @@ class OrganizerService:
     def rescan_incoming(self) -> list[str]:
         with self._ingest_lock:
             processed: list[str] = []
+            auto_refresh_targets: list[tuple[str, str]] = []
             with self.session_factory() as session:
                 incoming = self._effective_directory(session, "incoming_dir", self.settings.incoming_dir)
                 if not incoming.exists():
@@ -188,9 +194,25 @@ class OrganizerService:
                     event = session.get(Event, recording.event_id) if recording.event_id else None
                     if event is None or event.tsdb_id is None:
                         continue
-                    self._refresh_recording_metadata(session, recording)
-                    refreshed_missing_sources += 1
+                    auto_refresh_targets.append((recording.id, recording.title))
                 session.commit()
+            for recording_id, recording_title in auto_refresh_targets:
+                try:
+                    self._run_tracked_metadata_refresh_job(
+                        target_type=MetadataRefreshJobTarget.RECORDING,
+                        target_id=recording_id,
+                        target_label=recording_title,
+                        source=MetadataRefreshJobSource.AUTOMATIC,
+                        task=lambda recording_id=recording_id: self.refresh_recording_metadata(recording_id),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "rescan_missing_source_refresh_failed recording_id=%s error=%s",
+                        recording_id,
+                        exc,
+                    )
+                else:
+                    refreshed_missing_sources += 1
             logger.info(
                 "rescan_reconciled_missing_sources refreshed_count=%s",
                 refreshed_missing_sources,
@@ -245,6 +267,52 @@ class OrganizerService:
                 refreshed = session.get(Recording, recording_id)
                 assert refreshed is not None
                 return refreshed
+
+    def _run_tracked_metadata_refresh_job(
+        self,
+        *,
+        target_type: MetadataRefreshJobTarget,
+        target_id: str,
+        target_label: str,
+        source: MetadataRefreshJobSource,
+        task,
+    ):
+        with self.session_factory() as session:
+            job = create_metadata_refresh_job(
+                session,
+                target_type=target_type,
+                target_id=target_id,
+                target_label=target_label,
+                source=source,
+            )
+            session.commit()
+            job_id = job.id
+
+        try:
+            result = task()
+        except Exception as exc:
+            with self.session_factory() as session:
+                job = session.get(MetadataRefreshJob, job_id)
+                if job is not None:
+                    complete_metadata_refresh_job(
+                        session,
+                        job,
+                        status=MetadataRefreshJobStatus.ERROR,
+                        error_message=str(exc),
+                    )
+                    session.commit()
+            raise
+
+        with self.session_factory() as session:
+            job = session.get(MetadataRefreshJob, job_id)
+            if job is not None:
+                complete_metadata_refresh_job(
+                    session,
+                    job,
+                    status=MetadataRefreshJobStatus.SUCCESS,
+                )
+                session.commit()
+        return result
 
     def update_recording_details(
         self,

@@ -19,7 +19,8 @@
           <li><a href="{{ request.url_for('inbox') }}" title="See every file, current state, and next action">Inbox</a></li>
           <li><a href="{{ request.url_for('review_queue') }}" title="Resolve unmatched or uncertain files from anywhere">Review Queue</a></li>
           <li><a href="{{ request.url_for('library_page') }}" title="Browse competitions, seasons, and published events">Library</a></li>
-          <li><a href="{{ request.url_for('plex_page') }}" title="Check Plex connection, refresh jobs, and library actions">Plex</a></li>
+          <li><a href="{{ request.url_for('refresh_jobs_page') }}" title="Review queued and completed TheSportsDB metadata refresh work">Refresh Jobs</a></li>
+          <li><a href="{{ request.url_for('plex_page') }}" title="Check Plex connection, library actions, and Plex refresh history">Plex</a></li>
           <li><a href="{{ request.url_for('settings_page') }}" title="Save Plex settings and register the SportScanner provider">Settings</a></li>
           <li><a href="{{ request.url_for('logs_page') }}" title="Inspect logs, debug output, and upstream API payloads">Logs</a></li>
         </ul>

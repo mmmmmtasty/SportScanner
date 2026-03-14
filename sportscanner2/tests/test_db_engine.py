@@ -171,12 +171,15 @@ def test_init_db_migrates_legacy_segment_schema(tmp_path) -> None:
         assert "recording" in inspector.get_table_names()
         assert "competition_alias" in inspector.get_table_names()
         assert "plex_refresh_job" in inspector.get_table_names()
+        assert "metadata_refresh_job" in inspector.get_table_names()
 
         recording_columns = {column["name"]: column for column in inspector.get_columns("recording")}
         refresh_job_columns = {column["name"] for column in inspector.get_columns("plex_refresh_job")}
+        metadata_refresh_job_columns = {column["name"] for column in inspector.get_columns("metadata_refresh_job")}
         assert "recording_code" in recording_columns
         assert "segment_code" not in recording_columns
         assert "source" in refresh_job_columns
+        assert {"target_type", "target_id", "target_label", "source", "status"} <= metadata_refresh_job_columns
         for nullable_column in (
             "match_explanation",
             "file_fingerprint",

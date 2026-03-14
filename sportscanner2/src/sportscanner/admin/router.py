@@ -21,6 +21,10 @@ from sportscanner.db.models import (
     Competition,
     CompetitionSeason,
     Event,
+    MetadataRefreshJob,
+    MetadataRefreshJobSource,
+    MetadataRefreshJobStatus,
+    MetadataRefreshJobTarget,
     PlexRefreshJob,
     PlexRefreshJobSource,
     Recording,
@@ -28,7 +32,9 @@ from sportscanner.db.models import (
     ReviewTask,
 )
 from sportscanner.db.queries import (
+    complete_metadata_refresh_job,
     create_alias,
+    create_metadata_refresh_job,
     create_refresh_job,
     get_or_create_competition_season,
     get_season_with_events_and_recordings,
@@ -45,6 +51,17 @@ _REFRESH_JOB_SOURCE_OPTIONS = {
     "": "All jobs",
     PlexRefreshJobSource.AUTOMATIC.value: "Automatic only",
     PlexRefreshJobSource.MANUAL.value: "Manual only",
+}
+_METADATA_REFRESH_SOURCE_OPTIONS = {
+    "": "All jobs",
+    MetadataRefreshJobSource.AUTOMATIC.value: "Automatic only",
+    MetadataRefreshJobSource.MANUAL.value: "Manual only",
+}
+_METADATA_REFRESH_TARGET_LABELS = {
+    MetadataRefreshJobTarget.COMPETITION.value: "Competition",
+    MetadataRefreshJobTarget.SEASON.value: "Season",
+    MetadataRefreshJobTarget.EVENT.value: "Event",
+    MetadataRefreshJobTarget.RECORDING.value: "File",
 }
 
 
@@ -102,6 +119,67 @@ def _queue_background_job(
             task()
         except Exception:
             logger.exception("background_job_failed job_key=%s", job_key)
+        finally:
+            with lock:
+                jobs.discard(job_key)
+
+    background_tasks.add_task(run)
+    return True
+
+
+def _queue_metadata_refresh_job(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    *,
+    job_key: str,
+    target_type: MetadataRefreshJobTarget,
+    target_id: str,
+    target_label: str,
+    source: MetadataRefreshJobSource,
+    task: Callable[[], None],
+) -> bool:
+    jobs, lock = _background_job_state(request)
+    with lock:
+        if job_key in jobs:
+            return False
+        jobs.add(job_key)
+
+    with _session_factory(request)() as session:
+        job = create_metadata_refresh_job(
+            session,
+            target_type=target_type,
+            target_id=target_id,
+            target_label=target_label,
+            source=source,
+        )
+        session.commit()
+        job_id = job.id
+
+    def run() -> None:
+        try:
+            task()
+        except Exception as exc:
+            logger.exception("metadata_refresh_job_failed job_key=%s job_id=%s", job_key, job_id)
+            with _session_factory(request)() as session:
+                persisted = session.get(MetadataRefreshJob, job_id)
+                if persisted is not None:
+                    complete_metadata_refresh_job(
+                        session,
+                        persisted,
+                        status=MetadataRefreshJobStatus.ERROR,
+                        error_message=str(exc),
+                    )
+                    session.commit()
+        else:
+            with _session_factory(request)() as session:
+                persisted = session.get(MetadataRefreshJob, job_id)
+                if persisted is not None:
+                    complete_metadata_refresh_job(
+                        session,
+                        persisted,
+                        status=MetadataRefreshJobStatus.SUCCESS,
+                    )
+                    session.commit()
         finally:
             with lock:
                 jobs.discard(job_key)
@@ -915,12 +993,17 @@ def competition_refresh_metadata(
     services = request.app.state.services
     fallback = str(request.url_for("library_competition_detail", competition_id=competition_id))
     with _session_factory(request)() as session:
-        if session.get(Competition, competition_id) is None:
+        competition = session.get(Competition, competition_id)
+        if competition is None:
             raise HTTPException(status_code=404, detail=f"Unknown competition: {competition_id}")
-    queued = _queue_background_job(
+    queued = _queue_metadata_refresh_job(
         request,
         background_tasks,
         job_key=f"competition-refresh:{competition_id}",
+        target_type=MetadataRefreshJobTarget.COMPETITION,
+        target_id=competition_id,
+        target_label=competition.name,
+        source=MetadataRefreshJobSource.MANUAL,
         task=lambda: services.organizer.refresh_competition_metadata(competition_id),
     )
     message = "Competition metadata refresh queued." if queued else "Competition metadata refresh already queued."
@@ -937,12 +1020,19 @@ def season_refresh_metadata(
     services = request.app.state.services
     fallback = str(request.url_for("library_season_detail", competition_id=competition_id, season_id=season_id))
     with _session_factory(request)() as session:
-        if session.get(CompetitionSeason, season_id) is None:
+        season = session.get(CompetitionSeason, season_id)
+        competition = session.get(Competition, competition_id)
+        if season is None:
             raise HTTPException(status_code=404, detail=f"Unknown season: {season_id}")
-    queued = _queue_background_job(
+        season_label = f"{competition.name} {season.label}" if competition is not None else season.label
+    queued = _queue_metadata_refresh_job(
         request,
         background_tasks,
         job_key=f"season-refresh:{season_id}",
+        target_type=MetadataRefreshJobTarget.SEASON,
+        target_id=season_id,
+        target_label=season_label,
+        source=MetadataRefreshJobSource.MANUAL,
         task=lambda: services.organizer.refresh_season_metadata(season_id),
     )
     message = "Season metadata refresh queued." if queued else "Season metadata refresh already queued."
@@ -958,12 +1048,17 @@ def event_refresh_metadata(
     services = request.app.state.services
     fallback = str(request.url_for("inbox"))
     with _session_factory(request)() as session:
-        if session.get(Event, event_id) is None:
+        event = session.get(Event, event_id)
+        if event is None:
             raise HTTPException(status_code=404, detail=f"Unknown event: {event_id}")
-    queued = _queue_background_job(
+    queued = _queue_metadata_refresh_job(
         request,
         background_tasks,
         job_key=f"event-refresh:{event_id}",
+        target_type=MetadataRefreshJobTarget.EVENT,
+        target_id=event_id,
+        target_label=event.name,
+        source=MetadataRefreshJobSource.MANUAL,
         task=lambda: services.organizer.refresh_event_metadata(event_id),
     )
     message = "Event metadata refresh queued." if queued else "Event metadata refresh already queued."
@@ -1118,12 +1213,17 @@ def refresh_recording_metadata(
     services = request.app.state.services
     fallback = str(request.url_for("file_detail", recording_id=recording_id))
     with _session_factory(request)() as session:
-        if session.get(Recording, recording_id) is None:
+        recording = session.get(Recording, recording_id)
+        if recording is None:
             raise HTTPException(status_code=404, detail=f"Unknown recording: {recording_id}")
-    queued = _queue_background_job(
+    queued = _queue_metadata_refresh_job(
         request,
         background_tasks,
         job_key=f"recording-refresh:{recording_id}",
+        target_type=MetadataRefreshJobTarget.RECORDING,
+        target_id=recording_id,
+        target_label=recording.title,
+        source=MetadataRefreshJobSource.MANUAL,
         task=lambda: services.organizer.refresh_recording_metadata(recording_id),
     )
     message = "File metadata refresh queued." if queued else "File metadata refresh already queued."
@@ -1502,8 +1602,8 @@ def plex_refresh_section(request: Request, section_id: int) -> Response:
     )
 
 
-@router.get("/refresh-jobs", response_class=HTMLResponse, name="refresh_jobs_page")
-def refresh_jobs_page(request: Request) -> HTMLResponse:
+@router.get("/plex-refresh-jobs", response_class=HTMLResponse, name="plex_refresh_jobs_page")
+def plex_refresh_jobs_page(request: Request) -> HTMLResponse:
     source_filter = request.query_params.get("source", "").strip().lower()
     if source_filter not in _REFRESH_JOB_SOURCE_OPTIONS:
         source_filter = ""
@@ -1533,7 +1633,7 @@ def refresh_jobs_page(request: Request) -> HTMLResponse:
 
     return _render(
         request,
-        "refresh_jobs.html",
+        "plex_refresh_jobs.html",
         {
             "refresh_jobs": refresh_jobs,
             "filters": {"source": source_filter},
@@ -1549,6 +1649,53 @@ def refresh_jobs_page(request: Request) -> HTMLResponse:
                 _crumb("Plex", str(request.url_for("plex_page"))),
                 _crumb("Refresh Jobs"),
             ],
+        },
+    )
+
+
+@router.get("/refresh-jobs", response_class=HTMLResponse, name="refresh_jobs_page")
+def refresh_jobs_page(request: Request) -> HTMLResponse:
+    source_filter = request.query_params.get("source", "").strip().lower()
+    if source_filter not in _METADATA_REFRESH_SOURCE_OPTIONS:
+        source_filter = ""
+
+    with _session_factory(request)() as session:
+        jobs_query = select(MetadataRefreshJob).order_by(MetadataRefreshJob.created_at.desc())
+        if source_filter:
+            jobs_query = jobs_query.where(MetadataRefreshJob.source == source_filter)
+        refresh_jobs = list(session.scalars(jobs_query.limit(200)))
+        total_jobs = session.scalar(select(func.count(MetadataRefreshJob.id))) or 0
+        pending_jobs = session.scalar(
+            select(func.count(MetadataRefreshJob.id)).where(
+                MetadataRefreshJob.status == MetadataRefreshJobStatus.PENDING.value
+            )
+        ) or 0
+        automatic_jobs = session.scalar(
+            select(func.count(MetadataRefreshJob.id)).where(
+                MetadataRefreshJob.source == MetadataRefreshJobSource.AUTOMATIC.value
+            )
+        ) or 0
+        manual_jobs = session.scalar(
+            select(func.count(MetadataRefreshJob.id)).where(
+                MetadataRefreshJob.source == MetadataRefreshJobSource.MANUAL.value
+            )
+        ) or 0
+
+    return _render(
+        request,
+        "refresh_jobs.html",
+        {
+            "refresh_jobs": refresh_jobs,
+            "filters": {"source": source_filter},
+            "source_options": _METADATA_REFRESH_SOURCE_OPTIONS,
+            "target_labels": _METADATA_REFRESH_TARGET_LABELS,
+            "stats": {
+                "total_jobs": total_jobs,
+                "pending_jobs": pending_jobs,
+                "automatic_jobs": automatic_jobs,
+                "manual_jobs": manual_jobs,
+            },
+            "breadcrumbs": [_crumb("Refresh Jobs")],
         },
     )
 

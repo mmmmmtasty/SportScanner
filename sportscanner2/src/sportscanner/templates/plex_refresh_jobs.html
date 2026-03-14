@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Refresh Jobs{% endblock %}
+{% block title %}Plex Refresh Jobs{% endblock %}
 {% block content %}
 <section class="page-header">
   <div>
-    <p class="eyebrow">TheSportsDB Activity</p>
-    <h1>Refresh Jobs</h1>
+    <p class="eyebrow">Plex Queue History</p>
+    <h1>Plex Refresh Jobs</h1>
     <p class="hero-copy">
-      Review queued and completed TheSportsDB metadata refresh work, including manual refresh requests and automatic follow-up refreshes triggered during rescans.
+      Review queued and completed Plex library refresh work in one place, including both manual requests and automatic follow-up refreshes.
     </p>
   </div>
   <article class="hero-card queue-card">
@@ -14,12 +14,15 @@
     <div class="status-line"><span>Pending now</span><strong>{{ stats.pending_jobs }}</strong></div>
     <div class="status-line"><span>Automatic</span><strong>{{ stats.automatic_jobs }}</strong></div>
     <div class="status-line"><span>Manual</span><strong>{{ stats.manual_jobs }}</strong></div>
+    {% if stats.legacy_jobs %}
+    <div class="status-line"><span>Legacy / unknown</span><strong>{{ stats.legacy_jobs }}</strong></div>
+    {% endif %}
   </article>
 </section>
 
 <section class="panel">
   <div class="panel-header">
-    <h2>Metadata Refresh History</h2>
+    <h2>Job History</h2>
     <form method="get" class="inline-actions">
       <label>
         Source
@@ -29,7 +32,7 @@
           {% endfor %}
         </select>
       </label>
-      <a href="{{ request.url_for('refresh_jobs_page') }}" role="button" class="secondary outline compact-button">Clear</a>
+      <a href="{{ request.url_for('plex_refresh_jobs_page') }}" role="button" class="secondary outline compact-button">Clear</a>
     </form>
   </div>
   <div class="table-wrap">
@@ -38,8 +41,8 @@
         <tr>
           <th>ID</th>
           <th>Source</th>
-          <th>Target</th>
-          <th>Label</th>
+          <th>Recording</th>
+          <th>Section</th>
           <th>Status</th>
           <th>Queued</th>
           <th>Completed</th>
@@ -53,12 +56,21 @@
           <td>
             {% if job.source == "manual" %}
             <span class="status-chip status-plex">Manual</span>
-            {% else %}
+            {% elif job.source == "automatic" %}
             <span class="status-chip status-published">Automatic</span>
+            {% else %}
+            <span class="status-chip status-neutral">Legacy</span>
             {% endif %}
           </td>
-          <td>{{ target_labels.get(job.target_type, job.target_type|title) }}</td>
-          <td>{{ job.target_label }}</td>
+          <td>
+            {% if job.recording %}
+            <a href="{{ request.url_for('file_detail', recording_id=job.recording.id) }}">{{ job.recording.title }}</a>
+            <div class="muted-line">{{ job.recording.id }}</div>
+            {% else %}
+            Library-wide
+            {% endif %}
+          </td>
+          <td>{{ job.section_id }}</td>
           <td><span class="status-chip status-{{ job.status }}">{{ job.status }}</span></td>
           <td>{{ job.created_at.strftime("%Y-%m-%d %H:%M") if job.created_at else "" }}</td>
           <td>{{ job.completed_at.strftime("%Y-%m-%d %H:%M") if job.completed_at else "" }}</td>
@@ -66,7 +78,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="8" class="empty-state">No metadata refresh jobs matched the current filter.</td>
+          <td colspan="8" class="empty-state">No Plex refresh jobs matched the current filter.</td>
         </tr>
         {% endfor %}
       </tbody>

@@ -12,6 +12,10 @@ from sportscanner.db.models import (
     CompetitionAliasSource,
     CompetitionSeason,
     Event,
+    MetadataRefreshJob,
+    MetadataRefreshJobSource,
+    MetadataRefreshJobStatus,
+    MetadataRefreshJobTarget,
     PlexRefreshJob,
     PlexRefreshJobSource,
     PlexRefreshJobStatus,
@@ -241,6 +245,41 @@ def create_refresh_job(
         source=source.value,
         status=PlexRefreshJobStatus.PENDING.value,
     )
+    session.add(job)
+    session.flush()
+    return job
+
+
+def create_metadata_refresh_job(
+    session: Session,
+    *,
+    target_type: MetadataRefreshJobTarget,
+    target_id: str,
+    target_label: str,
+    source: MetadataRefreshJobSource,
+) -> MetadataRefreshJob:
+    job = MetadataRefreshJob(
+        target_type=target_type.value,
+        target_id=target_id,
+        target_label=target_label,
+        source=source.value,
+        status=MetadataRefreshJobStatus.PENDING.value,
+    )
+    session.add(job)
+    session.flush()
+    return job
+
+
+def complete_metadata_refresh_job(
+    session: Session,
+    job: MetadataRefreshJob,
+    *,
+    status: MetadataRefreshJobStatus,
+    error_message: str | None = None,
+) -> MetadataRefreshJob:
+    job.status = status.value
+    job.completed_at = datetime.now(tz=timezone.utc)
+    job.error_message = (error_message or "").strip()[:500] or None
     session.add(job)
     session.flush()
     return job
