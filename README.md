@@ -1,3 +1,6 @@
+> [!WARNING]
+> You probably should not use SportScanner for new setups. Please support [Sportarr](https://github.com/Sportarr/Sportarr) instead.
+
 # SportScanner
 
 If you want the newer self-hosted Docker/web app, start with [sportscanner2/README.md](sportscanner2/README.md).
