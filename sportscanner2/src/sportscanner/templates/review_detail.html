@@ -31,6 +31,9 @@
     {% if recording %}
     <div class="status-stack">
       <div class="status-line"><span>Competition</span><strong>{{ competition.name if competition else "Unknown" }}</strong></div>
+      {% if parsed_competition_name %}
+      <div class="status-line"><span>Parsed competition</span><strong>{{ parsed_competition_name }}</strong></div>
+      {% endif %}
       <div class="status-line"><span>Season</span><strong>{{ season.label if season else "Unknown" }}</strong></div>
       <div class="status-line"><span>Kind</span><strong>{{ recording.kind }}</strong></div>
       <div class="status-line"><span>Status</span><strong>{{ recording.status }}</strong></div>
@@ -153,8 +156,8 @@
   <summary>Reassign Competition</summary>
   <div class="panel-body">
     <p class="helper-text">
-      Use this if the competition was matched wrong at ingest. Reassigning clears the current event
-      match and moves the recording to the new competition/season for re-matching.
+      Use this if the competition was matched wrong at ingest or SportScanner could not identify it.
+      Choose an existing competition or import one by TheSportsDB competition ID, then re-match the file.
     </p>
     <form
       method="post"
@@ -162,8 +165,8 @@
       class="reassign-form"
     >
       <label>
-        Competition
-        <select name="competition_id" required>
+        Existing competition
+        <select name="competition_id">
           <option value="">— select —</option>
           {% for c in all_competitions %}
           <option value="{{ c.id }}"{% if competition and c.id == competition.id %} selected{% endif %}>{{ c.name }}</option>
@@ -171,11 +174,30 @@
         </select>
       </label>
       <label>
+        Or import by TheSportsDB competition ID
+        <input type="number" name="competition_tsdb_id" min="1" placeholder="4370" />
+      </label>
+      <label>
         Season (e.g. 2025 or 2024/25)
         <input name="season_label" value="{{ season.label if season else '' }}" placeholder="2025" required />
       </label>
       <button type="submit" class="secondary" data-loading-label="Reassigning...">Reassign</button>
     </form>
+    <p class="helper-text">
+      Leave the dropdown empty if you are importing by ID. SportScanner will not create a new placeholder competition here.
+    </p>
+    {% if competition_suggestions %}
+    <p class="helper-text">
+      Possible TheSportsDB matches for <strong>{{ parsed_competition_name }}</strong>:
+      {% for suggestion in competition_suggestions %}
+      <span>{{ suggestion.name }} (ID {{ suggestion.tsdb_id }}){% if not loop.last %}; {% endif %}</span>
+      {% endfor %}
+    </p>
+    {% elif parsed_competition_name %}
+    <p class="helper-text">
+      Tip: search TheSportsDB for <strong>{{ parsed_competition_name }}</strong>, then paste the league ID here.
+    </p>
+    {% endif %}
   </div>
 </details>
 

@@ -6,8 +6,8 @@ from datetime import date
 
 from sqlalchemy import func, select
 
-from sportscanner.db.models import AppSetting, Competition, Event, ReviewTask, Recording, RecordingStatus
-from sportscanner.organizer.service import OrganizerService
+from sportscanner.db.models import AppSetting, Competition, CompetitionSeason, Event, ReviewTask, Recording, RecordingStatus
+from sportscanner.organizer.service import OrganizerService, UNRESOLVED_COMPETITION_ID
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
 
 
@@ -135,6 +135,29 @@ def test_ingest_without_complete_season_holds_for_review(settings, session_facto
     with session_factory() as session:
         tasks = list(session.scalars(select(ReviewTask)))
         assert len(tasks) == 1
+
+
+def test_ingest_unknown_competition_uses_shared_unresolved_bucket(settings, session_factory) -> None:
+    organizer = OrganizerService(settings, session_factory, metadata_source=MutableMetadataSource(complete=False))
+    source = settings.incoming_dir / "Cricket T20 World Cup 2025-06-29 India vs Australia - Match.mkv"
+    source.write_text("video", encoding="utf-8")
+
+    recording = organizer.ingest_path(source)
+
+    assert recording.status == RecordingStatus.REVIEW.value
+    assert recording.match_method == "competition_unknown"
+    with session_factory() as session:
+        stored = session.get(Recording, recording.id)
+        assert stored is not None
+        season = session.get(CompetitionSeason, stored.competition_season_id)
+        assert season is not None
+        assert season.competition_id == UNRESOLVED_COMPETITION_ID
+        unresolved = session.get(Competition, UNRESOLVED_COMPETITION_ID)
+        assert unresolved is not None
+        manual_competition = session.scalar(select(Competition).where(Competition.id.like("manual_%")))
+        assert manual_competition is None
+        task = session.scalar(select(ReviewTask).where(ReviewTask.recording_id == recording.id))
+        assert task is not None
 
 
 def test_rescan_publishes_staged_segment_when_season_completes(settings, session_factory) -> None:

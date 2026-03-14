@@ -44,6 +44,8 @@ from sportscanner.db.queries import (
 from sportscanner.metadata_snapshot import sync_recording_metadata_snapshot
 from sportscanner.notifications import dismiss_all_notifications, dismiss_notification, list_notifications
 from sportscanner.organizer.matcher import season_for_date, similarity
+from sportscanner.organizer.parser import parse_filename
+from sportscanner.organizer.service import UNRESOLVED_COMPETITION_ID
 from sportscanner.plex import PlexRegistrationResult
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -428,6 +430,51 @@ def _review_candidate_cards(session, candidates: list[dict] | None) -> list[dict
     return cards
 
 
+def _parsed_competition_name(recording: Recording | None) -> str | None:
+    if recording is None:
+        return None
+    try:
+        parsed = parse_filename(recording.source_path)
+    except Exception:
+        parsed = None
+    if parsed is not None and parsed.show:
+        return parsed.show
+    explanation = recording.match_explanation or {}
+    competition_name = explanation.get("competition")
+    if isinstance(competition_name, str) and competition_name.strip():
+        return competition_name.strip()
+    return None
+
+
+def _competition_import_suggestions(metadata_source, competition_name: str | None) -> list[dict[str, object]]:
+    if metadata_source is None or not competition_name:
+        return []
+    try:
+        upstream_competitions = metadata_source.all_competitions()
+    except Exception:
+        return []
+
+    scored: list[dict[str, object]] = []
+    seen_ids: set[int] = set()
+    for competition in upstream_competitions:
+        if competition.tsdb_id is None or competition.tsdb_id in seen_ids:
+            continue
+        names = [competition.name, *competition.alternate_names]
+        score = max(similarity(competition_name, name) for name in names if name)
+        if score < 0.35:
+            continue
+        seen_ids.add(competition.tsdb_id)
+        scored.append(
+            {
+                "name": competition.name,
+                "tsdb_id": competition.tsdb_id,
+                "score": score,
+            }
+        )
+    scored.sort(key=lambda item: (-float(item["score"]), str(item["name"])))
+    return scored[:5]
+
+
 def _status_meta(status: str, *, has_refresh_pending: bool = False) -> dict[str, str]:
     if status == RecordingStatus.PUBLISHED.value:
         label = "In Plex"
@@ -659,6 +706,7 @@ def review_queue(request: Request) -> HTMLResponse:
 
 @router.get("/review/{task_id}", response_class=HTMLResponse)
 def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
+    metadata_source = request.app.state.services.metadata_source
     with _session_factory(request)() as session:
         task = session.get(ReviewTask, task_id)
         if task is None:
@@ -666,7 +714,14 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
         recording = session.get(Recording, task.recording_id)
         season = session.get(CompetitionSeason, recording.competition_season_id) if recording else None
         competition = session.get(Competition, season.competition_id) if season else None
-        all_competitions = list(session.scalars(select(Competition).order_by(Competition.name.asc())))
+        parsed_competition_name = _parsed_competition_name(recording)
+        all_competitions = list(
+            session.scalars(
+                select(Competition)
+                .where(Competition.id != UNRESOLVED_COMPETITION_ID)
+                .order_by(Competition.name.asc())
+            )
+        )
         candidate_cards = _review_candidate_cards(session, task.candidates)
         open_task_ids = list(
             session.scalars(
@@ -679,12 +734,13 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
     suggested_query = " ".join(
         part
         for part in (
-            competition.name if competition else None,
+            parsed_competition_name or (competition.name if competition else None),
             recording.title if recording else None,
             recording.air_date.isoformat() if recording and recording.air_date else None,
         )
         if part
     )
+    competition_suggestions = _competition_import_suggestions(metadata_source, parsed_competition_name)
     return _render(
         request,
         "review_detail.html",
@@ -693,7 +749,9 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
             "recording": recording,
             "season": season,
             "competition": competition,
+            "parsed_competition_name": parsed_competition_name,
             "all_competitions": all_competitions,
+            "competition_suggestions": competition_suggestions,
             "candidate_cards": candidate_cards,
             "queue_position": queue_position,
             "queue_total": len(open_task_ids),
@@ -758,45 +816,22 @@ def review_season_events(request: Request, task_id: int) -> HTMLResponse:
 def reassign_review_task(
     request: Request,
     task_id: int,
-    competition_id: str = Form(...),
+    competition_id: str | None = Form(default=None),
+    competition_tsdb_id: int | None = Form(default=None),
     season_label: str = Form(...),
 ) -> RedirectResponse:
-    with _session_factory(request)() as session:
-        task = session.get(ReviewTask, task_id)
-        if task is None:
-            raise HTTPException(status_code=404, detail="Unknown review task")
-        competition = session.get(Competition, competition_id)
-        if competition is None:
-            raise HTTPException(status_code=404, detail="Unknown competition")
-        recording = session.get(Recording, task.recording_id)
-        if recording is None:
-            raise HTTPException(status_code=404, detail="Unknown recording")
-
-        label = season_label.strip()
-        try:
-            season_number = int(label.split("-")[0]) if "-" in label else int(label)
-        except (ValueError, IndexError):
-            raise HTTPException(status_code=400, detail="Invalid season label")
-
-        season = get_or_create_competition_season(
-            session,
-            competition=competition,
-            season_number=season_number,
-            label=label,
-            is_complete=False,
+    organizer = request.app.state.services.organizer
+    try:
+        organizer.reassign_review_task(
+            task_id,
+            competition_id=competition_id or None,
+            competition_tsdb_id=competition_tsdb_id,
+            season_label=season_label,
         )
-        session.flush()
-
-        recording.competition_season_id = season.id
-        recording.event_id = None
-        recording.match_confidence = None
-        recording.match_method = "reassigned"
-        recording.status = RecordingStatus.REVIEW.value
-
-        task.status = "open"
-        task.candidates = []
-        task.resolution = {"type": "reassigned", "competition_id": competition_id, "season_label": label}
-        session.commit()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return RedirectResponse(
         url=str(request.url_for("review_task_detail", task_id=task_id)),

@@ -61,6 +61,9 @@ except ImportError:  # pragma: no cover - optional fallback for minimal environm
 
 logger = logging.getLogger("sportscanner.organizer.service")
 
+UNRESOLVED_COMPETITION_ID = "system_unresolved_competition"
+UNRESOLVED_COMPETITION_NAME = "Needs Competition"
+
 
 def _stringify_override_value(value: object) -> str | None:
     if value is None:
@@ -68,6 +71,10 @@ def _stringify_override_value(value: object) -> str | None:
     if isinstance(value, date):
         return value.isoformat()
     return str(value)
+
+
+def is_unresolved_competition(competition: Competition | None) -> bool:
+    return competition is not None and competition.id == UNRESOLVED_COMPETITION_ID
 
 
 @dataclass(slots=True)
@@ -162,6 +169,17 @@ class OrganizerService:
         if self.metadata_source is None:
             return []
         return self.metadata_source.all_competitions()
+
+    def _get_unresolved_competition(self, session: Session) -> Competition:
+        competition = session.get(Competition, UNRESOLVED_COMPETITION_ID)
+        if competition is None:
+            competition = Competition(
+                id=UNRESOLVED_COMPETITION_ID,
+                name=UNRESOLVED_COMPETITION_NAME,
+            )
+            session.add(competition)
+            session.flush()
+        return competition
 
     def rescan_incoming(self) -> list[str]:
         with self._ingest_lock:
@@ -488,6 +506,68 @@ class OrganizerService:
             )
             return refreshed
 
+    def reassign_review_task(
+        self,
+        task_id: int,
+        *,
+        season_label: str,
+        competition_id: str | None = None,
+        competition_tsdb_id: int | None = None,
+    ) -> Recording:
+        with self.session_factory() as session:
+            task = session.get(ReviewTask, task_id)
+            if task is None:
+                raise KeyError(f"Unknown review task: {task_id}")
+            recording = session.get(Recording, task.recording_id)
+            if recording is None:
+                raise KeyError(f"Unknown recording for review task: {task.recording_id}")
+
+            competition = self._resolve_manual_competition_selection(
+                session,
+                competition_id=competition_id,
+                competition_tsdb_id=competition_tsdb_id,
+            )
+            label = season_label.strip()
+            season_number = self._season_number_from_label(label)
+            season_complete = False
+            if competition.tsdb_id is not None and season_number != 0:
+                season_complete = self._populate_season_events(session, competition, label)
+
+            season = get_or_create_competition_season(
+                session,
+                competition=competition,
+                season_number=season_number,
+                label=label,
+                is_complete=season_complete,
+            )
+            session.flush()
+
+            recording.competition_season_id = season.id
+            recording.event_id = None
+            recording.match_confidence = None
+            recording.match_method = "reassigned"
+            recording.match_explanation = build_match_explanation(
+                method="reassigned",
+                confidence=0.0,
+                competition_name=competition.name,
+            )
+            recording.status = RecordingStatus.REVIEW.value
+            clear_recording_metadata_snapshot(recording)
+
+            task.status = ReviewTaskStatus.OPEN.value
+            task.candidates = []
+            task.resolution = {
+                "type": "reassigned",
+                "competition_id": competition.id,
+                "competition_tsdb_id": competition.tsdb_id,
+                "season_label": label,
+            }
+            session.commit()
+
+            refreshed = session.get(Recording, recording.id)
+            assert refreshed is not None
+            return refreshed
+
     def rematch_recording(
         self,
         recording_id: str,
@@ -684,7 +764,7 @@ class OrganizerService:
             competition = current_competition
         else:
             competition_name = upstream.competition_name or (current_competition.name if current_competition else "")
-            competition = self._resolve_competition(session, competition_name)
+            competition = self._resolve_competition(session, competition_name, search_hints=[upstream])
 
         if upstream.date is not None:
             season_number, season_label = season_for_date(upstream.date, competition)
@@ -716,7 +796,8 @@ class OrganizerService:
             sidecar.competition or parsed.show,
             search_hints=prefetched_search_results,
         )
-        self._apply_competition_config(competition, parsed.source_path)
+        if not is_unresolved_competition(competition):
+            self._apply_competition_config(competition, parsed.source_path)
         season_number, season_label = self._resolve_season(parsed, competition, sidecar)
 
         if season_number == 0:
@@ -789,6 +870,24 @@ class OrganizerService:
             self._recompute_sequences_for_season(session, season.id)
             self._recompute_recordings_for_event(session, direct_match.id)
             self._publish_recording(session, recording)
+            return recording
+
+        if is_unresolved_competition(competition):
+            self._ensure_review_task(session, recording, [])
+            recording.status = RecordingStatus.REVIEW.value
+            recording.match_confidence = 0.0
+            recording.match_method = "competition_unknown"
+            recording.match_explanation = build_match_explanation(
+                method="competition_unknown",
+                confidence=0.0,
+                competition_name=sidecar.competition or parsed.show,
+            )
+            logger.info(
+                "recording_requires_competition_resolution recording_id=%s show_name=%r source_path=%s",
+                recording.id,
+                sidecar.competition or parsed.show,
+                recording.source_path,
+            )
             return recording
 
         if season_number == 0:
@@ -870,7 +969,7 @@ class OrganizerService:
         alias = get_alias_for_text(session, show_name)
         if alias is not None:
             competition = session.get(Competition, alias.competition_id)
-            if competition is not None:
+            if competition is not None and not is_unresolved_competition(competition):
                 logger.info(
                     "competition_resolved_via_alias show_name=%r alias=%r competition=%s",
                     show_name,
@@ -879,7 +978,11 @@ class OrganizerService:
                 )
                 return competition
 
-        competitions = list(session.scalars(select(Competition)))
+        competitions = [
+            competition
+            for competition in session.scalars(select(Competition))
+            if not is_unresolved_competition(competition)
+        ]
         matched = best_db_competition_match(show_name, competitions)
         if matched is not None:
             if matched.tsdb_id is None and search_hints and self.metadata_source is not None:
@@ -891,14 +994,23 @@ class OrganizerService:
         if self.metadata_source is not None:
             upstream_match = best_upstream_competition_match(show_name, self._all_upstream_competitions())
             if upstream_match is not None:
+                if upstream_match.tsdb_id is None:
+                    return self._get_unresolved_competition(session)
+                existing = session.scalar(select(Competition).where(Competition.tsdb_id == upstream_match.tsdb_id))
+                if existing is not None:
+                    self._refresh_competition_details(existing)
+                    return existing
                 rich = None
-                if upstream_match.tsdb_id is not None:
-                    try:
-                        rich = self.metadata_source.lookup_competition(upstream_match.tsdb_id)
-                    except Exception:
-                        pass
+                try:
+                    rich = self.metadata_source.lookup_competition(upstream_match.tsdb_id)
+                except Exception:
+                    pass
                 fallback_competition = UpstreamCompetition(
-                    id=upstream_match.competition_id or f"manual_{slugify(show_name)}",
+                    id=(
+                        upstream_match.competition_id
+                        if upstream_match.competition_id and upstream_match.competition_id.startswith("tsdb_")
+                        else f"tsdb_{upstream_match.tsdb_id}"
+                    ),
                     name=upstream_match.name,
                     tsdb_id=upstream_match.tsdb_id,
                 )
@@ -945,13 +1057,51 @@ class OrganizerService:
                         session.flush()
                         return competition
 
-        manual_id = f"manual_{slugify(show_name)}"
-        competition = session.get(Competition, manual_id)
-        if competition is None:
-            competition = Competition(id=manual_id, name=show_name)
+        return self._get_unresolved_competition(session)
+
+    def _resolve_manual_competition_selection(
+        self,
+        session: Session,
+        *,
+        competition_id: str | None = None,
+        competition_tsdb_id: int | None = None,
+    ) -> Competition:
+        if competition_tsdb_id is not None:
+            existing = session.scalar(select(Competition).where(Competition.tsdb_id == competition_tsdb_id))
+            if existing is not None:
+                self._refresh_competition_details(existing)
+                return existing
+            if self.metadata_source is None:
+                raise ValueError("Metadata source is not configured")
+            rich = self.metadata_source.lookup_competition(competition_tsdb_id, force_refresh=True)
+            if rich is None:
+                raise KeyError(f"Unknown upstream competition: {competition_tsdb_id}")
+            competition = Competition(
+                id=rich.id if rich.id.startswith("tsdb_") else f"tsdb_{competition_tsdb_id}",
+                tsdb_id=competition_tsdb_id,
+                name=rich.name,
+                alternate_names=rich.alternate_names,
+            )
+            self._apply_competition_metadata(competition, rich, overwrite_description=True)
             session.add(competition)
             session.flush()
+            return competition
+
+        if not competition_id:
+            raise ValueError("competition_id or competition_tsdb_id is required")
+        competition = session.get(Competition, competition_id)
+        if competition is None:
+            raise KeyError(f"Unknown competition: {competition_id}")
+        if is_unresolved_competition(competition):
+            raise ValueError("Choose a real competition before reassigning")
         return competition
+
+    def _season_number_from_label(self, season_label: str) -> int:
+        label = season_label.strip()
+        match = re.match(r"^(\d{4})", label)
+        if match is None:
+            raise ValueError(f"Invalid season label: {season_label}")
+        return int(match.group(1))
 
     def _try_upgrade_competition(
         self,

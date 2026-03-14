@@ -27,6 +27,7 @@ from sportscanner.db.models import (
 )
 from sportscanner.db.queries import backfill_legacy_refresh_job_sources
 from sportscanner.log_buffer import LogBuffer
+from sportscanner.organizer.service import OrganizerService, UNRESOLVED_COMPETITION_ID
 from sportscanner.plex import PlexRegistrationResult
 from sportscanner.upstream.base import UpstreamCompetition, UpstreamEvent
 
@@ -431,6 +432,155 @@ def test_review_season_events_include_loading_state_on_use_event(provider_app) -
     assert response.status_code == 200
     assert "Use This Event" in response.text
     assert 'data-loading-label="Using Event..."' in response.text
+
+
+def test_review_detail_offers_tsdb_competition_import_for_unmatched_file(provider_app) -> None:
+    class CompetitionImportSource:
+        name = "fake"
+
+        def __init__(self) -> None:
+            self._competition = UpstreamCompetition(
+                id="tsdb_9900",
+                tsdb_id=9900,
+                name="ICC Men's T20 World Cup",
+            )
+
+        def probe(self) -> str:
+            return "v1"
+
+        def all_competitions(self, *, force_refresh: bool = False) -> list[UpstreamCompetition]:
+            return [self._competition]
+
+        def search_filename(self, query: str, *, force_refresh: bool = False) -> list[UpstreamEvent]:
+            return []
+
+        def events_on_day(
+            self,
+            competition_name: str,
+            event_date: date,
+            *,
+            force_refresh: bool = False,
+        ) -> list[UpstreamEvent]:
+            return []
+
+        def season_events(
+            self,
+            competition: UpstreamCompetition,
+            season_label: str,
+            *,
+            force_refresh: bool = False,
+        ) -> tuple[list[UpstreamEvent], bool]:
+            return ([], False)
+
+        def lookup_competition(self, tsdb_id: int, *, force_refresh: bool = False) -> UpstreamCompetition | None:
+            if tsdb_id == 9900:
+                return self._competition
+            return None
+
+        def lookup_event(self, tsdb_event_id: int, *, force_refresh: bool = False) -> UpstreamEvent | None:
+            return None
+
+    metadata_source = CompetitionImportSource()
+    provider_app.state.services.metadata_source = metadata_source
+    provider_app.state.services.organizer = OrganizerService(
+        provider_app.state.services.settings,
+        provider_app.state.services.session_factory,
+        metadata_source=metadata_source,
+    )
+    source = provider_app.state.services.settings.incoming_dir / "Cricket T20 World Cup 2025-06-29 India vs Australia - Match.mkv"
+    source.write_text("video", encoding="utf-8")
+    provider_app.state.services.organizer.ingest_path(source)
+
+    client = TestClient(provider_app)
+    response = client.get("/admin/review/1")
+
+    assert response.status_code == 200
+    assert "Parsed competition" in response.text
+    assert "Cricket T20 World Cup" in response.text
+    assert "TheSportsDB competition ID" in response.text
+    assert "ICC Men" in response.text
+    assert "ID 9900" in response.text
+
+
+def test_reassign_review_task_can_import_competition_by_tsdb_id(provider_app) -> None:
+    class CompetitionImportSource:
+        name = "fake"
+
+        def __init__(self) -> None:
+            self._competition = UpstreamCompetition(
+                id="tsdb_9900",
+                tsdb_id=9900,
+                name="ICC Men's T20 World Cup",
+            )
+
+        def probe(self) -> str:
+            return "v1"
+
+        def all_competitions(self, *, force_refresh: bool = False) -> list[UpstreamCompetition]:
+            return []
+
+        def search_filename(self, query: str, *, force_refresh: bool = False) -> list[UpstreamEvent]:
+            return []
+
+        def events_on_day(
+            self,
+            competition_name: str,
+            event_date: date,
+            *,
+            force_refresh: bool = False,
+        ) -> list[UpstreamEvent]:
+            return []
+
+        def season_events(
+            self,
+            competition: UpstreamCompetition,
+            season_label: str,
+            *,
+            force_refresh: bool = False,
+        ) -> tuple[list[UpstreamEvent], bool]:
+            return ([], False)
+
+        def lookup_competition(self, tsdb_id: int, *, force_refresh: bool = False) -> UpstreamCompetition | None:
+            if tsdb_id == 9900:
+                return self._competition
+            return None
+
+        def lookup_event(self, tsdb_event_id: int, *, force_refresh: bool = False) -> UpstreamEvent | None:
+            return None
+
+    metadata_source = CompetitionImportSource()
+    provider_app.state.services.metadata_source = metadata_source
+    provider_app.state.services.organizer = OrganizerService(
+        provider_app.state.services.settings,
+        provider_app.state.services.session_factory,
+        metadata_source=metadata_source,
+    )
+    source = provider_app.state.services.settings.incoming_dir / "Cricket T20 World Cup 2025-06-29 India vs Australia - Match.mkv"
+    source.write_text("video", encoding="utf-8")
+    recording = provider_app.state.services.organizer.ingest_path(source)
+    with provider_app.state.services.session_factory() as session:
+        task = session.scalar(select(ReviewTask).where(ReviewTask.recording_id == recording.id))
+        assert task is not None
+
+    client = TestClient(provider_app)
+    response = client.post(
+        f"/admin/review/{task.id}/reassign",
+        data={"competition_tsdb_id": "9900", "season_label": "2025"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        competition = session.scalar(select(Competition).where(Competition.tsdb_id == 9900))
+        assert competition is not None
+        assert competition.id == "tsdb_9900"
+        unresolved = session.get(Competition, UNRESOLVED_COMPETITION_ID)
+        assert unresolved is not None
+        refreshed = session.get(Recording, recording.id)
+        assert refreshed is not None
+        season = session.get(CompetitionSeason, refreshed.competition_season_id)
+        assert season is not None
+        assert season.competition_id == competition.id
 
 
 def test_plex_libraries_page_explains_refresh_vs_scan(provider_app) -> None:
