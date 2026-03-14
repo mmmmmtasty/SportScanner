@@ -47,6 +47,7 @@ from sportscanner.organizer.matcher import (
     best_upstream_competition_match,
     build_match_explanation,
     match_event,
+    season_event_candidates,
     season_for_date,
 )
 from sportscanner.organizer.numbering import EventSequenceInput, RecordingCodeInput, compute_event_sequences, compute_recording_codes, derive_weekend_group, episode_number
@@ -529,6 +530,12 @@ class OrganizerService:
                 session.flush()
                 session.expire(recording, ["overrides"])
 
+                if any(
+                    previous_values[field] != new_values[field]
+                    for field in ("title", "air_date", "competition_season_id")
+                ):
+                    self._refresh_open_review_task_candidates(session, recording)
+
                 affected_seasons = {previous_season_id, recording.competition_season_id}
                 for season_id in sorted(affected_seasons):
                     self._refresh_published_recordings_for_season(session, season_id)
@@ -679,7 +686,7 @@ class OrganizerService:
             clear_recording_metadata_snapshot(recording)
 
             task.status = ReviewTaskStatus.OPEN.value
-            task.candidates = []
+            task.candidates = self._season_candidates_for_recording(session, recording)
             task.resolution = {
                 "type": "reassigned",
                 "competition_id": competition.id,
@@ -1035,6 +1042,7 @@ class OrganizerService:
 
         season_events = list(session.scalars(select(Event).where(Event.competition_season_id == season.id)))
         upstream_events = [self._event_to_upstream(event, competition.name) for event in season_events]
+        full_season_candidates = season_event_candidates(parsed, upstream_events)
         event_match = match_event(parsed, search_results=prefetched_search_results, season_events=upstream_events)
 
         if event_match.event is not None:
@@ -1056,7 +1064,7 @@ class OrganizerService:
                 self._publish_recording(session, recording)
             else:
                 recording.status = RecordingStatus.REVIEW.value
-                self._ensure_review_task(session, recording, event_match.candidates)
+                self._ensure_review_task(session, recording, full_season_candidates)
                 logger.info(
                     "recording_sent_to_review recording_id=%s method=%s confidence=%s",
                     recording.id,
@@ -1073,7 +1081,7 @@ class OrganizerService:
             competition_name=competition.name,
         )
         recording.status = RecordingStatus.REVIEW.value
-        self._ensure_review_task(session, recording, event_match.candidates)
+        self._ensure_review_task(session, recording, full_season_candidates)
         logger.info(
             "recording_sent_to_review recording_id=%s method=%s confidence=%s",
             recording.id,
@@ -1895,6 +1903,43 @@ class OrganizerService:
         task.candidates = candidates
         task.status = ReviewTaskStatus.OPEN.value
         logger.info("review_task_open recording_id=%s candidate_count=%s", recording.id, len(candidates))
+
+    def _comparison_input_for_recording(self, recording: Recording, competition: Competition) -> ParsedFile:
+        return ParsedFile(
+            source_path=Path(recording.source_path),
+            show=competition.name,
+            event_date=recording.air_date,
+            title=recording.title,
+            kind=recording.kind,
+            kind_label=recording.kind.replace("_", " ").title() if recording.kind else None,
+        )
+
+    def _season_candidates_for_recording(self, session: Session, recording: Recording) -> list[dict]:
+        season = session.get(CompetitionSeason, recording.competition_season_id)
+        if season is None or season.season_number == 0:
+            return []
+        competition = session.get(Competition, season.competition_id)
+        if competition is None or is_unresolved_competition(competition):
+            return []
+        season_events = list(
+            session.scalars(select(Event).where(Event.competition_season_id == season.id))
+        )
+        if not season_events:
+            return []
+        parsed = self._comparison_input_for_recording(recording, competition)
+        upstream_events = [self._event_to_upstream(event, competition.name) for event in season_events]
+        return season_event_candidates(parsed, upstream_events)
+
+    def _refresh_open_review_task_candidates(self, session: Session, recording: Recording) -> None:
+        task = session.scalar(
+            select(ReviewTask).where(
+                ReviewTask.recording_id == recording.id,
+                ReviewTask.status == ReviewTaskStatus.OPEN.value,
+            )
+        )
+        if task is None:
+            return
+        task.candidates = self._season_candidates_for_recording(session, recording)
 
     def _refresh_published_recordings_for_season(self, session: Session, competition_season_id: str) -> None:
         season = session.get(CompetitionSeason, competition_season_id)

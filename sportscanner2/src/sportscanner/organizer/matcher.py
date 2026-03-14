@@ -43,6 +43,40 @@ class EventMatch:
     candidates: list[dict]
 
 
+def _season_event_confidence(
+    parsed: ParsedFile,
+    event: UpstreamEvent,
+    *,
+    same_day_count: int,
+) -> float:
+    title_score = similarity(parsed.title, event.name)
+    if parsed.event_date and event.date == parsed.event_date and same_day_count == 1 and title_score < 0.8:
+        return 0.7
+    return title_score
+
+
+def season_event_candidates(parsed: ParsedFile, season_events: Iterable[UpstreamEvent]) -> list[dict]:
+    events = list(season_events)
+    same_day_count = 0
+    if parsed.event_date is not None:
+        same_day_count = sum(1 for event in events if event.date == parsed.event_date)
+
+    scored = [
+        {
+            "event_id": event.id,
+            "name": event.name,
+            "confidence": _season_event_confidence(parsed, event, same_day_count=same_day_count),
+            "_same_day": parsed.event_date is not None and event.date == parsed.event_date,
+        }
+        for event in events
+    ]
+    scored.sort(key=lambda item: item["confidence"], reverse=True)
+    scored.sort(key=lambda item: item["_same_day"], reverse=True)
+    for item in scored:
+        item.pop("_same_day", None)
+    return scored
+
+
 def best_db_competition_match(query: str, competitions: Iterable[Competition], threshold: float = 0.75) -> Competition | None:
     normalized_query = _normalize_competition_name(query)
     best_score = 0.0

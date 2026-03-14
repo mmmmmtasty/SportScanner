@@ -138,6 +138,42 @@ def test_ingest_without_complete_season_holds_for_review(settings, session_facto
         assert len(tasks) == 1
 
 
+def test_ingest_populates_review_candidates_for_all_cached_season_events(settings, session_factory) -> None:
+    organizer = OrganizerService(
+        settings,
+        session_factory,
+        metadata_source=MutableMetadataSource(
+            complete=True,
+            events=[
+                UpstreamEvent(
+                    id="tsdb_1001",
+                    tsdb_id=1001,
+                    name="Austrian Grand Prix",
+                    competition_name="Formula 1",
+                    date=date(2025, 6, 29),
+                ),
+                UpstreamEvent(
+                    id="tsdb_1002",
+                    tsdb_id=1002,
+                    name="British Grand Prix",
+                    competition_name="Formula 1",
+                    date=date(2025, 7, 6),
+                ),
+            ],
+        ),
+    )
+    source = settings.incoming_dir / "Formula 1 2025-06-29 Weekend Notebook - Race.mkv"
+    source.write_text("video", encoding="utf-8")
+
+    recording = organizer.ingest_path(source)
+
+    assert recording.status == RecordingStatus.REVIEW.value
+    with session_factory() as session:
+        task = session.scalar(select(ReviewTask).where(ReviewTask.recording_id == recording.id))
+        assert task is not None
+        assert [candidate["event_id"] for candidate in task.candidates] == ["tsdb_1001", "tsdb_1002"]
+
+
 def test_ingest_unknown_competition_uses_shared_unresolved_bucket(settings, session_factory) -> None:
     organizer = OrganizerService(settings, session_factory, metadata_source=MutableMetadataSource(complete=False))
     source = settings.incoming_dir / "Cricket T20 World Cup 2025-06-29 India vs Australia - Match.mkv"

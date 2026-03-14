@@ -433,10 +433,40 @@ def test_review_season_events_include_loading_state_on_use_event(provider_app) -
     response = client.get("/admin/review/1/season-events")
 
     assert response.status_code == 200
-    assert "84%" in response.text
+    assert "%" in response.text
+    assert "No score" not in response.text
     assert "season-event-row-high" in response.text
     assert "Use This Event" in response.text
     assert 'data-loading-label="Using Event..."' in response.text
+
+
+def test_review_season_events_score_all_events_in_current_season(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        session.add(
+            Event(
+                id="tsdb_1002",
+                tsdb_id=1002,
+                competition_season_id="season_tsdb_4370_2025",
+                name="British Grand Prix Practice",
+                date=date(2025, 7, 6),
+            )
+        )
+        session.add(
+            ReviewTask(
+                recording_id="seg_primary",
+                task_type="match_review",
+                candidates=[{"event_id": "tsdb_1001", "confidence": 0.84}],
+            )
+        )
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.get("/admin/review/1/season-events")
+
+    assert response.status_code == 200
+    assert "Austrian Grand Prix Race" in response.text
+    assert "British Grand Prix Practice" in response.text
+    assert "No score" not in response.text
 
 
 def test_review_detail_offers_tsdb_competition_import_for_unmatched_file(provider_app) -> None:
@@ -820,6 +850,71 @@ def test_segment_detail_persists_manual_overrides(provider_app) -> None:
         assert segment.metadata_record["summary"] == "Manual summary override"
         assert segment.metadata_record["originallyAvailableAt"] == "2025-07-01"
         assert segment.metadata_record["season"]["title"] == "2026"
+
+
+def test_segment_detail_manual_season_change_refreshes_open_review_candidates(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        session.add(
+            CompetitionSeason(
+                id="season_tsdb_4370_2026",
+                competition_id="tsdb_4370",
+                season_number=2026,
+                label="2026",
+                is_complete=True,
+            )
+        )
+        session.add_all(
+            [
+                Event(
+                    id="tsdb_1101",
+                    tsdb_id=1101,
+                    competition_season_id="season_tsdb_4370_2026",
+                    name="Australian Grand Prix Practice",
+                    date=date(2026, 3, 15),
+                ),
+                Event(
+                    id="tsdb_1102",
+                    tsdb_id=1102,
+                    competition_season_id="season_tsdb_4370_2026",
+                    name="Australian Grand Prix Race",
+                    date=date(2026, 3, 16),
+                ),
+            ]
+        )
+        segment = session.get(Recording, "seg_primary")
+        assert segment is not None
+        segment.status = "review"
+        segment.event_id = None
+        segment.match_confidence = None
+        session.add(
+            ReviewTask(
+                recording_id="seg_primary",
+                task_type="match_review",
+                candidates=[{"event_id": "tsdb_1001", "confidence": 0.84}],
+            )
+        )
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.post(
+        "/admin/recordings/seg_primary",
+        data={
+            "title": "Australian Grand Prix Race",
+            "kind": "race",
+            "summary": "",
+            "competition_season_id": "season_tsdb_4370_2026",
+            "air_date": "2026-03-16",
+            "episode_number": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with provider_app.state.services.session_factory() as session:
+        task = session.scalar(select(ReviewTask).where(ReviewTask.recording_id == "seg_primary"))
+        assert task is not None
+        event_ids = [candidate["event_id"] for candidate in task.candidates]
+        assert event_ids == ["tsdb_1102", "tsdb_1101"]
 
 
 def test_segment_detail_persists_and_shows_cached_item_metadata(provider_app) -> None:

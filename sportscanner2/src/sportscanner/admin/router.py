@@ -53,11 +53,12 @@ from sportscanner.notifications import (
     list_notifications,
     record_notification,
 )
-from sportscanner.organizer.matcher import season_for_date, similarity
-from sportscanner.organizer.parser import parse_filename
+from sportscanner.organizer.matcher import season_event_candidates, season_for_date, similarity
+from sportscanner.organizer.parser import ParsedFile, parse_filename
 from sportscanner.organizer.service import UNRESOLVED_COMPETITION_ID
 from sportscanner.plex import PlexEpisode, PlexRegistrationResult
 from sportscanner.provider.rating_keys import make_episode_guid
+from sportscanner.upstream.base import UpstreamEvent
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 _LOG_LEVEL_OPTIONS = ("DEBUG", "INFO", "WARNING", "ERROR")
@@ -611,7 +612,7 @@ def _confidence_summary(recordings: list[Recording]) -> dict[str, object]:
 
 def _review_candidate_cards(session, candidates: list[dict] | None) -> list[dict[str, object]]:
     cards: list[dict[str, object]] = []
-    for candidate in candidates or []:
+    for candidate in (candidates or [])[:5]:
         if not isinstance(candidate, dict):
             continue
         event_id = candidate.get("event_id")
@@ -625,6 +626,58 @@ def _review_candidate_cards(session, candidates: list[dict] | None) -> list[dict
             }
         )
     return cards
+
+
+def _comparison_input_for_recording(recording: Recording, competition: Competition) -> ParsedFile:
+    return ParsedFile(
+        source_path=Path(recording.source_path),
+        show=competition.name,
+        event_date=recording.air_date,
+        title=recording.title,
+        kind=recording.kind,
+        kind_label=recording.kind.replace("_", " ").title() if recording.kind else None,
+    )
+
+
+def _live_season_candidates(session, recording: Recording | None, season: CompetitionSeason | None, competition: Competition | None) -> list[dict]:
+    if recording is None or season is None or competition is None or season.season_number == 0:
+        return []
+    events = list(
+        session.scalars(
+            select(Event)
+            .where(Event.competition_season_id == season.id)
+            .order_by(Event.date.asc().nulls_last(), Event.round.asc().nulls_last(), Event.name.asc())
+        )
+    )
+    if not events:
+        return []
+    parsed = _comparison_input_for_recording(recording, competition)
+    upstream_events = [
+        UpstreamEvent(
+            id=event.id,
+            tsdb_id=event.tsdb_id,
+            name=event.name,
+            competition_name=competition.name,
+            date=event.date,
+            time=event.time,
+            round=event.round,
+            venue=event.venue,
+            city=event.city,
+            country=event.country,
+            home_team=event.home_team,
+            away_team=event.away_team,
+            home_score=event.home_score,
+            away_score=event.away_score,
+            description=event.description,
+            thumb_url=event.thumb_url,
+            poster_url=event.poster_url,
+            banner_url=event.banner_url,
+            fanart_url=event.fanart_url,
+            weekend_group=event.weekend_group,
+        )
+        for event in events
+    ]
+    return season_event_candidates(parsed, upstream_events)
 
 
 def _parsed_competition_name(recording: Recording | None) -> str | None:
@@ -1150,7 +1203,8 @@ def review_task_detail(request: Request, task_id: int) -> HTMLResponse:
                 .order_by(Competition.name.asc())
             )
         )
-        candidate_cards = _review_candidate_cards(session, task.candidates)
+        live_candidates = _live_season_candidates(session, recording, season, competition)
+        candidate_cards = _review_candidate_cards(session, live_candidates or task.candidates)
         open_task_ids = list(
             session.scalars(
                 select(ReviewTask.id).where(ReviewTask.status == "open").order_by(ReviewTask.created_at.asc())
@@ -1210,6 +1264,7 @@ def review_season_events(request: Request, task_id: int) -> HTMLResponse:
             raise HTTPException(status_code=404, detail="Unknown review task")
         recording = session.get(Recording, task.recording_id)
         season = session.get(CompetitionSeason, recording.competition_season_id) if recording else None
+        competition = session.get(Competition, season.competition_id) if season else None
         rows = []
         if season:
             events = list(
@@ -1220,7 +1275,8 @@ def review_season_events(request: Request, task_id: int) -> HTMLResponse:
                 )
             )
             candidate_scores: dict[str, float] = {}
-            for candidate in task.candidates or []:
+            live_candidates = _live_season_candidates(session, recording, season, competition)
+            for candidate in live_candidates or task.candidates or []:
                 if not isinstance(candidate, dict):
                     continue
                 event_id = candidate.get("event_id")
