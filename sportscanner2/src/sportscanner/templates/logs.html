@@ -106,7 +106,7 @@
   }
   .log-payload { margin-top: 0.12rem; }
   .log-payload summary { cursor: pointer; color: var(--pico-primary); font-size: 0.72rem; line-height: 1.1; }
-  .log-payload-pre { margin-top: 0.15rem; margin-bottom: 0; max-height: 20rem; overflow: auto; background: rgba(0, 0, 0, 0.04); padding: 0.35rem 0.45rem; border-radius: 0.45rem; font-size: 0.74rem; }
+  .log-payload-pre { margin-top: 0.15rem; margin-bottom: 0; max-height: 20rem; overflow: auto; background: rgba(0, 0, 0, 0.04); padding: 0.35rem 0.45rem; border-radius: 0.45rem; font-size: 0.74rem; white-space: pre-wrap; overflow-wrap: anywhere; }
   tr.log-error td { color: var(--pico-del-color, #c0392b); }
   tr.log-warning td { color: #e67e22; }
   tr.log-debug td { color: var(--pico-muted-color); }
@@ -135,7 +135,7 @@
         {% endfor %}
       </select>
     </label>
-    <button type="submit">Save</button>
+    <button type="submit" data-loading-label="Saving...">Save</button>
   </form>
 </section>
 
@@ -184,11 +184,7 @@
         </th>
       </tr>
     </thead>
-    <tbody id="log-tbody"
-           hx-get="{{ request.url_for('logs_entries') }}"
-           hx-target="#log-tbody"
-           hx-swap="innerHTML"
-           hx-include="#log-filter-controls select, #log-filter-controls input">
+    <tbody id="log-tbody" hx-trigger="none">
       {% include "logs_entries.html" %}
     </tbody>
   </table>
@@ -201,16 +197,12 @@
 
     const restoreExpandedPayloads = (root) => {
       if (!(root instanceof Element || root instanceof Document)) return;
-      const visibleExpandedRows = new Set();
       root.querySelectorAll("#log-tbody tr[data-log-id]").forEach((row) => {
         const details = row.querySelector(".log-payload");
         if (details && expandedPayloadRows.has(row.dataset.logId)) {
           details.open = true;
-          visibleExpandedRows.add(row.dataset.logId);
         }
       });
-      expandedPayloadRows.clear();
-      visibleExpandedRows.forEach((rowId) => expandedPayloadRows.add(rowId));
     };
 
     const refreshLogs = () => {

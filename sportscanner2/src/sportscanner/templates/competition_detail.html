@@ -10,7 +10,7 @@
     </p>
   </div>
   <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
-    <button type="submit" class="secondary">Refresh Metadata</button>
+    <button type="submit" class="secondary" data-loading-label="Refreshing...">Refresh Metadata</button>
   </form>
 </section>
 
@@ -20,7 +20,7 @@
     <div class="panel-header">
       <h2>Upstream Artwork</h2>
       <form method="post" action="{{ request.url_for('competition_refresh_metadata', competition_id=competition.id) }}">
-        <button type="submit" class="secondary compact-button">Refresh From Upstream</button>
+        <button type="submit" class="secondary compact-button" data-loading-label="Refreshing...">Refresh From Upstream</button>
       </form>
     </div>
     <p>
@@ -94,7 +94,7 @@
             <td>{{ recording.status }}</td>
             <td>
               <form method="post" action="{{ request.url_for('refresh_recording_metadata', recording_id=recording.id) }}">
-                <button type="submit" class="secondary compact-button">Refresh Item</button>
+                <button type="submit" class="secondary compact-button" data-loading-label="Refreshing...">Refresh Item</button>
               </form>
             </td>
           </tr>

@@ -163,6 +163,7 @@
   <form method="post" action="{{ request.url_for('rescan') }}">
     <button
       type="submit"
+      data-loading-label="Queueing Rescan..."
       title="Parse the incoming folder again and reconcile schedule or metadata changes before refreshing Plex"
     >Rescan Incoming</button>
   </form>

@@ -351,6 +351,11 @@ def test_review_task_detail_shows_queue_position_and_ignore_action(provider_app)
     assert "Automatic Candidates" not in response.text
     assert "match-description" in response.text
     assert "withaverylongunbrokenstretchoftextthatshouldwrapinsidethecardwithoutblowingupthelayout" in response.text
+    assert 'data-loading-label="Publishing..."' in response.text
+    assert 'data-loading-label="Ignoring..."' in response.text
+    assert 'data-loading-label="Using Event..."' in response.text
+    assert 'data-loading-label="Reassigning..."' in response.text
+    assert 'data-loading-label="Searching..."' in response.text
 
 
 def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
@@ -399,6 +404,20 @@ def test_review_search_includes_upstream_lookup_action(provider_app) -> None:
     assert "TheSportsDB" in response.text
     assert "Extended session notes" in response.text
     assert "match-description" in response.text
+    assert 'data-loading-label="Loading Event..."' in response.text
+
+
+def test_review_season_events_include_loading_state_on_use_event(provider_app) -> None:
+    with provider_app.state.services.session_factory() as session:
+        session.add(ReviewTask(recording_id="seg_primary", task_type="match_review"))
+        session.commit()
+
+    client = TestClient(provider_app)
+    response = client.get("/admin/review/1/season-events")
+
+    assert response.status_code == 200
+    assert "Use This Event" in response.text
+    assert 'data-loading-label="Using Event..."' in response.text
 
 
 def test_plex_libraries_page_explains_refresh_vs_scan(provider_app) -> None:
@@ -433,6 +452,7 @@ def test_plex_libraries_page_explains_refresh_vs_scan(provider_app) -> None:
     assert "Libraries" in response.text
     assert "Force Refresh" in response.text
     assert "Open full history" in response.text
+    assert 'data-loading-label="Queueing..."' in response.text
 
 
 def test_manual_plex_refresh_route_records_manual_job(provider_app) -> None:

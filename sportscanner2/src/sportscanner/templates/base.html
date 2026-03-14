@@ -62,6 +62,7 @@
         submitter.disabled = true;
         submitter.dataset.originalLabel = submitter.textContent;
         submitter.dataset.pendingState = "true";
+        submitter.setAttribute("aria-busy", "true");
         submitter.textContent = loadingLabel;
       });
 
@@ -76,6 +77,7 @@
         submitter.disabled = false;
         delete submitter.dataset.pendingState;
         delete submitter.dataset.originalLabel;
+        submitter.removeAttribute("aria-busy");
         if (useQueuedLabel && queuedLabel) {
           submitter.textContent = queuedLabel;
           window.setTimeout(() => {

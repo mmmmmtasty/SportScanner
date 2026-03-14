@@ -15,7 +15,7 @@
     </p>
   </div>
   <form method="post" action="{{ request.url_for('refresh_segment_metadata', segment_id=segment.id) }}">
-    <button type="submit" class="secondary">Refresh Item Metadata</button>
+    <button type="submit" class="secondary" data-loading-label="Refreshing...">Refresh Item Metadata</button>
   </form>
 </section>
 
@@ -63,7 +63,7 @@
         />
         <small>Kind affects numbering and how SportScanner builds the final episode display title.</small>
       </label>
-      <button type="submit">Save</button>
+      <button type="submit" data-loading-label="Saving...">Save</button>
     </form>
   </article>
 </section>

@@ -76,7 +76,7 @@
       />
       <small>Absolute path SportScanner writes managed files to. Plex should scan this path, or the equivalent mapped path on the Plex side, never <code>incoming</code>.</small>
     </label>
-    <button type="submit">Save Settings</button>
+    <button type="submit" data-loading-label="Saving...">Save Settings</button>
   </form>
 </article>
 
@@ -84,6 +84,7 @@
   <button
     type="submit"
     class="secondary"
+    data-loading-label="Registering..."
     title="Register the SportScanner provider with Plex after these settings are saved"
   >Register Provider And Group</button>
 </form>

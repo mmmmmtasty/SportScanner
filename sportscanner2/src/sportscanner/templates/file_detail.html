@@ -167,7 +167,7 @@
         Episode
         <input type="number" name="episode_number" min="0" value="{{ recording.episode_number if recording.episode_number is not none else '' }}" />
       </label>
-      <button type="submit">Save Manual Override</button>
+      <button type="submit" data-loading-label="Saving...">Save Manual Override</button>
     </form>
   </article>
 </section>

@@ -18,7 +18,11 @@
         <td>
           <form method="post" action="{{ request.url_for('resolve_review_task', task_id=task_id) }}">
             <input type="hidden" name="event_id" value="{{ event.id }}" />
-            <button type="submit" class="secondary compact-button">Use This Event</button>
+            <button
+              type="submit"
+              class="secondary compact-button"
+              data-loading-label="Using Event..."
+            >Use This Event</button>
           </form>
         </td>
       </tr>

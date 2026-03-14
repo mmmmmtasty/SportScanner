@@ -32,6 +32,7 @@
       {% endif %}
       <button
         type="submit"
+        data-loading-label="{% if r.event_id %}Using Event...{% else %}Loading Event...{% endif %}"
         title="{% if r.event_id %}Attach the file to this existing local event{% else %}Import this TheSportsDB event and attach the file to it{% endif %}"
       >{{ r.action_label }}</button>
     </form>

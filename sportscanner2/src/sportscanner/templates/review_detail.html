@@ -56,6 +56,7 @@
         <button
           type="submit"
           class="secondary"
+          data-loading-label="Publishing..."
           title="Publish this file as a Season 0 extra when it belongs in the library but not on a normal event"
         >Publish As Season 0 Special</button>
       </form>
@@ -63,6 +64,7 @@
         <button
           type="submit"
           class="secondary"
+          data-loading-label="Ignoring..."
           title="Mark this file as ignored so SportScanner stops trying to publish it"
         >Ignore File</button>
       </form>
@@ -119,6 +121,7 @@
         <input type="hidden" name="event_id" value="{{ candidate.event_id or candidate['event_id'] }}" />
         <button
           type="submit"
+          data-loading-label="Using Event..."
           title="Attach this file to the selected event and publish it with that event's Plex metadata"
         >Use This Event</button>
       </form>
@@ -171,7 +174,7 @@
         Season (e.g. 2025 or 2024/25)
         <input name="season_label" value="{{ season.label if season else '' }}" placeholder="2025" required />
       </label>
-      <button type="submit" class="secondary">Reassign</button>
+      <button type="submit" class="secondary" data-loading-label="Reassigning...">Reassign</button>
     </form>
   </div>
 </details>
@@ -209,7 +212,12 @@
         <input type="date" name="date_to" value="" />
       </label>
     </div>
-    <button type="submit" class="secondary" title="Search cached events and live TheSportsDB results">Search</button>
+    <button
+      type="submit"
+      class="secondary"
+      data-loading-label="Searching..."
+      title="Search cached events and live TheSportsDB results"
+    >Search</button>
   </form>
   <div id="event-search-results" class="search-results"></div>
 </section>
